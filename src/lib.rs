@@ -71,6 +71,28 @@ impl<'a> Lexer<'a> {
                         Ok(self.create_token(TokenKind::Bang))
                     }
                 }
+                '=' => {
+                    if self.match_char('=') {
+                        Ok(self.create_token(TokenKind::EqualEqual))
+                    } else {
+                        Ok(self.create_token(TokenKind::Equal))
+                    }
+                }
+                '<' => {
+                    if self.match_char('=') {
+                        Ok(self.create_token(TokenKind::LessEqual))
+                    } else {
+                        Ok(self.create_token(TokenKind::Less))
+                    }
+                }
+                '>' => {
+                    if self.match_char('=') {
+                        Ok(self.create_token(TokenKind::GreaterEqual))
+                    } else {
+                        Ok(self.create_token(TokenKind::Greater))
+                    }
+                }
+                ' ' | '\r' | '\t' | '\n' => continue,
                 _ => {
                     Err(miette!(
                     help = "unexpected character",
