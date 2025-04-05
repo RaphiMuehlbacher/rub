@@ -26,6 +26,7 @@ pub enum TokenKind {
 
     String,
     Ident,
+    Number(f64),
     EOF,
 }
 
@@ -132,6 +133,30 @@ impl<'a> Lexer<'a> {
                     self.position = self.start + end_offset;
 
                     Ok(self.create_token(TokenKind::Ident))
+                }
+                '0'..'9' => {
+                    let rest = &self.source[self.start..];
+                    let first_part_offset = rest.find(|c| !matches!(c, '0'..'9')).unwrap_or(rest.len());
+
+                    self.position = self.start + first_part_offset;
+
+                    if self.match_char('.') {
+                        let rest_after_dot = &self.source[self.position..];
+                        let second_part_offset = rest_after_dot.find(|c| !matches!(c, '0'..'9')).unwrap_or(rest_after_dot.len());
+
+                        self.position += second_part_offset;
+                        Ok(Token {
+                            token_kind: TokenKind::Number(self.source[self.start..self.position].parse().unwrap()),
+                            position: self.start,
+                            literal: &self.source[self.start..self.position]
+                        })
+                    } else {
+                        Ok(Token {
+                            token_kind: TokenKind::Number(rest[..first_part_offset].parse().unwrap()),
+                            position: self.start,
+                            literal: &rest[..first_part_offset]
+                        })
+                    }
                 }
 
                 ' ' | '\r' | '\t' | '\n' => continue,
