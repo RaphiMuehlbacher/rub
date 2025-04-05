@@ -23,6 +23,8 @@ pub enum TokenKind {
     LessEqual,
     Question,
     Colon,
+
+    String,
     EOF,
 }
 
@@ -30,7 +32,6 @@ pub enum TokenKind {
 pub struct Token<'a> {
     token_kind: TokenKind,
     position: usize,
-    lexeme: &'a str,
     literal: &'a str
 }
 
@@ -103,6 +104,20 @@ impl<'a> Lexer<'a> {
                         Ok(self.create_token(TokenKind::Greater))
                     }
                 }
+                '"' => {
+                    while !self.match_char('"') {
+                        if let Some(c) = self.peek() {
+                            self.position += c.len_utf8();
+                            continue
+                        }
+                    }
+                    let literal = &self.source[self.start..self.position];
+                    Ok(Token{
+                        token_kind: TokenKind::String,
+                        position: self.start,
+                        literal,
+                    })
+                }
                 ' ' | '\r' | '\t' | '\n' => continue,
                 _ => {
                     Err(miette!(
@@ -115,15 +130,15 @@ impl<'a> Lexer<'a> {
             };
                 self.tokens.push(token);
         }
-        let eof_token = Token{token_kind: TokenKind::EOF, position: self.source.len(), literal: "", lexeme: "", };
+        let eof_token = Token{token_kind: TokenKind::EOF, position: self.source.len(), literal: ""};
         self.tokens.push(Ok(eof_token));
 
         &self.tokens
     }
 
     fn create_token(&self, token_kind: TokenKind) -> Token<'a> {
-        let lexeme = &self.source[self.start..self.position];
-        Token {token_kind, position: self.start, lexeme, literal: lexeme}
+        let literal = &self.source[self.start..self.position];
+        Token {token_kind, position: self.start, literal}
     }
 
     fn peek(&self) -> Option<char> {
