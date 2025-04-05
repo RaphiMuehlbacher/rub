@@ -25,6 +25,7 @@ pub enum TokenKind {
     Colon,
 
     String,
+    Ident,
     EOF,
 }
 
@@ -105,19 +106,34 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 '"' => {
-                    while !self.match_char('"') {
-                        if let Some(c) = self.peek() {
-                            self.position += c.len_utf8();
-                            continue
+                    let rest = &self.source[self.start..];
+                    let token = match rest[1..].find('"') {
+                        Some(pos) => {
+                            let end_offset = pos + 1;
+                            self.position = self.start + end_offset + 1;
+                            Ok(self.create_token(TokenKind::String))
+                        },
+                        None => {
+                            Err(miette!(
+                                help = "unterminated string",
+                                labels = vec![LabeledSpan::at(self.start..self.source.len(), "string starts here but never closes")],
+                                "unterminated string"
+                            ).with_source_code(self.source.to_string()))
                         }
-                    }
-                    let literal = &self.source[self.start..self.position];
-                    Ok(Token{
-                        token_kind: TokenKind::String,
-                        position: self.start,
-                        literal,
-                    })
+                    };
+                    token
                 }
+                'a'..'z' | 'A'..'Z' | '_' => {
+                    let rest = &self.source[self.start..];
+                    let end_offset = rest.find(|c: char| {
+                        !c.is_alphanumeric() && c != '_'
+                    }).unwrap_or(rest.len());
+
+                    self.position = self.start + end_offset;
+
+                    Ok(self.create_token(TokenKind::Ident))
+                }
+
                 ' ' | '\r' | '\t' | '\n' => continue,
                 _ => {
                     Err(miette!(
