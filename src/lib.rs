@@ -62,7 +62,18 @@ impl<'a> Lexer<'a> {
                 '-' => Ok(self.create_token(TokenKind::Minus)),
                 '+' => Ok(self.create_token(TokenKind::Plus)),
                 ';' => Ok(self.create_token(TokenKind::Semicolon)),
-                '/' => Ok(self.create_token(TokenKind::Slash)),
+                '/' => {
+                    if self.match_char('/') {
+                        while self.position < self.source.len() &&!self.match_char('\n') {
+                            if let Some(c) = self.peek() {
+                                self.position += c.len_utf8();
+                            }
+                        }
+                        continue;
+                    } else {
+                        Ok(self.create_token(TokenKind::Slash))
+                    }
+                },
                 '*' => Ok(self.create_token(TokenKind::Star)),
                 '!' => {
                     if self.match_char('=') {
@@ -115,15 +126,17 @@ impl<'a> Lexer<'a> {
         Token {token_kind, position: self.start, lexeme, literal: lexeme}
     }
 
+    fn peek(&self) -> Option<char> {
+        self.source[self.position..].chars().next()
+    }
 
     fn match_char(&mut self, expected: char) -> bool {
-        let next = &self.source[self.position..].chars().next();
-        let next = match next {
+        let next = match self.peek() {
             None => return false,
             Some(c) => c,
         };
 
-        if *next == expected {
+        if next == expected {
             self.position += next.len_utf8();
             true
         } else {
