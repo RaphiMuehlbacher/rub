@@ -27,6 +27,24 @@ pub enum TokenKind {
     String,
     Ident,
     Number(f64),
+
+    And,
+    Class,
+    Else,
+    False,
+    For,
+    Fun,
+    If,
+    Nil,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    True,
+    Var,
+    While,
+
     EOF,
 }
 
@@ -124,7 +142,7 @@ impl<'a> Lexer<'a> {
                     };
                     token
                 }
-                'a'..'z' | 'A'..'Z' | '_' => {
+                'a'..='z' | 'A'..='Z' | '_' => {
                     let rest = &self.source[self.start..];
                     let end_offset = rest.find(|c: char| {
                         !c.is_alphanumeric() && c != '_'
@@ -132,17 +150,39 @@ impl<'a> Lexer<'a> {
 
                     self.position = self.start + end_offset;
 
-                    Ok(self.create_token(TokenKind::Ident))
+                    let literal = &self.source[self.start..self.position];
+
+                    let kind = match literal {
+                        "and" => TokenKind::And,
+                        "class" => TokenKind::Class,
+                        "else" => TokenKind::Else,
+                        "false" => TokenKind::False,
+                        "for" => TokenKind::For,
+                        "fun" => TokenKind::Fun,
+                        "if" => TokenKind::If,
+                        "nil" => TokenKind::Nil,
+                        "or" => TokenKind::Or,
+                        "print" => TokenKind::Print,
+                        "return" => TokenKind::Return,
+                        "super" => TokenKind::Super,
+                        "this" => TokenKind::This,
+                        "true" => TokenKind::True,
+                        "var" => TokenKind::Var,
+                        "while" => TokenKind::While,
+                        _ => TokenKind::Ident,
+                    };
+
+                    Ok(self.create_token(kind))
                 }
-                '0'..'9' => {
+                '0'..='9' => {
                     let rest = &self.source[self.start..];
-                    let first_part_offset = rest.find(|c| !matches!(c, '0'..'9')).unwrap_or(rest.len());
+                    let first_part_offset = rest.find(|c| !matches!(c, '0'..='9')).unwrap_or(rest.len());
 
                     self.position = self.start + first_part_offset;
 
                     if self.match_char('.') {
                         let rest_after_dot = &self.source[self.position..];
-                        let second_part_offset = rest_after_dot.find(|c| !matches!(c, '0'..'9')).unwrap_or(rest_after_dot.len());
+                        let second_part_offset = rest_after_dot.find(|c| !matches!(c, '0'..='9')).unwrap_or(rest_after_dot.len());
 
                         self.position += second_part_offset;
                         Ok(Token {
