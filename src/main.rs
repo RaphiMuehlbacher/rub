@@ -1,10 +1,11 @@
+use miette::Report;
+use rslox::{Lexer, Parser};
 use std::fs;
-use miette::{Report};
-use rslox::{Lexer};
 
 fn main() -> Result<(), Report> {
     let mut path = "source.lox".to_string();
-    let source = fs::read_to_string(&mut path).expect(format!("Error reading file {}", path).as_str());
+    let source =
+        fs::read_to_string(&mut path).expect(format!("Error reading file {}", path).as_str());
 
     let mut lexer = Lexer::new(source.as_str());
     let tokens_results = lexer.lex();
@@ -22,9 +23,11 @@ fn main() -> Result<(), Report> {
         eprintln!("Lexing error: {:?}", err);
     }
 
-    for token in tokens {
+    for token in &tokens {
         println!("{:?}", token);
     }
+
+    let parser = Parser::new(tokens);
 
     Ok(())
 }
