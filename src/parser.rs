@@ -1,7 +1,8 @@
-use miette::Report;
+use crate::error::ParseError;
+use crate::error::ParseError::{MissingOperand, UnclosedParenthesis, UnexpectedEOF};
 use crate::{lexer, TokenKind};
 use lexer::Token;
-use crate::error::ParseError;
+use miette::Report;
 
 #[derive(Debug)]
 pub enum Expr {
@@ -88,10 +89,6 @@ impl<'a> Parser<'a> {
     }
 
     fn check(&self, token_kind: TokenKind) -> bool {
-        if self.is_at_end() {
-            return false;
-        }
-
         if let Some(token) = self.peek() {
             token.token_kind == token_kind
         } else {
@@ -114,16 +111,18 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(&mut self) -> Expr {
+        if self.peek().unwrap().token_kind == TokenKind::EOF {
+            return Expr::Literal(Literal::Nil);
+        }
         self.expression()
     }
-
 
     fn expression(&mut self) -> Expr {
         self.equality()
     }
 
     fn equality(&mut self) -> Expr {
-       let mut expr = self.comparison();
+        let mut expr = self.comparison();
         while self.match_token(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
             let operator = self.previous().unwrap();
 
@@ -145,7 +144,13 @@ impl<'a> Parser<'a> {
 
     fn comparison(&mut self) -> Expr {
         let mut expr = self.term();
-        while self.match_token(&[TokenKind::Less, TokenKind::LessEqual, TokenKind::EqualEqual, TokenKind::Greater, TokenKind::GreaterEqual]) {
+        while self.match_token(&[
+            TokenKind::Less,
+            TokenKind::LessEqual,
+            TokenKind::EqualEqual,
+            TokenKind::Greater,
+            TokenKind::GreaterEqual,
+        ]) {
             let operator = self.previous().unwrap();
 
             let op = match operator.token_kind {
@@ -239,6 +244,36 @@ impl<'a> Parser<'a> {
             Expr::Literal(Literal::Bool(true))
         } else if self.match_token(&[TokenKind::Nil]) {
             Expr::Literal(Literal::Nil)
+        } else if self.match_token(&[TokenKind::EOF]) {
+            let error = if let Some(prev) = self.previous() {
+                match prev.token_kind {
+                    TokenKind::Plus
+                    | TokenKind::Minus
+                    | TokenKind::Star
+                    | TokenKind::Slash
+                    | TokenKind::Less
+                    | TokenKind::LessEqual
+                    | TokenKind::Greater
+                    | TokenKind::GreaterEqual
+                    | TokenKind::EqualEqual
+                    | TokenKind::BangEqual => MissingOperand {
+                        src: self.source.to_string(),
+                        span: prev.position.into(),
+                        side: "right".to_string(),
+                    },
+                    _ => UnexpectedEOF {
+                        expected: "literal or '('".to_string(),
+                        src: self.source.to_string(),
+                    },
+                }
+            } else {
+                UnexpectedEOF {
+                    expected: "expression expected".to_string(),
+                    src: self.source.to_string(),
+                }
+            };
+            self.errors.push(error.into());
+            Expr::Literal(Literal::Nil)
         } else if let Some(token) = self.peek() {
             match &token.token_kind {
                 TokenKind::Number(value) => {
@@ -252,41 +287,45 @@ impl<'a> Parser<'a> {
                     Expr::Literal(Literal::String(string))
                 }
                 TokenKind::LeftParen => {
-                    let cloned_token = token.clone();
+                    let opening_paren = token.clone();
                     self.advance();
+
+                    if self.check(TokenKind::RightParen) {
+                        self.advance();
+                        return Expr::Grouping(Box::new(Expr::Literal(Literal::Nil)));
+                    }
+
+                    if self.check(TokenKind::EOF) {
+                        let error = UnclosedParenthesis {
+                            src: self.source.to_string(),
+                            span: opening_paren.position.into(),
+                        };
+                        self.errors.push(error.into());
+                        return Expr::Grouping(Box::new(Expr::Literal(Literal::Nil)));
+                    }
                     let expr = self.expression();
                     if !self.match_token(&[TokenKind::RightParen]) {
-                        self.errors.push(ParseError::UnclosedParenthesis {
+                        let error = UnclosedParenthesis {
                             src: self.source.to_string(),
-                            span: cloned_token.position.into()
-                        }.into())
+                            span: opening_paren.position.into(),
+                        };
+                        self.errors.push(error.into());
                     }
                     Expr::Grouping(Box::new(expr))
                 }
-            _ => {
-                let token = self.peek().cloned();
-                if let Some(token) = token {
+                _ => {
+                    let token = token.clone();
                     let error = ParseError::UnexpectedToken {
                         src: self.source.to_string(),
                         span: token.position.into(),
                         found: token.token_kind,
-                        expected: TokenKind::Class,
+                        expected: "literal or '('".to_string(),
                     };
                     self.errors.push(error.into());
                     self.advance();
-                } else {
-                    let error = ParseError::UnexpectedToken {
-                        src: self.source.to_string(),
-                        span: self.source.len().into(),
-                        found: TokenKind::EOF,
-                        expected: TokenKind::Class,
-                    };
-                    self.errors.push(error.into())
+                    Expr::Literal(Literal::Nil)
                 }
-                Expr::Literal(Literal::Nil)
-            },
             }
-
         } else {
             unreachable!();
         }

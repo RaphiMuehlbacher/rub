@@ -1,10 +1,10 @@
-use miette::{Diagnostic, SourceSpan};
-use thiserror::Error;
 use crate::TokenKind;
+use miette::{diagnostic, Diagnostic, SourceSpan};
+use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum ParseError {
-    #[error("Expected closing ')' after expression")]
+    #[error("Unclosed paranthesis")]
     #[diagnostic(
         help("Make sure all opening parentheses are closed."),
         code(parser::unclosed_paren)
@@ -29,8 +29,23 @@ pub enum ParseError {
         #[label("unexpected token found here")]
         span: SourceSpan,
 
-        expected: TokenKind,
+        expected: String,
         found: TokenKind,
+    },
+
+    #[error("Expected {expected:?}, found EOF")]
+    #[diagnostic(help("Complete the expression"), code(parser::unexpected_eof))]
+    UnexpectedEOF {
+        #[source_code]
+        src: String,
+
+        expected: String,
+    },
+    #[error("Empty input")]
+    #[diagnostic(help("Please provide code to parse."), code(parser::empty_input))]
+    EmptyInput {
+        #[source_code]
+        src: String,
     },
 
     #[error("Expected expression")]
@@ -45,8 +60,17 @@ pub enum ParseError {
         #[label("expected an expression here")]
         span: SourceSpan,
     },
-}
 
+    #[error("Missing operand")]
+    #[diagnostic(code(parse::missing_operand), help("Add the missing {side} operand"))]
+    MissingOperand {
+        #[source_code]
+        src: String,
+        #[label("Operator here")]
+        span: SourceSpan,
+        side: String,
+    },
+}
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum LexError {
