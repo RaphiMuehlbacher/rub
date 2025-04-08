@@ -4,9 +4,16 @@ use lexer::Token;
 #[derive(Debug)]
 pub enum Expr {
     Literal(Literal),
-    Unary(Box<Unary>),
-    Binary(Box<Binary>),
-    Grouping(Box<Grouping>),
+    Unary {
+        op: UnaryOp,
+        expr: Box<Expr>,
+    },
+    Binary {
+        left: Box<Expr>,
+        op: BinaryOp,
+        right: Box<Expr>,
+    },
+    Grouping(Box<Expr>),
 }
 
 #[derive(Debug)]
@@ -19,27 +26,9 @@ enum Literal {
 }
 
 #[derive(Debug)]
-struct Grouping {
-    expr: Expr
-}
-
-#[derive(Debug)]
-struct Unary {
-    op: UnaryOp,
-    expr: Expr,
-}
-
-#[derive(Debug)]
 enum UnaryOp {
     Bang,
     Minus,
-}
-
-#[derive(Debug)]
-struct Binary {
-    left: Box<Expr>,
-    op: BinaryOp,
-    right: Box<Expr>,
 }
 
 #[derive(Debug)]
@@ -136,11 +125,11 @@ impl<'a> Parser<'a> {
             };
 
             let right = self.comparison();
-            expr = Expr::Binary(Box::new(Binary {
+            expr = Expr::Binary {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
-            }));
+            }
         }
         expr
     }
@@ -161,11 +150,11 @@ impl<'a> Parser<'a> {
 
             let right = self.term();
 
-            expr = Expr::Binary(Box::new(Binary {
+            expr = Expr::Binary {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
-            }));
+            };
         }
         expr
     }
@@ -183,11 +172,11 @@ impl<'a> Parser<'a> {
 
             let right = self.factor();
 
-            expr = Expr::Binary(Box::new(Binary {
+            expr = Expr::Binary {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
-            }));
+            };
         }
         expr
     }
@@ -205,11 +194,11 @@ impl<'a> Parser<'a> {
 
             let right = self.unary();
 
-            expr = Expr::Binary(Box::new(Binary {
+            expr = Expr::Binary {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
-            }));
+            };
         }
         expr
     }
@@ -226,10 +215,10 @@ impl<'a> Parser<'a> {
 
             let right = self.unary();
 
-            return Expr::Unary(Box::new(Unary {
+            return Expr::Unary {
                 op,
-                expr: right,
-            }));
+                expr: Box::new(right),
+            };
         }
         self.primary()
     }
@@ -259,9 +248,9 @@ impl<'a> Parser<'a> {
                     if !self.match_token(&[TokenKind::RightParen]) {
                         panic!("Expected ')' after expression");
                     }
-                    Expr::Grouping(Box::new(
-                        Grouping{expr}
-                    ))
+                    Expr::Grouping(
+                        Box::new(expr),
+                    )
                 }
             _ => panic!("Expected expression"),
             }
