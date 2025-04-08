@@ -27,9 +27,16 @@ fn main() -> Result<(), Report> {
         println!("{:?}", token);
     }
 
-    let mut parser = Parser::new(tokens);
-    let expr = parser.parse();
-    println!("{:?}", expr);
+    let mut parser = Parser::new(tokens, source.as_str());
+    let ast = parser.parse();
+
+    if !parser.get_errors().is_empty() {
+        for error in parser.get_errors() {
+            eprintln!("{:?}", error);
+        }
+    }
+
+    println!("{:?}", ast);
 
     Ok(())
 }

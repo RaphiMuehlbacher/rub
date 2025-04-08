@@ -1,5 +1,7 @@
+use miette::Report;
 use crate::{lexer, TokenKind};
 use lexer::Token;
+use crate::error::ParseError;
 
 #[derive(Debug)]
 pub enum Expr {
@@ -20,8 +22,7 @@ pub enum Expr {
 enum Literal {
     Number(f64),
     String(String),
-    True,
-    False,
+    Bool(bool),
     Nil,
 }
 
@@ -50,13 +51,17 @@ enum BinaryOp {
 pub struct Parser<'a> {
     tokens: Vec<Token<'a>>,
     position: usize,
+    errors: Vec<Report>,
+    source: &'a str,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(tokens: Vec<Token<'a>>) -> Self {
+    pub fn new(tokens: Vec<Token<'a>>, source: &'a str) -> Self {
         Parser {
             tokens,
             position: 0,
+            errors: vec![],
+            source,
         }
     }
 
@@ -104,7 +109,11 @@ impl<'a> Parser<'a> {
         false
     }
 
-    pub fn parse(&mut self)  -> Expr {
+    pub fn get_errors(&self) -> &Vec<Report> {
+        &self.errors
+    }
+
+    pub fn parse(&mut self) -> Expr {
         self.expression()
     }
 
@@ -225,9 +234,9 @@ impl<'a> Parser<'a> {
 
     fn primary(&mut self) -> Expr {
         if self.match_token(&[TokenKind::False]) {
-            Expr::Literal(Literal::False)
+            Expr::Literal(Literal::Bool(false))
         } else if self.match_token(&[TokenKind::True]) {
-            Expr::Literal(Literal::True)
+            Expr::Literal(Literal::Bool(true))
         } else if self.match_token(&[TokenKind::Nil]) {
             Expr::Literal(Literal::Nil)
         } else if let Some(token) = self.peek() {
@@ -243,20 +252,43 @@ impl<'a> Parser<'a> {
                     Expr::Literal(Literal::String(string))
                 }
                 TokenKind::LeftParen => {
+                    let cloned_token = token.clone();
                     self.advance();
                     let expr = self.expression();
                     if !self.match_token(&[TokenKind::RightParen]) {
-                        panic!("Expected ')' after expression");
+                        self.errors.push(ParseError::UnclosedParenthesis {
+                            src: self.source.to_string(),
+                            span: cloned_token.position.into()
+                        }.into())
                     }
-                    Expr::Grouping(
-                        Box::new(expr),
-                    )
+                    Expr::Grouping(Box::new(expr))
                 }
-            _ => panic!("Expected expression"),
+            _ => {
+                let token = self.peek().cloned();
+                if let Some(token) = token {
+                    let error = ParseError::UnexpectedToken {
+                        src: self.source.to_string(),
+                        span: token.position.into(),
+                        found: token.token_kind,
+                        expected: TokenKind::Class,
+                    };
+                    self.errors.push(error.into());
+                    self.advance();
+                } else {
+                    let error = ParseError::UnexpectedToken {
+                        src: self.source.to_string(),
+                        span: self.source.len().into(),
+                        found: TokenKind::EOF,
+                        expected: TokenKind::Class,
+                    };
+                    self.errors.push(error.into())
+                }
+                Expr::Literal(Literal::Nil)
+            },
             }
 
         } else {
-            panic!("Expected Expression");
+            unreachable!();
         }
     }
 }
