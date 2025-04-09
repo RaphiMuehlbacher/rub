@@ -140,12 +140,12 @@ impl<'a> Parser<'a> {
                 TokenKind::EqualEqual => BinaryOp::EqualEqual,
                 _ => unreachable!(),
             };
-            let position = operator.position;
+            let span = operator.span;
             if let Ok(right) = self.comparison() {
                 if matches!(right, Expr::Err) {
                     let error = MissingOperand {
                         src: self.source.to_string(),
-                        span: position.into(),
+                        span,
                         side: "right".to_string(),
                     };
                     return Ok(self.error_expr(error));
@@ -181,12 +181,12 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
 
-            let position = operator.position;
+            let span = operator.span;
             if let Ok(right) = self.term() {
                 if matches!(right, Expr::Err) {
                     let error = MissingOperand {
                         src: self.source.to_string(),
-                        span: position.into(),
+                        span,
                         side: "right".to_string(),
                     };
                     return Ok(self.error_expr(error));
@@ -213,12 +213,12 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
 
-            let position = operator.position;
+            let span = operator.span;
             if let Ok(right) = self.factor() {
                 if matches!(right, Expr::Err) {
                     let error = MissingOperand {
                         src: self.source.to_string(),
-                        span: position.into(),
+                        span,
                         side: "right".to_string(),
                     };
                     return Ok(self.error_expr(error));
@@ -245,12 +245,12 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
 
-            let position = operator.position;
+            let span = operator.span;
             if let Ok(right) = self.unary() {
                 if matches!(right, Expr::Err) {
                     let error = MissingOperand {
                         src: self.source.to_string(),
-                        span: position.into(),
+                        span,
                         side: "right".to_string(),
                     };
                     self.error_expr(error);
@@ -276,12 +276,12 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
 
-            let position = operator.position;
+            let span = operator.span;
             if let Ok(expr) = self.unary() {
                 if matches!(expr, Expr::Err) {
                     let error = MissingOperand {
                         src: self.source.to_string(),
-                        span: position.into(),
+                        span,
                         side: "right (unary)".to_string(),
                     };
                     Ok(self.error_expr(error))
@@ -321,7 +321,7 @@ impl<'a> Parser<'a> {
             let token = self.previous().unwrap();
             let error = MissingOperand {
                 src: self.source.to_string(),
-                span: token.position.into(),
+                span: token.span,
                 side: "left".to_string(),
             };
             Ok(self.error_expr(error))
@@ -351,7 +351,7 @@ impl<'a> Parser<'a> {
                     if self.check(TokenKind::EOF) {
                         let error = UnclosedParenthesis {
                             src: self.source.to_string(),
-                            span: opening_paren.position.into(),
+                            span: opening_paren.span,
                         };
                         return Ok(self.error_expr(error));
                     }
@@ -359,7 +359,7 @@ impl<'a> Parser<'a> {
                     if !self.match_token(&[TokenKind::RightParen]) {
                         let error = UnclosedParenthesis {
                             src: self.source.to_string(),
-                            span: opening_paren.position.into(),
+                            span: opening_paren.span,
                         };
                         self.errors.push(error.into());
                     }
@@ -369,7 +369,7 @@ impl<'a> Parser<'a> {
                     let token = token.clone();
                     let error = ParseError::UnexpectedToken {
                         src: self.source.to_string(),
-                        span: token.position.into(),
+                        span: token.span,
                         found: token.token_kind,
                         expected: "literal or '('".to_string(),
                     };

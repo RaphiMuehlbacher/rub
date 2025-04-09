@@ -1,5 +1,5 @@
 use crate::error::LexError;
-use miette::Report;
+use miette::{Report, SourceSpan};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
@@ -52,7 +52,7 @@ pub enum TokenKind {
 #[derive(Debug, Clone)]
 pub struct Token<'a> {
     pub token_kind: TokenKind,
-    pub position: usize,
+    pub span: SourceSpan,
     pub literal: &'a str,
 }
 
@@ -136,7 +136,8 @@ impl<'a> Lexer<'a> {
                         Some(pos) => {
                             let end_offset = pos + 1;
                             self.position = self.start + end_offset + 1;
-                            Ok(self.create_token(TokenKind::String(rest[1..end_offset].to_string())))
+                            Ok(self
+                                .create_token(TokenKind::String(rest[1..end_offset].to_string())))
                         }
                         None => Err(LexError::UnterminatedString {
                             span: (self.start..self.source.len()).into(),
@@ -196,7 +197,7 @@ impl<'a> Lexer<'a> {
                             token_kind: TokenKind::Number(
                                 self.source[self.start..self.position].parse().unwrap(),
                             ),
-                            position: self.start,
+                            span: SourceSpan::new(self.start.into(), self.position - self.start),
                             literal: &self.source[self.start..self.position],
                         })
                     } else {
@@ -204,7 +205,7 @@ impl<'a> Lexer<'a> {
                             token_kind: TokenKind::Number(
                                 rest[..first_part_offset].parse().unwrap(),
                             ),
-                            position: self.start,
+                            span: SourceSpan::new(self.start.into(), self.position - self.start),
                             literal: &rest[..first_part_offset],
                         })
                     }
@@ -222,7 +223,7 @@ impl<'a> Lexer<'a> {
         }
         let eof_token = Token {
             token_kind: TokenKind::EOF,
-            position: self.source.len(),
+            span: SourceSpan::from(self.source.len()),
             literal: "",
         };
         self.tokens.push(Ok(eof_token));
@@ -234,7 +235,7 @@ impl<'a> Lexer<'a> {
         let literal = &self.source[self.start..self.position];
         Token {
             token_kind,
-            position: self.start,
+            span: SourceSpan::new(self.start.into(), self.position - self.start),
             literal,
         }
     }
