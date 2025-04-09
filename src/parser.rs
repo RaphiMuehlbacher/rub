@@ -110,19 +110,20 @@ impl<'a> Parser<'a> {
         &self.errors
     }
 
-    pub fn parse(&mut self) -> Expr {
+    pub fn parse(&mut self) -> Option<Expr> {
         if self.peek().unwrap().token_kind == TokenKind::EOF {
-            return Expr::Literal(Literal::Nil);
+            None
+        } else {
+            self.expression()
         }
-        self.expression()
     }
 
-    fn expression(&mut self) -> Expr {
+    fn expression(&mut self) -> Option<Expr> {
         self.equality()
     }
 
-    fn equality(&mut self) -> Expr {
-        let mut expr = self.comparison();
+    fn equality(&mut self) -> Option<Expr> {
+        let mut expr = self.comparison()?;
         while self.match_token(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
             let operator = self.previous().unwrap();
 
@@ -131,19 +132,29 @@ impl<'a> Parser<'a> {
                 TokenKind::EqualEqual => BinaryOp::EqualEqual,
                 _ => unreachable!(),
             };
+            let position = operator.position;
 
-            let right = self.comparison();
-            expr = Expr::Binary {
-                left: Box::new(expr),
-                op,
-                right: Box::new(right),
+            if let Some(right) = self.comparison() {
+                expr = Expr::Binary {
+                    left: Box::new(expr),
+                    op,
+                    right: Box::new(right),
+                };
+            } else {
+                let error = MissingOperand {
+                    src: self.source.to_string(),
+                    span: position.into(),
+                    side: "right".to_string(),
+                };
+                self.errors.push(error.into());
+                break;
             }
         }
-        expr
+        Some(expr)
     }
 
-    fn comparison(&mut self) -> Expr {
-        let mut expr = self.term();
+    fn comparison(&mut self) -> Option<Expr> {
+        let mut expr = self.term()?;
         while self.match_token(&[
             TokenKind::Less,
             TokenKind::LessEqual,
@@ -162,19 +173,28 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
 
-            let right = self.term();
-
-            expr = Expr::Binary {
-                left: Box::new(expr),
-                op,
-                right: Box::new(right),
-            };
+            let position = operator.position;
+            if let Some(right) = self.term() {
+                expr = Expr::Binary {
+                    left: Box::new(expr),
+                    op,
+                    right: Box::new(right),
+                };
+            } else {
+                let error = MissingOperand {
+                    src: self.source.to_string(),
+                    span: position.into(),
+                    side: "right".to_string(),
+                };
+                self.errors.push(error.into());
+                break;
+            }
         }
-        expr
+        Some(expr)
     }
 
-    fn term(&mut self) -> Expr {
-        let mut expr = self.factor();
+    fn term(&mut self) -> Option<Expr> {
+        let mut expr = self.factor()?;
         while self.match_token(&[TokenKind::Plus, TokenKind::Minus]) {
             let operator = self.previous().unwrap();
 
@@ -184,19 +204,28 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
 
-            let right = self.factor();
-
-            expr = Expr::Binary {
-                left: Box::new(expr),
-                op,
-                right: Box::new(right),
-            };
+            let position = operator.position;
+            if let Some(right) = self.factor() {
+                expr = Expr::Binary {
+                    left: Box::new(expr),
+                    op,
+                    right: Box::new(right),
+                };
+            } else {
+                let error = MissingOperand {
+                    src: self.source.to_string(),
+                    span: position.into(),
+                    side: "right".to_string(),
+                };
+                self.errors.push(error.into());
+                break;
+            }
         }
-        expr
+        Some(expr)
     }
 
-    fn factor(&mut self) -> Expr {
-        let mut expr = self.unary();
+    fn factor(&mut self) -> Option<Expr> {
+        let mut expr = self.unary()?;
         while self.match_token(&[TokenKind::Slash, TokenKind::Star]) {
             let operator = self.previous().unwrap();
 
@@ -206,18 +235,27 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
 
-            let right = self.unary();
-
-            expr = Expr::Binary {
-                left: Box::new(expr),
-                op,
-                right: Box::new(right),
-            };
+            let position = operator.position;
+            if let Some(right) = self.unary() {
+                expr = Expr::Binary {
+                    left: Box::new(expr),
+                    op,
+                    right: Box::new(right),
+                };
+            } else {
+                let error = MissingOperand {
+                    src: self.source.to_string(),
+                    span: position.into(),
+                    side: "right".to_string(),
+                };
+                self.errors.push(error.into());
+                break;
+            }
         }
-        expr
+        Some(expr)
     }
 
-    fn unary(&mut self) -> Expr {
+    fn unary(&mut self) -> Option<Expr> {
         if self.match_token(&[TokenKind::Minus, TokenKind::Bang]) {
             let operator = self.previous().unwrap();
 
@@ -227,64 +265,66 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
 
-            let right = self.unary();
-
-            return Expr::Unary {
-                op,
-                expr: Box::new(right),
+            let position = operator.position;
+            return if let Some(right) = self.unary() {
+                Some(Expr::Unary {
+                    op,
+                    expr: Box::new(right),
+                })
+            } else {
+                let error = MissingOperand {
+                    src: self.source.to_string(),
+                    span: position.into(),
+                    side: "right".to_string(),
+                };
+                self.errors.push(error.into());
+                None
             };
         }
         self.primary()
     }
 
-    fn primary(&mut self) -> Expr {
+    fn primary(&mut self) -> Option<Expr> {
+        println!("{:?}", self.peek());
         if self.match_token(&[TokenKind::False]) {
-            Expr::Literal(Literal::Bool(false))
+            Some(Expr::Literal(Literal::Bool(false)))
         } else if self.match_token(&[TokenKind::True]) {
-            Expr::Literal(Literal::Bool(true))
+            Some(Expr::Literal(Literal::Bool(true)))
         } else if self.match_token(&[TokenKind::Nil]) {
-            Expr::Literal(Literal::Nil)
-        } else if self.match_token(&[TokenKind::EOF]) {
-            let error = if let Some(prev) = self.previous() {
-                match prev.token_kind {
-                    TokenKind::Plus
-                    | TokenKind::Minus
-                    | TokenKind::Star
-                    | TokenKind::Slash
-                    | TokenKind::Less
-                    | TokenKind::LessEqual
-                    | TokenKind::Greater
-                    | TokenKind::GreaterEqual
-                    | TokenKind::EqualEqual
-                    | TokenKind::BangEqual => MissingOperand {
-                        src: self.source.to_string(),
-                        span: prev.position.into(),
-                        side: "right".to_string(),
-                    },
-                    _ => UnexpectedEOF {
-                        expected: "literal or '('".to_string(),
-                        src: self.source.to_string(),
-                    },
-                }
-            } else {
-                UnexpectedEOF {
-                    expected: "expression expected".to_string(),
-                    src: self.source.to_string(),
-                }
+            Some(Expr::Literal(Literal::Nil))
+        } else if self.match_token(&[
+            TokenKind::Plus,
+            TokenKind::Minus,
+            TokenKind::Star,
+            TokenKind::Slash,
+            TokenKind::Less,
+            TokenKind::LessEqual,
+            TokenKind::Greater,
+            TokenKind::GreaterEqual,
+            TokenKind::BangEqual,
+            TokenKind::EqualEqual,
+        ]) {
+            let token = self.previous().unwrap();
+            let error = MissingOperand {
+                src: self.source.to_string(),
+                span: token.position.into(),
+                side: "left".to_string(),
             };
             self.errors.push(error.into());
-            Expr::Literal(Literal::Nil)
+            None
+        } else if self.match_token(&[TokenKind::EOF]) {
+            None
         } else if let Some(token) = self.peek() {
             match &token.token_kind {
                 TokenKind::Number(value) => {
                     let number = *value;
                     self.advance();
-                    Expr::Literal(Literal::Number(number))
+                    Some(Expr::Literal(Literal::Number(number)))
                 }
                 TokenKind::String(value) => {
                     let string = value.clone();
                     self.advance();
-                    Expr::Literal(Literal::String(string))
+                    Some(Expr::Literal(Literal::String(string)))
                 }
                 TokenKind::LeftParen => {
                     let opening_paren = token.clone();
@@ -292,7 +332,7 @@ impl<'a> Parser<'a> {
 
                     if self.check(TokenKind::RightParen) {
                         self.advance();
-                        return Expr::Grouping(Box::new(Expr::Literal(Literal::Nil)));
+                        return Some(Expr::Grouping(Box::new(Expr::Literal(Literal::Nil))));
                     }
 
                     if self.check(TokenKind::EOF) {
@@ -301,7 +341,7 @@ impl<'a> Parser<'a> {
                             span: opening_paren.position.into(),
                         };
                         self.errors.push(error.into());
-                        return Expr::Grouping(Box::new(Expr::Literal(Literal::Nil)));
+                        return Some(Expr::Grouping(Box::new(Expr::Literal(Literal::Nil))));
                     }
                     let expr = self.expression();
                     if !self.match_token(&[TokenKind::RightParen]) {
@@ -311,7 +351,7 @@ impl<'a> Parser<'a> {
                         };
                         self.errors.push(error.into());
                     }
-                    Expr::Grouping(Box::new(expr))
+                    Some(Expr::Grouping(Box::new(expr?)))
                 }
                 _ => {
                     let token = token.clone();
@@ -323,7 +363,7 @@ impl<'a> Parser<'a> {
                     };
                     self.errors.push(error.into());
                     self.advance();
-                    Expr::Literal(Literal::Nil)
+                    None
                 }
             }
         } else {
