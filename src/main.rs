@@ -6,6 +6,7 @@ fn main() -> Result<(), Report> {
     let mut path = "source.lox".to_string();
     let source =
         fs::read_to_string(&mut path).expect(format!("Error reading file {}", path).as_str());
+    let shifted_source = format!("{} ", source);
 
     let mut lexer = Lexer::new(source.as_str());
     let tokens_results = lexer.lex();
@@ -23,11 +24,11 @@ fn main() -> Result<(), Report> {
         eprintln!("Lexing error: {:?}", err);
     }
 
-    for token in &tokens {
-        println!("{:?}", token);
-    }
+    // for token in &tokens {
+    //     println!("{:?}", token);
+    // }
 
-    let mut parser = Parser::new(tokens, source.as_str());
+    let mut parser = Parser::new(tokens, shifted_source.as_str());
     let ast = parser.parse();
 
     if !parser.get_errors().is_empty() {

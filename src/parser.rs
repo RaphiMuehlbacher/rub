@@ -1,10 +1,18 @@
 use crate::error::ParseError;
-use crate::error::ParseError::{MissingOperand, UnclosedParenthesis, UnexpectedEOF};
+use crate::error::ParseError::{
+    MissingOperand, MissingSemicolon, UnclosedParenthesis, UnexpectedEOF,
+};
 use crate::{lexer, TokenKind};
 use lexer::Token;
-use miette::{Report, SourceSpan};
+use miette::{Report, SourceOffset, SourceSpan};
 
-type ParseResult = Result<Expr, Report>;
+type ParseResult<T> = Result<T, Report>;
+
+#[derive(Debug)]
+pub enum Stmt {
+    ExprStmt { expr: Expr },
+    PrintStmt { expr: Expr },
+}
 
 #[derive(Debug)]
 pub enum Expr {
@@ -19,7 +27,6 @@ pub enum Expr {
         right: Box<Expr>,
     },
     Grouping(Box<Expr>),
-    Err,
 }
 
 #[derive(Debug)]
@@ -112,12 +119,12 @@ impl<'a> Parser<'a> {
         &self.errors
     }
 
-    fn error_expr(&mut self, err: ParseError) -> Expr {
-        self.errors.push(err.into());
-        Expr::Err
-    }
-
-    fn expect_expr(&self, result: ParseResult, side: &str, span: SourceSpan) -> ParseResult {
+    fn expect_expr(
+        &self,
+        result: ParseResult<Expr>,
+        side: &str,
+        span: SourceSpan,
+    ) -> ParseResult<Expr> {
         result.map_err(|_| {
             MissingOperand {
                 src: self.source.to_string(),
@@ -127,25 +134,70 @@ impl<'a> Parser<'a> {
             .into()
         })
     }
-    pub fn parse(&mut self) -> Expr {
-        if self.peek().unwrap().token_kind == TokenKind::EOF {
-            Expr::Err
-        } else {
-            match self.expression() {
-                Ok(expr) => expr,
-                Err(err) => {
-                    self.errors.push(err.into());
-                    Expr::Err
-                }
-            }
-        }
+
+    fn synchronize(&mut self) {
+        todo!();
     }
 
-    fn expression(&mut self) -> ParseResult {
+    pub fn parse(&mut self) -> Vec<ParseResult<Stmt>> {
+        let mut statements = vec![];
+        if self.peek().unwrap().token_kind == TokenKind::EOF {
+            return statements;
+        } else {
+            while !self.is_at_end() {
+                let statement = self.statement();
+                statements.push(statement);
+            }
+        }
+        statements
+    }
+
+    fn statement(&mut self) -> ParseResult<Stmt> {
+        if self.match_token(&[TokenKind::Print]) {
+            return self.print_stmt();
+        }
+        return self.expression_stmt();
+    }
+
+    fn expression_stmt(&mut self) -> ParseResult<Stmt> {
+        let value = self.expression()?;
+        if !self.match_token(&[TokenKind::Semicolon]) {
+            let span = self.previous().unwrap().span;
+            let offset = SourceOffset::from(span.offset() + 1);
+            let semicolon_span = SourceSpan::new(offset, 0);
+            let error = MissingSemicolon {
+                src: self.source.to_string(),
+                span: semicolon_span,
+            };
+            self.errors.push(error.into());
+
+            // self.synchronize();
+        }
+        Ok(Stmt::ExprStmt { expr: value })
+    }
+
+    fn print_stmt(&mut self) -> ParseResult<Stmt> {
+        let value = self.expression()?;
+
+        if !self.match_token(&[TokenKind::Semicolon]) {
+            let span = self.previous().unwrap().span;
+            let offset = SourceOffset::from(span.offset() + 1);
+            let semicolon_span = SourceSpan::new(offset, 0);
+            let error = MissingSemicolon {
+                src: self.source.to_string(),
+                span: semicolon_span,
+            };
+            self.errors.push(error.into());
+            // self.synchronize();
+        }
+        Ok(Stmt::PrintStmt { expr: value })
+    }
+
+    fn expression(&mut self) -> ParseResult<Expr> {
         self.equality()
     }
 
-    fn equality(&mut self) -> ParseResult {
+    fn equality(&mut self) -> ParseResult<Expr> {
         let mut expr = self.comparison()?;
         while self.match_token(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
             let operator = self.previous().unwrap();
@@ -167,7 +219,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn comparison(&mut self) -> ParseResult {
+    fn comparison(&mut self) -> ParseResult<Expr> {
         let mut expr = self.term()?;
         while self.match_token(&[
             TokenKind::Less,
@@ -197,7 +249,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn term(&mut self) -> ParseResult {
+    fn term(&mut self) -> ParseResult<Expr> {
         let mut expr = self.factor()?;
         while self.match_token(&[TokenKind::Plus, TokenKind::Minus]) {
             let operator = self.previous().unwrap();
@@ -220,7 +272,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn factor(&mut self) -> ParseResult {
+    fn factor(&mut self) -> ParseResult<Expr> {
         let mut expr = self.unary()?;
         while self.match_token(&[TokenKind::Slash, TokenKind::Star]) {
             let operator = self.previous().unwrap();
@@ -243,7 +295,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn unary(&mut self) -> ParseResult {
+    fn unary(&mut self) -> ParseResult<Expr> {
         if self.match_token(&[TokenKind::Minus, TokenKind::Bang]) {
             let operator = self.previous().unwrap();
 
@@ -266,7 +318,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn primary(&mut self) -> ParseResult {
+    fn primary(&mut self) -> ParseResult<Expr> {
         if self.match_token(&[TokenKind::False]) {
             Ok(Expr::Literal(Literal::Bool(false)))
         } else if self.match_token(&[TokenKind::True]) {

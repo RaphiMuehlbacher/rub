@@ -1,5 +1,5 @@
 use crate::TokenKind;
-use miette::{diagnostic, Diagnostic, SourceSpan};
+use miette::{diagnostic, Diagnostic, NamedSource, SourceSpan};
 use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]
@@ -31,6 +31,18 @@ pub enum ParseError {
 
         expected: String,
         found: TokenKind,
+    },
+    #[error("Missing semicolon at end of statement")]
+    #[diagnostic(
+        help("statements must end with a semicolon (`;`)."),
+        code(parser::unexpected_eof)
+    )]
+    MissingSemicolon {
+        #[source_code]
+        src: String,
+
+        #[label("expected ';' here")]
+        span: SourceSpan,
     },
 
     #[error("Expected {expected:?}, found EOF")]
