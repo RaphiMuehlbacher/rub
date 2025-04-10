@@ -1,5 +1,5 @@
 use crate::TokenKind;
-use miette::{diagnostic, Diagnostic, NamedSource, SourceSpan};
+use miette::{diagnostic, Diagnostic, NamedSource, Severity, SourceSpan};
 use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]
@@ -35,13 +35,27 @@ pub enum ParseError {
     #[error("Missing semicolon at end of statement")]
     #[diagnostic(
         help("statements must end with a semicolon (`;`)."),
-        code(parser::unexpected_eof)
+        code(parser::missing_semicolon)
     )]
     MissingSemicolon {
         #[source_code]
         src: String,
 
         #[label("expected ';' here")]
+        span: SourceSpan,
+    },
+
+    #[error("unnecessary trailing semicolon")]
+    #[diagnostic(
+        help("help: remove this semicolon"),
+        code(parser::redundant_semicolon),
+        severity(Warning)
+    )]
+    RedundantSemicolon {
+        #[source_code]
+        src: String,
+
+        #[label("help: remove this semicolon")]
         span: SourceSpan,
     },
 
@@ -52,12 +66,6 @@ pub enum ParseError {
         src: String,
 
         expected: String,
-    },
-    #[error("Empty input")]
-    #[diagnostic(help("Please provide code to parse."), code(parser::empty_input))]
-    EmptyInput {
-        #[source_code]
-        src: String,
     },
 
     #[error("Expected expression")]

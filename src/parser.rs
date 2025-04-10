@@ -1,6 +1,6 @@
 use crate::error::ParseError;
 use crate::error::ParseError::{
-    MissingOperand, MissingSemicolon, UnclosedParenthesis, UnexpectedEOF,
+    MissingOperand, MissingSemicolon, RedundantSemicolon, UnclosedParenthesis, UnexpectedEOF,
 };
 use crate::{lexer, TokenKind};
 use lexer::Token;
@@ -135,18 +135,30 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn missing_semicolon(&self, span: SourceSpan) -> ParseError {
+        let offset = SourceOffset::from(span.offset() + 1);
+        let semicolon_span = SourceSpan::new(offset, 0);
+        MissingSemicolon {
+            src: self.source.to_string(),
+            span: semicolon_span,
+        }
+    }
+
     fn synchronize(&mut self) {
         todo!();
     }
 
-    pub fn parse(&mut self) -> Vec<ParseResult<Stmt>> {
+    pub fn parse(&mut self) -> Vec<Stmt> {
         let mut statements = vec![];
         if self.peek().unwrap().token_kind == TokenKind::EOF {
             return statements;
         } else {
             while !self.is_at_end() {
                 let statement = self.statement();
-                statements.push(statement);
+                match statement {
+                    Ok(stmt) => statements.push(stmt),
+                    Err(err) => self.errors.push(err),
+                }
             }
         }
         statements
@@ -156,19 +168,15 @@ impl<'a> Parser<'a> {
         if self.match_token(&[TokenKind::Print]) {
             return self.print_stmt();
         }
-        return self.expression_stmt();
+        self.expression_stmt()
     }
 
     fn expression_stmt(&mut self) -> ParseResult<Stmt> {
         let value = self.expression()?;
+
         if !self.match_token(&[TokenKind::Semicolon]) {
             let span = self.previous().unwrap().span;
-            let offset = SourceOffset::from(span.offset() + 1);
-            let semicolon_span = SourceSpan::new(offset, 0);
-            let error = MissingSemicolon {
-                src: self.source.to_string(),
-                span: semicolon_span,
-            };
+            let error = self.missing_semicolon(span);
             self.errors.push(error.into());
 
             // self.synchronize();
@@ -181,12 +189,8 @@ impl<'a> Parser<'a> {
 
         if !self.match_token(&[TokenKind::Semicolon]) {
             let span = self.previous().unwrap().span;
-            let offset = SourceOffset::from(span.offset() + 1);
-            let semicolon_span = SourceSpan::new(offset, 0);
-            let error = MissingSemicolon {
-                src: self.source.to_string(),
-                span: semicolon_span,
-            };
+            let error = self.missing_semicolon(span);
+
             self.errors.push(error.into());
             // self.synchronize();
         }
@@ -373,6 +377,13 @@ impl<'a> Parser<'a> {
                 src: self.source.to_string(),
                 expected: "unexpected EOF".to_string(),
             };
+            Err(error.into())
+        } else if self.match_token(&[TokenKind::Semicolon]) {
+            let error = RedundantSemicolon {
+                src: self.source.to_string(),
+                span: self.previous().unwrap().span,
+            };
+
             Err(error.into())
         } else if let Some(token) = self.peek() {
             match &token.token_kind {
