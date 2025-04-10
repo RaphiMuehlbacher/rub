@@ -136,7 +136,7 @@ impl<'a> Parser<'a> {
     }
 
     fn missing_semicolon(&self, span: SourceSpan) -> ParseError {
-        let offset = SourceOffset::from(span.offset() + 1);
+        let offset = SourceOffset::from(span.offset() + span.len());
         let semicolon_span = SourceSpan::new(offset, 0);
         MissingSemicolon {
             src: self.source.to_string(),
@@ -145,7 +145,19 @@ impl<'a> Parser<'a> {
     }
 
     fn synchronize(&mut self) {
-        todo!();
+        println!("{:?}", self.peek());
+
+        while !self.is_at_end() {
+            if self.peek().unwrap().token_kind == TokenKind::Semicolon {
+                return;
+            }
+
+            match self.peek().map(|t| &t.token_kind) {
+                Some(TokenKind::Print) => return,
+                Some(TokenKind::EOF) => return,
+                _ => self.advance(),
+            }
+        }
     }
 
     pub fn parse(&mut self) -> Vec<Stmt> {
@@ -157,7 +169,10 @@ impl<'a> Parser<'a> {
                 let statement = self.statement();
                 match statement {
                     Ok(stmt) => statements.push(stmt),
-                    Err(err) => self.errors.push(err),
+                    Err(err) => {
+                        self.errors.push(err);
+                        self.synchronize();
+                    }
                 }
             }
         }
@@ -178,8 +193,6 @@ impl<'a> Parser<'a> {
             let span = self.previous().unwrap().span;
             let error = self.missing_semicolon(span);
             self.errors.push(error.into());
-
-            // self.synchronize();
         }
         Ok(Stmt::ExprStmt { expr: value })
     }
@@ -192,7 +205,6 @@ impl<'a> Parser<'a> {
             let error = self.missing_semicolon(span);
 
             self.errors.push(error.into());
-            // self.synchronize();
         }
         Ok(Stmt::PrintStmt { expr: value })
     }
