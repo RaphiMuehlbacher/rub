@@ -1,8 +1,8 @@
 use crate::error::ParseError;
-use crate::error::ParseError::{MissingOperand, UnclosedParenthesis};
+use crate::error::ParseError::{MissingOperand, UnclosedParenthesis, UnexpectedEOF};
 use crate::{lexer, TokenKind};
 use lexer::Token;
-use miette::Report;
+use miette::{Report, SourceSpan};
 
 type ParseResult = Result<Expr, Report>;
 
@@ -78,10 +78,9 @@ impl<'a> Parser<'a> {
     }
 
     fn is_at_end(&self) -> bool {
-        if let Some(token) = self.peek() {
-            token.token_kind == TokenKind::EOF
-        } else {
-            false
+        match self.peek() {
+            Some(token) => token.token_kind == TokenKind::EOF,
+            None => false,
         }
     }
 
@@ -118,11 +117,27 @@ impl<'a> Parser<'a> {
         Expr::Err
     }
 
-    pub fn parse(&mut self) -> Option<Expr> {
+    fn expect_expr(&self, result: ParseResult, side: &str, span: SourceSpan) -> ParseResult {
+        result.map_err(|_| {
+            MissingOperand {
+                src: self.source.to_string(),
+                span,
+                side: side.to_string(),
+            }
+            .into()
+        })
+    }
+    pub fn parse(&mut self) -> Expr {
         if self.peek().unwrap().token_kind == TokenKind::EOF {
-            None
+            Expr::Err
         } else {
-            self.expression().unwrap().into()
+            match self.expression() {
+                Ok(expr) => expr,
+                Err(err) => {
+                    self.errors.push(err.into());
+                    Expr::Err
+                }
+            }
         }
     }
 
@@ -141,22 +156,13 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
             let span = operator.span;
-            if let Ok(right) = self.comparison() {
-                if matches!(right, Expr::Err) {
-                    let error = MissingOperand {
-                        src: self.source.to_string(),
-                        span,
-                        side: "right".to_string(),
-                    };
-                    return Ok(self.error_expr(error));
-                } else {
-                    expr = Expr::Binary {
-                        left: Box::new(expr),
-                        op,
-                        right: Box::new(right),
-                    };
-                }
-            }
+            let result = self.comparison();
+            let right = self.expect_expr(result, "right", span)?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+            };
         }
         Ok(expr)
     }
@@ -166,7 +172,6 @@ impl<'a> Parser<'a> {
         while self.match_token(&[
             TokenKind::Less,
             TokenKind::LessEqual,
-            TokenKind::EqualEqual,
             TokenKind::Greater,
             TokenKind::GreaterEqual,
         ]) {
@@ -175,29 +180,19 @@ impl<'a> Parser<'a> {
             let op = match operator.token_kind {
                 TokenKind::Less => BinaryOp::Less,
                 TokenKind::LessEqual => BinaryOp::LessEqual,
-                TokenKind::EqualEqual => BinaryOp::EqualEqual,
                 TokenKind::Greater => BinaryOp::Greater,
                 TokenKind::GreaterEqual => BinaryOp::GreaterEqual,
                 _ => unreachable!(),
             };
 
             let span = operator.span;
-            if let Ok(right) = self.term() {
-                if matches!(right, Expr::Err) {
-                    let error = MissingOperand {
-                        src: self.source.to_string(),
-                        span,
-                        side: "right".to_string(),
-                    };
-                    return Ok(self.error_expr(error));
-                } else {
-                    expr = Expr::Binary {
-                        left: Box::new(expr),
-                        op,
-                        right: Box::new(right),
-                    };
-                }
-            }
+            let result = self.term();
+            let right = self.expect_expr(result, "right", span)?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+            };
         }
         Ok(expr)
     }
@@ -214,22 +209,13 @@ impl<'a> Parser<'a> {
             };
 
             let span = operator.span;
-            if let Ok(right) = self.factor() {
-                if matches!(right, Expr::Err) {
-                    let error = MissingOperand {
-                        src: self.source.to_string(),
-                        span,
-                        side: "right".to_string(),
-                    };
-                    return Ok(self.error_expr(error));
-                } else {
-                    expr = Expr::Binary {
-                        left: Box::new(expr),
-                        op,
-                        right: Box::new(right),
-                    };
-                }
-            }
+            let result = self.factor();
+            let right = self.expect_expr(result, "right", span)?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+            };
         }
         Ok(expr)
     }
@@ -246,22 +232,13 @@ impl<'a> Parser<'a> {
             };
 
             let span = operator.span;
-            if let Ok(right) = self.unary() {
-                if matches!(right, Expr::Err) {
-                    let error = MissingOperand {
-                        src: self.source.to_string(),
-                        span,
-                        side: "right".to_string(),
-                    };
-                    self.error_expr(error);
-                } else {
-                    expr = Expr::Binary {
-                        left: Box::new(expr),
-                        op,
-                        right: Box::new(right),
-                    };
-                }
-            }
+            let result = self.unary();
+            let right = self.expect_expr(result, "right", span)?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+            };
         }
         Ok(expr)
     }
@@ -277,23 +254,13 @@ impl<'a> Parser<'a> {
             };
 
             let span = operator.span;
-            if let Ok(expr) = self.unary() {
-                if matches!(expr, Expr::Err) {
-                    let error = MissingOperand {
-                        src: self.source.to_string(),
-                        span,
-                        side: "right (unary)".to_string(),
-                    };
-                    Ok(self.error_expr(error))
-                } else {
-                    Ok(Expr::Unary {
-                        op,
-                        expr: Box::new(expr),
-                    })
-                }
-            } else {
-                unreachable!();
-            }
+            let result = self.unary();
+            let expr = self.expect_expr(result, "right", span)?;
+
+            Ok(Expr::Unary {
+                op,
+                expr: Box::new(expr),
+            })
         } else {
             self.primary()
         }
@@ -324,9 +291,13 @@ impl<'a> Parser<'a> {
                 span: token.span,
                 side: "left".to_string(),
             };
-            Ok(self.error_expr(error))
+            Err(error.into())
         } else if self.match_token(&[TokenKind::EOF]) {
-            Ok(Expr::Err)
+            let error = UnexpectedEOF {
+                src: self.source.to_string(),
+                expected: "no clue".to_string(),
+            };
+            Err(error.into())
         } else if let Some(token) = self.peek() {
             match &token.token_kind {
                 TokenKind::Number(value) => {
@@ -353,7 +324,7 @@ impl<'a> Parser<'a> {
                             src: self.source.to_string(),
                             span: opening_paren.span,
                         };
-                        return Ok(self.error_expr(error));
+                        return Err(error.into());
                     }
                     let expr = self.expression()?;
                     if !self.match_token(&[TokenKind::RightParen]) {
@@ -373,7 +344,7 @@ impl<'a> Parser<'a> {
                         found: token.token_kind,
                         expected: "literal or '('".to_string(),
                     };
-                    Ok(self.error_expr(error))
+                    Err(error.into())
                 }
             }
         } else {
