@@ -273,6 +273,30 @@ impl<'a> Parser<'a> {
             Ok(Expr::Literal(Literal::Bool(true)))
         } else if self.match_token(&[TokenKind::Nil]) {
             Ok(Expr::Literal(Literal::Nil))
+        } else if self.match_token(&[TokenKind::LeftParen]) {
+            let opening_paren = self.previous().unwrap().clone();
+
+            if self.match_token(&[TokenKind::RightParen]) {
+                return Ok(Expr::Grouping(Box::new(Expr::Literal(Literal::Nil))));
+            }
+
+            if self.check(TokenKind::EOF) {
+                let error = UnclosedParenthesis {
+                    src: self.source.to_string(),
+                    span: opening_paren.span,
+                };
+                return Err(error.into());
+            }
+
+            let expr = self.expression()?;
+            if !self.match_token(&[TokenKind::RightParen]) {
+                let error = UnclosedParenthesis {
+                    src: self.source.to_string(),
+                    span: opening_paren.span,
+                };
+                self.errors.push(error.into());
+            }
+            Ok(Expr::Grouping(Box::new(expr)))
         } else if self.match_token(&[
             TokenKind::Plus,
             TokenKind::Minus,
@@ -295,7 +319,7 @@ impl<'a> Parser<'a> {
         } else if self.match_token(&[TokenKind::EOF]) {
             let error = UnexpectedEOF {
                 src: self.source.to_string(),
-                expected: "no clue".to_string(),
+                expected: "unexpected EOF".to_string(),
             };
             Err(error.into())
         } else if let Some(token) = self.peek() {
@@ -309,32 +333,6 @@ impl<'a> Parser<'a> {
                     let string = value.clone();
                     self.advance();
                     Ok(Expr::Literal(Literal::String(string)))
-                }
-                TokenKind::LeftParen => {
-                    let opening_paren = token.clone();
-                    self.advance();
-
-                    if self.check(TokenKind::RightParen) {
-                        self.advance();
-                        return Ok(Expr::Grouping(Box::new(Expr::Literal(Literal::Nil))));
-                    }
-
-                    if self.check(TokenKind::EOF) {
-                        let error = UnclosedParenthesis {
-                            src: self.source.to_string(),
-                            span: opening_paren.span,
-                        };
-                        return Err(error.into());
-                    }
-                    let expr = self.expression()?;
-                    if !self.match_token(&[TokenKind::RightParen]) {
-                        let error = UnclosedParenthesis {
-                            src: self.source.to_string(),
-                            span: opening_paren.span,
-                        };
-                        self.errors.push(error.into());
-                    }
-                    Ok(Expr::Grouping(Box::new(expr)))
                 }
                 _ => {
                     let token = token.clone();
