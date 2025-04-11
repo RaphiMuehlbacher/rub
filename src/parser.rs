@@ -1,6 +1,7 @@
 use crate::error::ParseError;
 use crate::error::ParseError::{
-    MissingOperand, MissingSemicolon, RedundantSemicolon, UnclosedParenthesis, UnexpectedEOF,
+    ExpectedExpression, MissingOperand, MissingSemicolon, MissingVariableName, RedundantSemicolon,
+    UnclosedParenthesis, UnexpectedEOF, UnexpectedToken,
 };
 use crate::{lexer, TokenKind};
 use lexer::Token;
@@ -10,8 +11,16 @@ type ParseResult<T> = Result<T, Report>;
 
 #[derive(Debug)]
 pub enum Stmt {
-    ExprStmt { expr: Expr },
-    PrintStmt { expr: Expr },
+    ExprStmt {
+        expr: Expr,
+    },
+    PrintStmt {
+        expr: Expr,
+    },
+    VarDecl {
+        name: String,
+        initializer: Option<Expr>,
+    },
 }
 
 #[derive(Debug)]
@@ -27,6 +36,10 @@ pub enum Expr {
         right: Box<Expr>,
     },
     Grouping(Box<Expr>),
+    Variable {
+        name: String,
+        span: SourceSpan,
+    },
 }
 
 #[derive(Debug)]
@@ -119,6 +132,13 @@ impl<'a> Parser<'a> {
         &self.errors
     }
 
+    fn expect_semicolon(&mut self) {
+        if !self.match_token(&[TokenKind::Semicolon]) {
+            let span = self.previous().unwrap().span;
+            let error = self.missing_semicolon(span);
+            self.errors.push(error.into());
+        }
+    }
     fn expect_expr(
         &self,
         result: ParseResult<Expr>,
@@ -145,10 +165,12 @@ impl<'a> Parser<'a> {
     }
 
     fn synchronize(&mut self) {
-        println!("{:?}", self.peek());
-
+        self.advance();
         while !self.is_at_end() {
-            if self.peek().unwrap().token_kind == TokenKind::Semicolon {
+            if self
+                .previous()
+                .map_or(false, |t| t.token_kind == TokenKind::Semicolon)
+            {
                 return;
             }
 
@@ -166,7 +188,7 @@ impl<'a> Parser<'a> {
             return statements;
         } else {
             while !self.is_at_end() {
-                let statement = self.statement();
+                let statement = self.declaration();
                 match statement {
                     Ok(stmt) => statements.push(stmt),
                     Err(err) => {
@@ -179,6 +201,67 @@ impl<'a> Parser<'a> {
         statements
     }
 
+    fn declaration(&mut self) -> ParseResult<Stmt> {
+        if self.match_token(&[TokenKind::Var]) {
+            return self.var_declaration();
+        }
+        self.statement()
+    }
+
+    fn var_declaration(&mut self) -> ParseResult<Stmt> {
+        let name = if let Some(token) = self.peek() {
+            match &token.token_kind {
+                TokenKind::Ident(name) => {
+                    let name_clone = name.clone();
+                    self.advance();
+                    name_clone
+                }
+                TokenKind::Semicolon | TokenKind::Equal => {
+                    let prev_token = self.previous().unwrap();
+                    return Err(MissingVariableName {
+                        src: self.source.to_string(),
+                        span: prev_token.span,
+                    }
+                    .into());
+                }
+                _ => {
+                    // handle number to make mismatched type
+                    // if next token is string then make that variables can only start with string
+                    let token = token.clone();
+                    return Err(UnexpectedToken {
+                        src: self.source.to_string(),
+                        span: token.span,
+                        found: token.token_kind,
+                        expected: "an identifier".to_string(),
+                    }
+                    .into());
+                }
+            }
+        } else {
+            unreachable!()
+        };
+
+        let initializer = if self.match_token(&[TokenKind::Equal]) {
+            if self.match_token(&[TokenKind::Semicolon]) {
+                return Err(ExpectedExpression {
+                    src: self.source.to_string(),
+                    span: self.previous().unwrap().span,
+                }
+                .into());
+            }
+            Some(self.expression()?)
+        } else {
+            None
+        };
+
+        self.expect_semicolon();
+
+        Ok(Stmt::VarDecl {
+            name: name.to_string(),
+            initializer,
+        })
+    }
+
     fn statement(&mut self) -> ParseResult<Stmt> {
         if self.match_token(&[TokenKind::Print]) {
             return self.print_stmt();
@@ -189,23 +272,16 @@ impl<'a> Parser<'a> {
     fn expression_stmt(&mut self) -> ParseResult<Stmt> {
         let value = self.expression()?;
 
-        if !self.match_token(&[TokenKind::Semicolon]) {
-            let span = self.previous().unwrap().span;
-            let error = self.missing_semicolon(span);
-            self.errors.push(error.into());
-        }
+        self.expect_semicolon();
+
         Ok(Stmt::ExprStmt { expr: value })
     }
 
     fn print_stmt(&mut self) -> ParseResult<Stmt> {
         let value = self.expression()?;
 
-        if !self.match_token(&[TokenKind::Semicolon]) {
-            let span = self.previous().unwrap().span;
-            let error = self.missing_semicolon(span);
+        self.expect_semicolon();
 
-            self.errors.push(error.into());
-        }
         Ok(Stmt::PrintStmt { expr: value })
     }
 
@@ -409,14 +485,21 @@ impl<'a> Parser<'a> {
                     self.advance();
                     Ok(Expr::Literal(Literal::String(string)))
                 }
+                TokenKind::Ident(name) => {
+                    let string = name.clone();
+                    let span = token.span;
+                    self.advance();
+                    Ok(Expr::Variable { name: string, span })
+                }
                 _ => {
                     let token = token.clone();
-                    let error = ParseError::UnexpectedToken {
+                    let error = UnexpectedToken {
                         src: self.source.to_string(),
                         span: token.span,
                         found: token.token_kind,
                         expected: "literal or '('".to_string(),
                     };
+                    self.synchronize();
                     Err(error.into())
                 }
             }

@@ -90,6 +90,19 @@ pub enum ParseError {
         span: SourceSpan,
         side: String,
     },
+
+    #[error("Missing variable name in declaration")]
+    #[diagnostic(
+        help("Variable declarations must include a variable name."),
+        code(parser::missing_variable_name)
+    )]
+    MissingVariableName {
+        #[source_code]
+        src: String,
+
+        #[label("variable name expected after 'var' keyword")]
+        span: SourceSpan,
+    },
 }
 
 #[derive(Debug, Error, Diagnostic)]

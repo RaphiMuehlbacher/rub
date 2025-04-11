@@ -26,7 +26,7 @@ pub enum TokenKind {
     Colon,
 
     String(String),
-    Ident,
+    Ident(String),
     Number(f64),
 
     And,
@@ -174,7 +174,7 @@ impl<'a> Lexer<'a> {
                         "true" => TokenKind::True,
                         "var" => TokenKind::Var,
                         "while" => TokenKind::While,
-                        _ => TokenKind::Ident,
+                        _ => TokenKind::Ident(literal.to_string()),
                     };
 
                     Ok(self.create_token(kind))
