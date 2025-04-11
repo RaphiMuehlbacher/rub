@@ -6,7 +6,7 @@ use crate::error::ParseError::{
 };
 use crate::{lexer, TokenKind};
 use lexer::Token;
-use miette::{Report, SourceOffset, SourceSpan};
+use miette::{Error, Report, SourceOffset, SourceSpan};
 
 type ParseResult<T> = Result<T, Report>;
 
@@ -58,10 +58,10 @@ pub enum Expr {
 
 #[derive(Debug)]
 enum Literal {
-    Number(f64, SourceSpan),
-    String(String, SourceSpan),
-    Bool(bool, SourceSpan),
-    Nil(SourceSpan),
+    Number { value: f64, span: SourceSpan },
+    String { value: String, span: SourceSpan },
+    Bool { value: bool, span: SourceSpan },
+    Nil { span: SourceSpan },
 }
 
 #[derive(Debug)]
@@ -95,7 +95,7 @@ pub struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     pub fn new(tokens: Vec<Token<'a>>, source: &'a str) -> Self {
-        Parser {
+        Self {
             tokens,
             position: 0,
             errors: vec![],
@@ -107,8 +107,8 @@ impl<'a> Parser<'a> {
         self.tokens.get(self.position)
     }
 
-    fn previous(&self) -> Option<&Token<'a>> {
-        self.tokens.get(self.position - 1)
+    fn previous(&self) -> &Token<'a> {
+        &self.tokens[self.position - 1]
     }
 
     fn is_at_end(&self) -> bool {
@@ -125,11 +125,7 @@ impl<'a> Parser<'a> {
     }
 
     fn check(&self, token_kind: TokenKind) -> bool {
-        if let Some(token) = self.peek() {
-            token.token_kind == token_kind
-        } else {
-            false
-        }
+        self.peek().map_or(false, |t| t.token_kind == token_kind)
     }
 
     fn match_token(&mut self, types: &[TokenKind]) -> bool {
@@ -153,11 +149,15 @@ impl<'a> Parser<'a> {
         &self.errors
     }
 
+    fn report(&mut self, error: Report) {
+        self.errors.push(error.into());
+    }
+
     fn expect_semicolon(&mut self) {
         if !self.match_token(&[TokenKind::Semicolon]) {
-            let span = self.previous().unwrap().span;
+            let span = self.previous().span;
             let error = self.missing_semicolon(span);
-            self.errors.push(error.into());
+            self.report(error.into());
         }
     }
     fn expect_expr(
@@ -188,16 +188,12 @@ impl<'a> Parser<'a> {
     fn synchronize(&mut self) {
         self.advance();
         while !self.is_at_end() {
-            if self
-                .previous()
-                .map_or(false, |t| t.token_kind == TokenKind::Semicolon)
-            {
+            if self.previous().token_kind == TokenKind::Semicolon {
                 return;
             }
 
             match self.peek().map(|t| &t.token_kind) {
-                Some(TokenKind::Print) => return,
-                Some(TokenKind::EOF) => return,
+                Some(TokenKind::Print | TokenKind::EOF | TokenKind::Var) => return,
                 _ => self.advance(),
             }
         }
@@ -213,7 +209,7 @@ impl<'a> Parser<'a> {
                 match statement {
                     Ok(stmt) => statements.push(stmt),
                     Err(err) => {
-                        self.errors.push(err);
+                        self.report(err);
                         self.synchronize();
                     }
                 }
@@ -230,62 +226,58 @@ impl<'a> Parser<'a> {
     }
 
     fn var_declaration(&mut self) -> ParseResult<Stmt> {
-        let left = self.peek().unwrap().span;
-        let name = if let Some(token) = self.peek() {
-            match &token.token_kind {
-                TokenKind::Ident(name) => {
-                    let name_clone = name.clone();
-                    self.advance();
-                    name_clone
-                }
-                TokenKind::Number(_) => {
-                    let span = token.span;
-                    self.advance();
-                    if let Some(next_token) = self.peek() {
-                        if matches!(next_token.token_kind, TokenKind::Ident(_)) {
-                            return Err(InvalidAssignmentTarget {
-                                src: self.source.to_string(),
-                                span,
-                                message: "A variable cannot start with a number".to_string(),
-                            }
-                            .into());
-                        }
-                    }
-                    return Err(InvalidAssignmentTarget {
-                        src: self.source.to_string(),
-                        span,
-                        message: "A variable name cannot be a number".to_string(),
-                    }
-                    .into());
-                }
-                TokenKind::Semicolon | TokenKind::Equal => {
-                    let prev_token = self.previous().unwrap();
-                    return Err(MissingVariableDeclarationName {
-                        src: self.source.to_string(),
-                        span: prev_token.span,
-                    }
-                    .into());
-                }
-                _ => {
-                    let token = token.clone();
-                    return Err(UnexpectedToken {
-                        src: self.source.to_string(),
-                        span: token.span,
-                        found: token.token_kind,
-                        expected: "an identifier".to_string(),
-                    }
-                    .into());
-                }
+        let next_token = self.peek().unwrap();
+        let left_span = next_token.span;
+
+        let variable_name = match &next_token.token_kind {
+            TokenKind::Ident(name) => {
+                let name_clone = name.clone();
+                self.advance();
+                name_clone
             }
-        } else {
-            unreachable!()
+            TokenKind::Number(_) => {
+                self.advance();
+                if let Some(next_token) = self.peek() {
+                    if matches!(next_token.token_kind, TokenKind::Ident(_)) {
+                        return Err(InvalidAssignmentTarget {
+                            src: self.source.to_string(),
+                            span: left_span,
+                            message: "A variable cannot start with a number".to_string(),
+                        }
+                        .into());
+                    }
+                }
+                return Err(InvalidAssignmentTarget {
+                    src: self.source.to_string(),
+                    span: left_span,
+                    message: "A variable name cannot be a number".to_string(),
+                }
+                .into());
+            }
+            TokenKind::Semicolon | TokenKind::Equal => {
+                let prev_token = self.previous();
+                return Err(MissingVariableDeclarationName {
+                    src: self.source.to_string(),
+                    span: prev_token.span,
+                }
+                .into());
+            }
+            other => {
+                return Err(UnexpectedToken {
+                    src: self.source.to_string(),
+                    span: next_token.span,
+                    found: other.clone(),
+                    expected: "an identifier".to_string(),
+                }
+                .into());
+            }
         };
 
         let initializer = if self.match_token(&[TokenKind::Equal]) {
             if self.match_token(&[TokenKind::Semicolon]) {
                 return Err(ExpectedExpression {
                     src: self.source.to_string(),
-                    span: self.previous().unwrap().span,
+                    span: self.previous().span,
                 }
                 .into());
             }
@@ -297,9 +289,9 @@ impl<'a> Parser<'a> {
         self.expect_semicolon();
 
         Ok(Stmt::VarDecl {
-            name: name.to_string(),
+            name: variable_name.to_string(),
             initializer,
-            span: self.create_span(left, self.previous().unwrap().span),
+            span: self.create_span(left_span, self.previous().span),
         })
     }
 
@@ -318,7 +310,7 @@ impl<'a> Parser<'a> {
 
         Ok(Stmt::ExprStmt {
             expr: value,
-            span: self.create_span(left, self.previous().unwrap().span),
+            span: self.create_span(left, self.previous().span),
         })
     }
 
@@ -330,7 +322,7 @@ impl<'a> Parser<'a> {
 
         Ok(Stmt::PrintStmt {
             expr: value,
-            span: self.create_span(left, self.previous().unwrap().span),
+            span: self.create_span(left, self.previous().span),
         })
     }
 
@@ -342,7 +334,7 @@ impl<'a> Parser<'a> {
         let expr = self.equality()?;
 
         if self.match_token(&[TokenKind::Equal]) {
-            let equal_span = self.previous().unwrap().span;
+            let equal_span = self.previous().span;
 
             let result = self.expression();
             let value = match result {
@@ -362,9 +354,9 @@ impl<'a> Parser<'a> {
                     span,
                     value: Box::new(value),
                 }),
-                Expr::Literal(Literal::Number(_, span)) => {
-                    match self.peek().unwrap().token_kind {
-                        TokenKind::Ident(_) => {
+                Expr::Literal(Literal::Number { value, span }) => {
+                    if let Some(next_token) = self.peek() {
+                        if matches!(next_token.token_kind, TokenKind::Ident(_)) {
                             return Err(InvalidAssignmentTarget {
                                 src: self.source.to_string(),
                                 span,
@@ -372,8 +364,8 @@ impl<'a> Parser<'a> {
                             }
                             .into());
                         }
-                        _ => {}
                     }
+
                     Err(InvalidAssignmentTarget {
                         src: self.source.to_string(),
                         span,
@@ -394,7 +386,7 @@ impl<'a> Parser<'a> {
     fn equality(&mut self) -> ParseResult<Expr> {
         let mut expr = self.comparison()?;
         while self.match_token(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
-            let operator = self.previous().unwrap();
+            let operator = self.previous();
 
             let op = match operator.token_kind {
                 TokenKind::BangEqual => BinaryOp::BangEqual,
@@ -408,7 +400,7 @@ impl<'a> Parser<'a> {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
-                span: self.create_span(span, self.previous().unwrap().span),
+                span: self.create_span(span, self.previous().span),
             };
         }
         Ok(expr)
@@ -422,7 +414,7 @@ impl<'a> Parser<'a> {
             TokenKind::Greater,
             TokenKind::GreaterEqual,
         ]) {
-            let operator = self.previous().unwrap();
+            let operator = self.previous();
 
             let op = match operator.token_kind {
                 TokenKind::Less => BinaryOp::Less,
@@ -439,7 +431,7 @@ impl<'a> Parser<'a> {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
-                span: self.create_span(span, self.previous().unwrap().span),
+                span: self.create_span(span, self.previous().span),
             };
         }
         Ok(expr)
@@ -448,7 +440,7 @@ impl<'a> Parser<'a> {
     fn term(&mut self) -> ParseResult<Expr> {
         let mut expr = self.factor()?;
         while self.match_token(&[TokenKind::Plus, TokenKind::Minus]) {
-            let operator = self.previous().unwrap();
+            let operator = self.previous();
 
             let op = match operator.token_kind {
                 TokenKind::Plus => BinaryOp::Plus,
@@ -463,7 +455,7 @@ impl<'a> Parser<'a> {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
-                span: self.create_span(span, self.previous().unwrap().span),
+                span: self.create_span(span, self.previous().span),
             };
         }
         Ok(expr)
@@ -472,7 +464,7 @@ impl<'a> Parser<'a> {
     fn factor(&mut self) -> ParseResult<Expr> {
         let mut expr = self.unary()?;
         while self.match_token(&[TokenKind::Slash, TokenKind::Star]) {
-            let operator = self.previous().unwrap();
+            let operator = self.previous();
 
             let op = match operator.token_kind {
                 TokenKind::Slash => BinaryOp::Slash,
@@ -487,7 +479,7 @@ impl<'a> Parser<'a> {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
-                span: self.create_span(span, self.previous().unwrap().span),
+                span: self.create_span(span, self.previous().span),
             };
         }
         Ok(expr)
@@ -495,7 +487,7 @@ impl<'a> Parser<'a> {
 
     fn unary(&mut self) -> ParseResult<Expr> {
         if self.match_token(&[TokenKind::Minus, TokenKind::Bang]) {
-            let operator = self.previous().unwrap();
+            let operator = self.previous();
 
             let op = match operator.token_kind {
                 TokenKind::Bang => UnaryOp::Bang,
@@ -510,7 +502,7 @@ impl<'a> Parser<'a> {
             Ok(Expr::Unary {
                 op,
                 expr: Box::new(expr),
-                span: self.create_span(span, self.previous().unwrap().span),
+                span: self.create_span(span, self.previous().span),
             })
         } else {
             self.primary()
@@ -519,24 +511,28 @@ impl<'a> Parser<'a> {
 
     fn primary(&mut self) -> ParseResult<Expr> {
         if self.match_token(&[TokenKind::False]) {
-            Ok(Expr::Literal(Literal::Bool(
-                false,
-                self.previous().unwrap().span,
-            )))
+            Ok(Expr::Literal(Literal::Bool {
+                value: false,
+                span: self.previous().span,
+            }))
         } else if self.match_token(&[TokenKind::True]) {
-            Ok(Expr::Literal(Literal::Bool(
-                true,
-                self.previous().unwrap().span,
-            )))
+            Ok(Expr::Literal(Literal::Bool {
+                value: true,
+                span: self.previous().span,
+            }))
         } else if self.match_token(&[TokenKind::Nil]) {
-            Ok(Expr::Literal(Literal::Nil(self.previous().unwrap().span)))
+            Ok(Expr::Literal(Literal::Nil {
+                span: self.previous().span,
+            }))
         } else if self.match_token(&[TokenKind::LeftParen]) {
-            let opening_paren = self.previous().unwrap().clone();
+            let opening_paren = self.previous().clone();
 
             if self.match_token(&[TokenKind::RightParen]) {
                 return Ok(Expr::Grouping {
-                    expr: Box::new(Expr::Literal(Literal::Nil(self.previous().unwrap().span))),
-                    span: self.create_span(opening_paren.span, self.previous().unwrap().span),
+                    expr: Box::new(Expr::Literal(Literal::Nil {
+                        span: self.previous().span,
+                    })),
+                    span: self.create_span(opening_paren.span, self.previous().span),
                 });
             }
 
@@ -554,11 +550,11 @@ impl<'a> Parser<'a> {
                     src: self.source.to_string(),
                     span: opening_paren.span,
                 };
-                self.errors.push(error.into());
+                self.report(error.into())
             }
             Ok(Expr::Grouping {
                 expr: Box::new(expr),
-                span: self.create_span(opening_paren.span, self.previous().unwrap().span),
+                span: self.create_span(opening_paren.span, self.previous().span),
             })
         } else if self.match_token(&[
             TokenKind::Plus,
@@ -572,7 +568,7 @@ impl<'a> Parser<'a> {
             TokenKind::BangEqual,
             TokenKind::EqualEqual,
         ]) {
-            let token = self.previous().unwrap();
+            let token = self.previous();
             let error = MissingOperand {
                 src: self.source.to_string(),
                 span: token.span,
@@ -588,7 +584,7 @@ impl<'a> Parser<'a> {
         } else if self.match_token(&[TokenKind::Semicolon]) {
             let error = RedundantSemicolon {
                 src: self.source.to_string(),
-                span: self.previous().unwrap().span,
+                span: self.previous().span,
             };
 
             Err(error.into())
@@ -609,13 +605,19 @@ impl<'a> Parser<'a> {
                             .into());
                         }
                     }
-                    Ok(Expr::Literal(Literal::Number(number, span)))
+                    Ok(Expr::Literal(Literal::Number {
+                        value: number,
+                        span,
+                    }))
                 }
                 TokenKind::String(value) => {
                     let span = token.span.clone();
                     let string = value.clone();
                     self.advance();
-                    Ok(Expr::Literal(Literal::String(string, span)))
+                    Ok(Expr::Literal(Literal::String {
+                        value: string,
+                        span,
+                    }))
                 }
                 TokenKind::Ident(name) => {
                     let string = name.clone();
