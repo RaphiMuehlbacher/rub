@@ -94,14 +94,42 @@ pub enum ParseError {
     #[error("Missing variable name in declaration")]
     #[diagnostic(
         help("Variable declarations must include a variable name."),
-        code(parser::missing_variable_name)
+        code(parser::missing_variable_declaration_name)
     )]
-    MissingVariableName {
+    MissingVariableDeclarationName {
         #[source_code]
         src: String,
 
         #[label("variable name expected after 'var' keyword")]
         span: SourceSpan,
+    },
+
+    #[error("Missing variable name in assignment")]
+    #[diagnostic(
+        help("Variable assignments must include a variable name."),
+        code(parser::missing_variable_assignment_name)
+    )]
+    MissingVariableAssignmentName {
+        #[source_code]
+        src: String,
+
+        #[label("variable name expected")]
+        span: SourceSpan,
+    },
+
+    #[error("Invalid assignment target: {message}")]
+    #[diagnostic(
+        help("Only variables can be assignment targets"),
+        code(parser::invalid_assignment_target)
+    )]
+    InvalidAssignmentTarget {
+        #[source_code]
+        src: String,
+
+        #[label("cannot assign to this")]
+        span: SourceSpan,
+
+        message: String,
     },
 }
 

@@ -1,6 +1,7 @@
 use crate::error::ParseError;
 use crate::error::ParseError::{
-    ExpectedExpression, MissingOperand, MissingSemicolon, MissingVariableName, RedundantSemicolon,
+    ExpectedExpression, InvalidAssignmentTarget, MissingOperand, MissingSemicolon,
+    MissingVariableAssignmentName, MissingVariableDeclarationName, RedundantSemicolon,
     UnclosedParenthesis, UnexpectedEOF, UnexpectedToken,
 };
 use crate::{lexer, TokenKind};
@@ -40,14 +41,19 @@ pub enum Expr {
         name: String,
         span: SourceSpan,
     },
+    Assign {
+        name: String,
+        value: Box<Expr>,
+        span: SourceSpan,
+    },
 }
 
 #[derive(Debug)]
 enum Literal {
-    Number(f64),
-    String(String),
-    Bool(bool),
-    Nil,
+    Number(f64, SourceSpan),
+    String(String, SourceSpan),
+    Bool(bool, SourceSpan),
+    Nil(SourceSpan),
 }
 
 #[derive(Debug)]
@@ -216,9 +222,29 @@ impl<'a> Parser<'a> {
                     self.advance();
                     name_clone
                 }
+                TokenKind::Number(value) => {
+                    let span = token.span;
+                    self.advance();
+                    if let Some(next_token) = self.peek() {
+                        if matches!(next_token.token_kind, TokenKind::Ident(_)) {
+                            return Err(InvalidAssignmentTarget {
+                                src: self.source.to_string(),
+                                span,
+                                message: "A variable cannot start with a number".to_string(),
+                            }
+                            .into());
+                        }
+                    }
+                    return Err(InvalidAssignmentTarget {
+                        src: self.source.to_string(),
+                        span,
+                        message: "A variable name cannot be a number".to_string(),
+                    }
+                    .into());
+                }
                 TokenKind::Semicolon | TokenKind::Equal => {
                     let prev_token = self.previous().unwrap();
-                    return Err(MissingVariableName {
+                    return Err(MissingVariableDeclarationName {
                         src: self.source.to_string(),
                         span: prev_token.span,
                     }
@@ -286,7 +312,60 @@ impl<'a> Parser<'a> {
     }
 
     fn expression(&mut self) -> ParseResult<Expr> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> ParseResult<Expr> {
+        let expr = self.equality()?;
+
+        if self.match_token(&[TokenKind::Equal]) {
+            let equal_span = self.previous().unwrap().span;
+
+            let result = self.expression();
+            let value = match result {
+                Ok(val) => val,
+                Err(_) => {
+                    return Err(ExpectedExpression {
+                        src: self.source.to_string(),
+                        span: equal_span,
+                    }
+                    .into())
+                }
+            };
+
+            return match expr {
+                Expr::Variable { name, span } => Ok(Expr::Assign {
+                    name,
+                    span,
+                    value: Box::new(value),
+                }),
+                Expr::Literal(Literal::Number(_, span)) => {
+                    match self.peek().unwrap().token_kind {
+                        TokenKind::Ident(_) => {
+                            return Err(InvalidAssignmentTarget {
+                                src: self.source.to_string(),
+                                span,
+                                message: "A variable cannot start with a number".to_string(),
+                            }
+                            .into());
+                        }
+                        _ => {}
+                    }
+                    Err(InvalidAssignmentTarget {
+                        src: self.source.to_string(),
+                        span,
+                        message: "Cannot assign to a number literal".to_string(),
+                    }
+                    .into())
+                }
+                _ => Err(MissingVariableAssignmentName {
+                    src: self.source.to_string(),
+                    span: equal_span,
+                }
+                .into()),
+            };
+        }
+        Ok(expr)
     }
 
     fn equality(&mut self) -> ParseResult<Expr> {
@@ -412,16 +491,24 @@ impl<'a> Parser<'a> {
 
     fn primary(&mut self) -> ParseResult<Expr> {
         if self.match_token(&[TokenKind::False]) {
-            Ok(Expr::Literal(Literal::Bool(false)))
+            Ok(Expr::Literal(Literal::Bool(
+                false,
+                self.previous().unwrap().span,
+            )))
         } else if self.match_token(&[TokenKind::True]) {
-            Ok(Expr::Literal(Literal::Bool(true)))
+            Ok(Expr::Literal(Literal::Bool(
+                true,
+                self.previous().unwrap().span,
+            )))
         } else if self.match_token(&[TokenKind::Nil]) {
-            Ok(Expr::Literal(Literal::Nil))
+            Ok(Expr::Literal(Literal::Nil(self.previous().unwrap().span)))
         } else if self.match_token(&[TokenKind::LeftParen]) {
             let opening_paren = self.previous().unwrap().clone();
 
             if self.match_token(&[TokenKind::RightParen]) {
-                return Ok(Expr::Grouping(Box::new(Expr::Literal(Literal::Nil))));
+                return Ok(Expr::Grouping(Box::new(Expr::Literal(Literal::Nil(
+                    self.previous().unwrap().span,
+                )))));
             }
 
             if self.check(TokenKind::EOF) {
@@ -476,14 +563,27 @@ impl<'a> Parser<'a> {
         } else if let Some(token) = self.peek() {
             match &token.token_kind {
                 TokenKind::Number(value) => {
+                    let span = token.span.clone();
                     let number = *value;
                     self.advance();
-                    Ok(Expr::Literal(Literal::Number(number)))
+
+                    if let Some(next_token) = self.peek() {
+                        if matches!(next_token.token_kind, TokenKind::Ident(_)) {
+                            return Err(InvalidAssignmentTarget {
+                                src: self.source.to_string(),
+                                span,
+                                message: "A variable cannot start with a number".to_string(),
+                            }
+                            .into());
+                        }
+                    }
+                    Ok(Expr::Literal(Literal::Number(number, span)))
                 }
                 TokenKind::String(value) => {
+                    let span = token.span.clone();
                     let string = value.clone();
                     self.advance();
-                    Ok(Expr::Literal(Literal::String(string)))
+                    Ok(Expr::Literal(Literal::String(string, span)))
                 }
                 TokenKind::Ident(name) => {
                     let string = name.clone();
