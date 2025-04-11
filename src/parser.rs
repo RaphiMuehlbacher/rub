@@ -14,13 +14,16 @@ type ParseResult<T> = Result<T, Report>;
 pub enum Stmt {
     ExprStmt {
         expr: Expr,
+        span: SourceSpan,
     },
     PrintStmt {
         expr: Expr,
+        span: SourceSpan,
     },
     VarDecl {
         name: String,
         initializer: Option<Expr>,
+        span: SourceSpan,
     },
 }
 
@@ -30,13 +33,18 @@ pub enum Expr {
     Unary {
         op: UnaryOp,
         expr: Box<Expr>,
+        span: SourceSpan,
     },
     Binary {
         left: Box<Expr>,
         op: BinaryOp,
         right: Box<Expr>,
+        span: SourceSpan,
     },
-    Grouping(Box<Expr>),
+    Grouping {
+        expr: Box<Expr>,
+        span: SourceSpan,
+    },
     Variable {
         name: String,
         span: SourceSpan,
@@ -134,6 +142,13 @@ impl<'a> Parser<'a> {
         false
     }
 
+    fn create_span(&self, start: SourceSpan, end: SourceSpan) -> SourceSpan {
+        let left = SourceOffset::from(start.offset());
+        let right = end.offset() + end.len();
+
+        SourceSpan::new(left, right)
+    }
+
     pub fn get_errors(&self) -> &Vec<Report> {
         &self.errors
     }
@@ -215,6 +230,7 @@ impl<'a> Parser<'a> {
     }
 
     fn var_declaration(&mut self) -> ParseResult<Stmt> {
+        let left = self.peek().unwrap().span;
         let name = if let Some(token) = self.peek() {
             match &token.token_kind {
                 TokenKind::Ident(name) => {
@@ -222,7 +238,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     name_clone
                 }
-                TokenKind::Number(value) => {
+                TokenKind::Number(_) => {
                     let span = token.span;
                     self.advance();
                     if let Some(next_token) = self.peek() {
@@ -251,8 +267,6 @@ impl<'a> Parser<'a> {
                     .into());
                 }
                 _ => {
-                    // handle number to make mismatched type
-                    // if next token is string then make that variables can only start with string
                     let token = token.clone();
                     return Err(UnexpectedToken {
                         src: self.source.to_string(),
@@ -285,6 +299,7 @@ impl<'a> Parser<'a> {
         Ok(Stmt::VarDecl {
             name: name.to_string(),
             initializer,
+            span: self.create_span(left, self.previous().unwrap().span),
         })
     }
 
@@ -296,19 +311,27 @@ impl<'a> Parser<'a> {
     }
 
     fn expression_stmt(&mut self) -> ParseResult<Stmt> {
+        let left = self.peek().unwrap().span;
         let value = self.expression()?;
 
         self.expect_semicolon();
 
-        Ok(Stmt::ExprStmt { expr: value })
+        Ok(Stmt::ExprStmt {
+            expr: value,
+            span: self.create_span(left, self.previous().unwrap().span),
+        })
     }
 
     fn print_stmt(&mut self) -> ParseResult<Stmt> {
+        let left = self.peek().unwrap().span;
         let value = self.expression()?;
 
         self.expect_semicolon();
 
-        Ok(Stmt::PrintStmt { expr: value })
+        Ok(Stmt::PrintStmt {
+            expr: value,
+            span: self.create_span(left, self.previous().unwrap().span),
+        })
     }
 
     fn expression(&mut self) -> ParseResult<Expr> {
@@ -385,6 +408,7 @@ impl<'a> Parser<'a> {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
+                span: self.create_span(span, self.previous().unwrap().span),
             };
         }
         Ok(expr)
@@ -415,6 +439,7 @@ impl<'a> Parser<'a> {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
+                span: self.create_span(span, self.previous().unwrap().span),
             };
         }
         Ok(expr)
@@ -438,6 +463,7 @@ impl<'a> Parser<'a> {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
+                span: self.create_span(span, self.previous().unwrap().span),
             };
         }
         Ok(expr)
@@ -461,6 +487,7 @@ impl<'a> Parser<'a> {
                 left: Box::new(expr),
                 op,
                 right: Box::new(right),
+                span: self.create_span(span, self.previous().unwrap().span),
             };
         }
         Ok(expr)
@@ -483,6 +510,7 @@ impl<'a> Parser<'a> {
             Ok(Expr::Unary {
                 op,
                 expr: Box::new(expr),
+                span: self.create_span(span, self.previous().unwrap().span),
             })
         } else {
             self.primary()
@@ -506,9 +534,10 @@ impl<'a> Parser<'a> {
             let opening_paren = self.previous().unwrap().clone();
 
             if self.match_token(&[TokenKind::RightParen]) {
-                return Ok(Expr::Grouping(Box::new(Expr::Literal(Literal::Nil(
-                    self.previous().unwrap().span,
-                )))));
+                return Ok(Expr::Grouping {
+                    expr: Box::new(Expr::Literal(Literal::Nil(self.previous().unwrap().span))),
+                    span: self.create_span(opening_paren.span, self.previous().unwrap().span),
+                });
             }
 
             if self.check(TokenKind::EOF) {
@@ -527,7 +556,10 @@ impl<'a> Parser<'a> {
                 };
                 self.errors.push(error.into());
             }
-            Ok(Expr::Grouping(Box::new(expr)))
+            Ok(Expr::Grouping {
+                expr: Box::new(expr),
+                span: self.create_span(opening_paren.span, self.previous().unwrap().span),
+            })
         } else if self.match_token(&[
             TokenKind::Plus,
             TokenKind::Minus,
