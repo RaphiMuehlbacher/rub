@@ -17,6 +17,34 @@ pub enum ParseError {
         span: SourceSpan,
     },
 
+    #[error("Expected left parenthesis after `{paren_type}`")]
+    #[diagnostic(
+        help("The condition of {paren_type} must be enclosed in parenthesis"),
+        code(parser::missing_left_paren)
+    )]
+    MissingLeftParenthesis {
+        #[source_code]
+        src: String,
+
+        #[label("expected '(' here")]
+        span: SourceSpan,
+        paren_type: String,
+    },
+
+    #[error("Expected right parenthesis after `{paren_type}`")]
+    #[diagnostic(
+        help("The condition of {paren_type} must be enclosed in parenthesis"),
+        code(parser::missing_right_paren)
+    )]
+    MissingRightParenthesis {
+        #[source_code]
+        src: String,
+
+        #[label("expected ')' here")]
+        span: SourceSpan,
+        paren_type: String,
+    },
+
     #[error("Unclosed brace")]
     #[diagnostic(
         help("Make sure all opening braces are closed."),
@@ -27,6 +55,32 @@ pub enum ParseError {
         src: String,
 
         #[label("opening brace here requires a matching closing one")]
+        span: SourceSpan,
+    },
+
+    #[error("Unexpected closing brace")]
+    #[diagnostic(
+        help("This closing brace doesn't have a matching opening brace."),
+        code(parser::unexpected_closing_brace)
+    )]
+    UnexpectedClosingBrace {
+        #[source_code]
+        src: String,
+
+        #[label("unexpected closing brace with no matching opening brace")]
+        span: SourceSpan,
+    },
+
+    #[error("Invalid condition in if statement")]
+    #[diagnostic(
+        help("The condition in an if statement must be a valid expression."),
+        code(parser::invalid_condition)
+    )]
+    InvalidCondition {
+        #[source_code]
+        src: String,
+
+        #[label("invalid condition here")]
         span: SourceSpan,
     },
 

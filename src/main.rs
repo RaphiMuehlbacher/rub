@@ -11,14 +11,14 @@ fn main() {
     let tokens = lexer.lex();
 
     for err in lexer.get_errors() {
-        eprintln!("Lexing error: {:?}", err);
+        println!("Lexing error: {:?}", err);
     }
 
     let mut parser = Parser::new(tokens, source.as_str());
     let ast = parser.parse();
 
     for error in parser.get_errors() {
-        eprintln!("{:?}", error);
+        println!("{:?}", error);
     }
 
     println!("{:?}", ast);

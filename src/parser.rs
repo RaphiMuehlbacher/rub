@@ -1,8 +1,9 @@
 use crate::error::ParseError;
 use crate::error::ParseError::{
-    ExpectedExpression, InvalidAssignmentTarget, MissingOperand, MissingSemicolon,
-    MissingVariableAssignmentName, MissingVariableDeclarationName, RedundantSemicolon,
-    UnclosedBrace, UnclosedParenthesis, UnexpectedEOF, UnexpectedToken,
+    ExpectedExpression, InvalidAssignmentTarget, InvalidCondition, MissingLeftParenthesis,
+    MissingOperand, MissingRightParenthesis, MissingSemicolon, MissingVariableAssignmentName,
+    MissingVariableDeclarationName, RedundantSemicolon, UnclosedBrace, UnclosedParenthesis,
+    UnexpectedClosingBrace, UnexpectedEOF, UnexpectedToken,
 };
 use crate::{lexer, TokenKind};
 use lexer::Token;
@@ -28,6 +29,11 @@ pub enum Stmt {
     Block {
         stmts: Vec<Stmt>,
         span: SourceSpan,
+    },
+    If {
+        condition: Expr,
+        then_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
     },
 }
 
@@ -145,8 +151,9 @@ impl<'a> Parser<'a> {
     fn create_span(&self, start: SourceSpan, end: SourceSpan) -> SourceSpan {
         let left = SourceOffset::from(start.offset());
         let right = end.offset() + end.len();
+        let length = right - left.offset();
 
-        SourceSpan::new(left, right)
+        SourceSpan::new(left, length)
     }
 
     pub fn get_errors(self) -> Vec<Report> {
@@ -197,7 +204,7 @@ impl<'a> Parser<'a> {
             }
 
             match self.peek().map(|t| &t.token_kind) {
-                Some(TokenKind::Print | TokenKind::EOF | TokenKind::Var) => return,
+                Some(TokenKind::Print | TokenKind::EOF | TokenKind::Var | TokenKind::If) => return,
                 _ => self.advance(),
             }
         }
@@ -304,6 +311,8 @@ impl<'a> Parser<'a> {
             return self.print_stmt();
         } else if self.match_token(&[TokenKind::LeftBrace]) {
             return self.block();
+        } else if self.match_token(&[TokenKind::If]) {
+            return self.if_stmt();
         }
         self.expression_stmt()
     }
@@ -357,6 +366,72 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Block {
             stmts: statements,
             span: self.create_span(opening_brace_span, closing_brace.span),
+        })
+    }
+
+    fn if_stmt(&mut self) -> ParseResult<Stmt> {
+        if !self.match_token(&[TokenKind::LeftParen]) {
+            self.report(
+                MissingLeftParenthesis {
+                    src: self.source.to_string(),
+                    span: self.peek().unwrap().span,
+                    paren_type: "if".to_string(),
+                }
+                .into(),
+            );
+        }
+
+        let left_paren_span = self.previous().span;
+
+        let condition = match self.expression() {
+            Ok(con) => con,
+            Err(_) => {
+                while !self.is_at_end() && !self.check(TokenKind::RightParen) {
+                    self.advance();
+                }
+
+                let error = InvalidCondition {
+                    src: self.source.to_string(),
+                    span: self.create_span(left_paren_span, self.peek().unwrap().span),
+                };
+                self.report(error.into());
+                Expr::LiteralExpr(Literal::Bool {
+                    value: true,
+                    span: self.previous().span,
+                })
+            }
+        };
+
+        if !self.match_token(&[TokenKind::RightParen]) {
+            self.report(
+                MissingRightParenthesis {
+                    src: self.source.to_string(),
+                    span: self.peek().unwrap().span,
+                    paren_type: "if".to_string(),
+                }
+                .into(),
+            );
+        }
+
+        let then_branch = self.statement()?;
+        if self.check(TokenKind::RightBrace) {
+            self.report(
+                UnexpectedClosingBrace {
+                    src: self.source.to_string(),
+                    span: self.peek().unwrap().span,
+                }
+                .into(),
+            );
+            self.advance();
+        }
+        let mut else_branch = None;
+        if self.match_token(&[TokenKind::Else]) {
+            else_branch = Some(Box::new(self.statement()?));
+        }
+        Ok(Stmt::If {
+            condition,
+            then_branch: Box::new(then_branch),
+            else_branch,
         })
     }
 
