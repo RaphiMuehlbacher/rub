@@ -2,11 +2,11 @@ use crate::error::ParseError;
 use crate::error::ParseError::{
     ExpectedExpression, InvalidAssignmentTarget, MissingOperand, MissingSemicolon,
     MissingVariableAssignmentName, MissingVariableDeclarationName, RedundantSemicolon,
-    UnclosedParenthesis, UnexpectedEOF, UnexpectedToken,
+    UnclosedBrace, UnclosedParenthesis, UnexpectedEOF, UnexpectedToken,
 };
 use crate::{lexer, TokenKind};
 use lexer::Token;
-use miette::{Error, Report, SourceOffset, SourceSpan};
+use miette::{Report, SourceOffset, SourceSpan};
 
 type ParseResult<T> = Result<T, Report>;
 
@@ -23,6 +23,10 @@ pub enum Stmt {
     VarDecl {
         name: String,
         initializer: Option<Expr>,
+        span: SourceSpan,
+    },
+    Block {
+        stmts: Vec<Stmt>,
         span: SourceSpan,
     },
 }
@@ -298,6 +302,8 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> ParseResult<Stmt> {
         if self.match_token(&[TokenKind::Print]) {
             return self.print_stmt();
+        } else if self.match_token(&[TokenKind::LeftBrace]) {
+            return self.block();
         }
         self.expression_stmt()
     }
@@ -326,6 +332,34 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn block(&mut self) -> ParseResult<Stmt> {
+        let opening_brace_span = self.previous().span;
+        let mut statements = vec![];
+        while !self.match_token(&[TokenKind::RightBrace]) && !self.is_at_end() {
+            let statement = self.declaration();
+            match statement {
+                Ok(stmt) => statements.push(stmt),
+                Err(err) => {
+                    self.report(err);
+                    self.synchronize();
+                }
+            }
+        }
+
+        let closing_brace = self.previous();
+        if !(closing_brace.token_kind == TokenKind::RightBrace) {
+            return Err(UnclosedBrace {
+                src: self.source.to_string(),
+                span: opening_brace_span,
+            }
+            .into());
+        }
+        Ok(Stmt::Block {
+            stmts: statements,
+            span: self.create_span(opening_brace_span, closing_brace.span),
+        })
+    }
+
     fn expression(&mut self) -> ParseResult<Expr> {
         self.assignment()
     }
@@ -342,7 +376,7 @@ impl<'a> Parser<'a> {
                 Err(_) => {
                     return Err(ExpectedExpression {
                         src: self.source.to_string(),
-                        span: equal_span,
+                        span: self.previous().span,
                     }
                     .into())
                 }
@@ -354,7 +388,7 @@ impl<'a> Parser<'a> {
                     span,
                     value: Box::new(value),
                 }),
-                Expr::Literal(Literal::Number { value, span }) => {
+                Expr::Literal(Literal::Number { value: _, span }) => {
                     if let Some(next_token) = self.peek() {
                         if matches!(next_token.token_kind, TokenKind::Ident(_)) {
                             return Err(InvalidAssignmentTarget {
@@ -550,7 +584,7 @@ impl<'a> Parser<'a> {
                     src: self.source.to_string(),
                     span: opening_paren.span,
                 };
-                self.report(error.into())
+                return Err(error.into());
             }
             Ok(Expr::Grouping {
                 expr: Box::new(expr),
@@ -633,7 +667,6 @@ impl<'a> Parser<'a> {
                         found: token.token_kind,
                         expected: "literal or '('".to_string(),
                     };
-                    self.synchronize();
                     Err(error.into())
                 }
             }

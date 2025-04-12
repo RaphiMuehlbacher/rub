@@ -4,7 +4,7 @@ use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum ParseError {
-    #[error("Unclosed paranthesis")]
+    #[error("Unclosed parenthesis")]
     #[diagnostic(
         help("Make sure all opening parentheses are closed."),
         code(parser::unclosed_paren)
@@ -14,6 +14,19 @@ pub enum ParseError {
         src: String,
 
         #[label("opening parenthesis here requires a matching closing one")]
+        span: SourceSpan,
+    },
+
+    #[error("Unclosed brace")]
+    #[diagnostic(
+        help("Make sure all opening braces are closed."),
+        code(parser::unclosed_paren)
+    )]
+    UnclosedBrace {
+        #[source_code]
+        src: String,
+
+        #[label("opening brace here requires a matching closing one")]
         span: SourceSpan,
     },
 
