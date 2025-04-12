@@ -58,7 +58,8 @@ pub struct Token<'a> {
 
 pub struct Lexer<'a> {
     source: &'a str,
-    tokens: Vec<Result<Token<'a>, Report>>,
+    tokens: Vec<Token<'a>>,
+    errors: Vec<Report>,
     position: usize,
     start: usize,
 }
@@ -68,11 +69,17 @@ impl<'a> Lexer<'a> {
         Lexer {
             source,
             tokens: vec![],
+            errors: vec![],
             position: 0,
             start: 0,
         }
     }
-    pub fn lex(&mut self) -> &Vec<Result<Token<'a>, Report>> {
+
+    pub fn get_errors(self) -> Vec<Report> {
+        self.errors
+    }
+
+    pub fn lex(&mut self) -> Vec<Token<'a>> {
         while self.position < self.source.len() {
             self.start = self.position;
             let c = self.source[self.position..].chars().next().unwrap();
@@ -80,15 +87,15 @@ impl<'a> Lexer<'a> {
             self.position += c.len_utf8();
 
             let token = match c {
-                '(' => Ok(self.create_token(TokenKind::LeftParen)),
-                ')' => Ok(self.create_token(TokenKind::RightParen)),
-                '{' => Ok(self.create_token(TokenKind::LeftBrace)),
-                '}' => Ok(self.create_token(TokenKind::RightBrace)),
-                ',' => Ok(self.create_token(TokenKind::Comma)),
-                '.' => Ok(self.create_token(TokenKind::Dot)),
-                '-' => Ok(self.create_token(TokenKind::Minus)),
-                '+' => Ok(self.create_token(TokenKind::Plus)),
-                ';' => Ok(self.create_token(TokenKind::Semicolon)),
+                '(' => self.create_token(TokenKind::LeftParen),
+                ')' => self.create_token(TokenKind::RightParen),
+                '{' => self.create_token(TokenKind::LeftBrace),
+                '}' => self.create_token(TokenKind::RightBrace),
+                ',' => self.create_token(TokenKind::Comma),
+                '.' => self.create_token(TokenKind::Dot),
+                '-' => self.create_token(TokenKind::Minus),
+                '+' => self.create_token(TokenKind::Plus),
+                ';' => self.create_token(TokenKind::Semicolon),
                 '/' => {
                     if self.match_char('/') {
                         while self.position < self.source.len() && !self.match_char('\n') {
@@ -98,36 +105,36 @@ impl<'a> Lexer<'a> {
                         }
                         continue;
                     } else {
-                        Ok(self.create_token(TokenKind::Slash))
+                        self.create_token(TokenKind::Slash)
                     }
                 }
-                '*' => Ok(self.create_token(TokenKind::Star)),
+                '*' => self.create_token(TokenKind::Star),
                 '!' => {
                     if self.match_char('=') {
-                        Ok(self.create_token(TokenKind::BangEqual))
+                        self.create_token(TokenKind::BangEqual)
                     } else {
-                        Ok(self.create_token(TokenKind::Bang))
+                        self.create_token(TokenKind::Bang)
                     }
                 }
                 '=' => {
                     if self.match_char('=') {
-                        Ok(self.create_token(TokenKind::EqualEqual))
+                        self.create_token(TokenKind::EqualEqual)
                     } else {
-                        Ok(self.create_token(TokenKind::Equal))
+                        self.create_token(TokenKind::Equal)
                     }
                 }
                 '<' => {
                     if self.match_char('=') {
-                        Ok(self.create_token(TokenKind::LessEqual))
+                        self.create_token(TokenKind::LessEqual)
                     } else {
-                        Ok(self.create_token(TokenKind::Less))
+                        self.create_token(TokenKind::Less)
                     }
                 }
                 '>' => {
                     if self.match_char('=') {
-                        Ok(self.create_token(TokenKind::GreaterEqual))
+                        self.create_token(TokenKind::GreaterEqual)
                     } else {
-                        Ok(self.create_token(TokenKind::Greater))
+                        self.create_token(TokenKind::Greater)
                     }
                 }
                 '"' => {
@@ -136,14 +143,18 @@ impl<'a> Lexer<'a> {
                         Some(pos) => {
                             let end_offset = pos + 1;
                             self.position = self.start + end_offset + 1;
-                            Ok(self
-                                .create_token(TokenKind::String(rest[1..end_offset].to_string())))
+                            self.create_token(TokenKind::String(rest[1..end_offset].to_string()))
                         }
-                        None => Err(LexError::UnterminatedString {
-                            span: (self.start..self.source.len()).into(),
-                            src: self.source.to_string(),
+                        None => {
+                            self.errors.push(
+                                LexError::UnterminatedString {
+                                    span: (self.start..self.source.len()).into(),
+                                    src: self.source.to_string(),
+                                }
+                                .into(),
+                            );
+                            continue;
                         }
-                        .into()),
                     };
                     token
                 }
@@ -177,7 +188,7 @@ impl<'a> Lexer<'a> {
                         _ => TokenKind::Ident(literal.to_string()),
                     };
 
-                    Ok(self.create_token(kind))
+                    self.create_token(kind)
                 }
                 '0'..='9' => {
                     let rest = &self.source[self.start..];
@@ -193,31 +204,36 @@ impl<'a> Lexer<'a> {
                             .unwrap_or(rest_after_dot.len());
 
                         self.position += second_part_offset;
-                        Ok(Token {
+                        Token {
                             token_kind: TokenKind::Number(
                                 self.source[self.start..self.position].parse().unwrap(),
                             ),
                             span: SourceSpan::new(self.start.into(), self.position - self.start),
                             literal: &self.source[self.start..self.position],
-                        })
+                        }
                     } else {
-                        Ok(Token {
+                        Token {
                             token_kind: TokenKind::Number(
                                 rest[..first_part_offset].parse().unwrap(),
                             ),
                             span: SourceSpan::new(self.start.into(), self.position - self.start),
                             literal: &rest[..first_part_offset],
-                        })
+                        }
                     }
                 }
 
                 ' ' | '\r' | '\t' | '\n' => continue,
-                _ => Err(LexError::UnexpectedCharacter {
-                    span: self.start.into(),
-                    src: self.source.to_string(),
-                    character: c,
+                _ => {
+                    self.errors.push(
+                        LexError::UnexpectedCharacter {
+                            span: self.start.into(),
+                            src: self.source.to_string(),
+                            character: c,
+                        }
+                        .into(),
+                    );
+                    continue;
                 }
-                .into()),
             };
             self.tokens.push(token);
         }
@@ -226,9 +242,8 @@ impl<'a> Lexer<'a> {
             span: SourceSpan::from(self.source.len()),
             literal: "",
         };
-        self.tokens.push(Ok(eof_token));
-
-        &self.tokens
+        self.tokens.push(eof_token);
+        self.tokens.clone()
     }
 
     fn create_token(&self, token_kind: TokenKind) -> Token<'a> {

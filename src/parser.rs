@@ -33,7 +33,7 @@ pub enum Stmt {
 
 #[derive(Debug)]
 pub enum Expr {
-    Literal(Literal),
+    LiteralExpr(Literal),
     Unary {
         op: UnaryOp,
         expr: Box<Expr>,
@@ -61,7 +61,7 @@ pub enum Expr {
 }
 
 #[derive(Debug)]
-enum Literal {
+pub enum Literal {
     Number { value: f64, span: SourceSpan },
     String { value: String, span: SourceSpan },
     Bool { value: bool, span: SourceSpan },
@@ -69,13 +69,13 @@ enum Literal {
 }
 
 #[derive(Debug)]
-enum UnaryOp {
+pub enum UnaryOp {
     Bang,
     Minus,
 }
 
 #[derive(Debug)]
-enum BinaryOp {
+pub enum BinaryOp {
     Plus,
     Minus,
     Star,
@@ -149,8 +149,8 @@ impl<'a> Parser<'a> {
         SourceSpan::new(left, right)
     }
 
-    pub fn get_errors(&self) -> &Vec<Report> {
-        &self.errors
+    pub fn get_errors(self) -> Vec<Report> {
+        self.errors
     }
 
     fn report(&mut self, error: Report) {
@@ -388,7 +388,7 @@ impl<'a> Parser<'a> {
                     span,
                     value: Box::new(value),
                 }),
-                Expr::Literal(Literal::Number { value: _, span }) => {
+                Expr::LiteralExpr(Literal::Number { value: _, span }) => {
                     if let Some(next_token) = self.peek() {
                         if matches!(next_token.token_kind, TokenKind::Ident(_)) {
                             return Err(InvalidAssignmentTarget {
@@ -545,17 +545,17 @@ impl<'a> Parser<'a> {
 
     fn primary(&mut self) -> ParseResult<Expr> {
         if self.match_token(&[TokenKind::False]) {
-            Ok(Expr::Literal(Literal::Bool {
+            Ok(Expr::LiteralExpr(Literal::Bool {
                 value: false,
                 span: self.previous().span,
             }))
         } else if self.match_token(&[TokenKind::True]) {
-            Ok(Expr::Literal(Literal::Bool {
+            Ok(Expr::LiteralExpr(Literal::Bool {
                 value: true,
                 span: self.previous().span,
             }))
         } else if self.match_token(&[TokenKind::Nil]) {
-            Ok(Expr::Literal(Literal::Nil {
+            Ok(Expr::LiteralExpr(Literal::Nil {
                 span: self.previous().span,
             }))
         } else if self.match_token(&[TokenKind::LeftParen]) {
@@ -563,7 +563,7 @@ impl<'a> Parser<'a> {
 
             if self.match_token(&[TokenKind::RightParen]) {
                 return Ok(Expr::Grouping {
-                    expr: Box::new(Expr::Literal(Literal::Nil {
+                    expr: Box::new(Expr::LiteralExpr(Literal::Nil {
                         span: self.previous().span,
                     })),
                     span: self.create_span(opening_paren.span, self.previous().span),
@@ -639,7 +639,7 @@ impl<'a> Parser<'a> {
                             .into());
                         }
                     }
-                    Ok(Expr::Literal(Literal::Number {
+                    Ok(Expr::LiteralExpr(Literal::Number {
                         value: number,
                         span,
                     }))
@@ -648,7 +648,7 @@ impl<'a> Parser<'a> {
                     let span = token.span.clone();
                     let string = value.clone();
                     self.advance();
-                    Ok(Expr::Literal(Literal::String {
+                    Ok(Expr::LiteralExpr(Literal::String {
                         value: string,
                         span,
                     }))
