@@ -1,5 +1,5 @@
 use crate::TokenKind;
-use miette::{diagnostic, Diagnostic, NamedSource, Severity, SourceSpan};
+use miette::{diagnostic, Diagnostic, SourceSpan};
 use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]

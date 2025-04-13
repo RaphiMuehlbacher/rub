@@ -35,6 +35,12 @@ pub enum Stmt {
         condition: Expr,
         then_branch: Box<Stmt>,
         else_branch: Option<Box<Stmt>>,
+        span: SourceSpan,
+    },
+    While {
+        condition: Expr,
+        body: Box<Stmt>,
+        span: SourceSpan,
     },
 }
 
@@ -326,6 +332,8 @@ impl<'a> Parser<'a> {
             return self.block();
         } else if self.match_token(&[TokenKind::If]) {
             return self.if_stmt();
+        } else if self.match_token(&[TokenKind::While]) {
+            return self.while_stmt();
         }
         self.expression_stmt()
     }
@@ -408,8 +416,8 @@ impl<'a> Parser<'a> {
                     span: self.create_span(left_paren_span, self.peek().unwrap().span),
                 };
                 self.report(error.into());
-                Expr::LiteralExpr(Literal::Bool {
-                    value: true,
+                LiteralExpr(Literal::Bool {
+                    value: false,
                     span: self.previous().span,
                 })
             }
@@ -445,6 +453,67 @@ impl<'a> Parser<'a> {
             condition,
             then_branch: Box::new(then_branch),
             else_branch,
+            span: self.create_span(left_paren_span, self.previous().span),
+        })
+    }
+
+    fn while_stmt(&mut self) -> ParseResult<Stmt> {
+        if !self.match_token(&[TokenKind::LeftParen]) {
+            let error = MissingLeftParenthesis {
+                src: self.source.to_string(),
+                span: self.peek().unwrap().span,
+                paren_type: "while".to_string(),
+            };
+            self.report(error.into());
+        }
+
+        let left_span = self.previous().span;
+
+        let condition = match self.expression() {
+            Ok(con) => con,
+            Err(_) => {
+                while !self.is_at_end() && !self.check(TokenKind::RightParen) {
+                    self.advance();
+                }
+
+                let error = InvalidCondition {
+                    src: self.source.to_string(),
+                    span: self.create_span(left_span, self.peek().unwrap().span),
+                };
+                self.report(error.into());
+                LiteralExpr(Literal::Bool {
+                    value: false,
+                    span: self.previous().span,
+                })
+            }
+        };
+
+        if !self.match_token(&[TokenKind::RightParen]) {
+            self.report(
+                MissingRightParenthesis {
+                    src: self.source.to_string(),
+                    span: self.peek().unwrap().span,
+                    paren_type: "while".to_string(),
+                }
+                .into(),
+            );
+        }
+
+        let block = self.statement()?;
+        if self.check(TokenKind::RightBrace) {
+            self.report(
+                UnexpectedClosingBrace {
+                    src: self.source.to_string(),
+                    span: self.peek().unwrap().span,
+                }
+                .into(),
+            );
+            self.advance();
+        }
+        Ok(Stmt::While {
+            condition,
+            body: Box::new(block),
+            span: self.create_span(left_span, self.previous().span),
         })
     }
 
