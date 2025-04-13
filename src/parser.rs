@@ -5,7 +5,7 @@ use crate::error::ParseError::{
     MissingVariableDeclarationName, RedundantSemicolon, UnclosedBrace, UnclosedParenthesis,
     UnexpectedClosingBrace, UnexpectedEOF, UnexpectedToken,
 };
-use crate::parser::Expr::{LiteralExpr, Logical};
+use crate::parser::Expr::{Call, LiteralExpr, Logical};
 use crate::parser::Stmt::{ExprStmt, While};
 use crate::{lexer, TokenKind};
 use lexer::Token;
@@ -78,6 +78,11 @@ pub enum Expr {
         right: Box<Expr>,
         span: SourceSpan,
     },
+    Call {
+        callee: Box<Expr>,
+        arguments: Vec<Expr>,
+        span: SourceSpan,
+    },
 }
 
 #[derive(Debug)]
@@ -144,7 +149,7 @@ impl<'a> Parser<'a> {
     fn is_at_end(&self) -> bool {
         match self.peek() {
             Some(token) => token.token_kind == TokenKind::EOF,
-            None => false,
+            None => true,
         }
     }
 
@@ -563,7 +568,15 @@ impl<'a> Parser<'a> {
             let expr = self.expression()?;
             increment = Some(expr);
         }
-        self.advance();
+
+        if !self.match_token(&[TokenKind::RightParen]) {
+            let error = MissingRightParenthesis {
+                src: self.source.to_string(),
+                span: self.peek().unwrap().span,
+                paren_type: "for".to_string(),
+            };
+            self.report(error.into());
+        }
 
         let mut body = self.statement()?;
 
@@ -855,8 +868,51 @@ impl<'a> Parser<'a> {
                 span: self.create_span(span, self.previous().span),
             })
         } else {
-            self.primary()
+            self.call()
         }
+    }
+
+    fn call(&mut self) -> ParseResult<Expr> {
+        let mut expr = self.primary()?;
+
+        loop {
+            if self.match_token(&[TokenKind::LeftParen]) {
+                expr = self.finish_call(expr)?;
+            } else {
+                break;
+            }
+        }
+        Ok(expr)
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> ParseResult<Expr> {
+        let mut arguments = vec![];
+        let left_span = self.peek().unwrap().span;
+
+        if !self.check(TokenKind::RightParen) {
+            if !self.check(TokenKind::Semicolon) {
+                arguments.push(self.expression()?);
+                while self.match_token(&[TokenKind::Comma]) {
+                    arguments.push(self.expression()?);
+                }
+            }
+        }
+
+        if !self.match_token(&[TokenKind::RightParen]) {
+            self.report(
+                MissingRightParenthesis {
+                    src: self.source.to_string(),
+                    span: self.previous().span,
+                    paren_type: "arguments".to_string(),
+                }
+                .into(),
+            );
+        }
+        Ok(Call {
+            callee: Box::new(callee),
+            arguments,
+            span: self.create_span(left_span, self.previous().span),
+        })
     }
 
     fn primary(&mut self) -> ParseResult<Expr> {
