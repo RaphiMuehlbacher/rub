@@ -5,6 +5,7 @@ use crate::error::ParseError::{
     MissingVariableDeclarationName, RedundantSemicolon, UnclosedBrace, UnclosedParenthesis,
     UnexpectedClosingBrace, UnexpectedEOF, UnexpectedToken,
 };
+use crate::parser::Expr::{LiteralExpr, Logical};
 use crate::{lexer, TokenKind};
 use lexer::Token;
 use miette::{Report, SourceOffset, SourceSpan};
@@ -64,6 +65,12 @@ pub enum Expr {
         value: Box<Expr>,
         span: SourceSpan,
     },
+    Logical {
+        left: Box<Expr>,
+        op: LogicalOp,
+        right: Box<Expr>,
+        span: SourceSpan,
+    },
 }
 
 #[derive(Debug)]
@@ -78,6 +85,12 @@ pub enum Literal {
 pub enum UnaryOp {
     Bang,
     Minus,
+}
+
+#[derive(Debug)]
+pub enum LogicalOp {
+    And,
+    Or,
 }
 
 #[derive(Debug)]
@@ -440,7 +453,7 @@ impl<'a> Parser<'a> {
     }
 
     fn assignment(&mut self) -> ParseResult<Expr> {
-        let expr = self.equality()?;
+        let expr = self.logic_or()?;
 
         if self.match_token(&[TokenKind::Equal]) {
             let equal_span = self.previous().span;
@@ -489,6 +502,91 @@ impl<'a> Parser<'a> {
                 .into()),
             };
         }
+        Ok(expr)
+    }
+
+    fn logic_or(&mut self) -> ParseResult<Expr> {
+        let left_span = self.peek().unwrap().span;
+        let mut expr = self.logic_and()?;
+
+        while self.match_token(&[TokenKind::Or]) {
+            let operator = self.previous();
+
+            let op = match operator.token_kind {
+                TokenKind::Or => LogicalOp::Or,
+                _ => unreachable!(),
+            };
+
+            if self.check(TokenKind::Semicolon) {
+                let error = ExpectedExpression {
+                    src: self.source.to_string(),
+                    span: self.peek().unwrap().span,
+                };
+                self.report(error.into());
+
+                return Ok(Logical {
+                    left: Box::new(expr),
+                    op,
+                    right: Box::new(LiteralExpr(Literal::Bool {
+                        value: false,
+                        span: self.create_span(left_span, self.peek().unwrap().span),
+                    })),
+                    span: self.previous().span,
+                });
+            }
+
+            let right = self.logic_and()?;
+            let right_span = self.previous().span;
+
+            expr = Logical {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+                span: self.create_span(left_span, right_span),
+            };
+        }
+        Ok(expr)
+    }
+
+    fn logic_and(&mut self) -> ParseResult<Expr> {
+        let left_span = self.peek().unwrap().span;
+        let mut expr = self.equality()?;
+
+        while self.match_token(&[TokenKind::And]) {
+            let operator = self.previous();
+            let op = match operator.token_kind {
+                TokenKind::And => LogicalOp::And,
+                _ => unreachable!(),
+            };
+
+            if self.check(TokenKind::Semicolon) {
+                let error = ExpectedExpression {
+                    src: self.source.to_string(),
+                    span: self.peek().unwrap().span,
+                };
+                self.report(error.into());
+
+                return Ok(Logical {
+                    left: Box::new(expr),
+                    op,
+                    right: Box::new(LiteralExpr(Literal::Bool {
+                        value: false,
+                        span: self.create_span(left_span, self.peek().unwrap().span),
+                    })),
+                    span: self.previous().span,
+                });
+            }
+
+            let right = self.equality()?;
+            let right_span = self.previous().span;
+            expr = Logical {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+                span: self.create_span(left_span, right_span),
+            };
+        }
+
         Ok(expr)
     }
 
