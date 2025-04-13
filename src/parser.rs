@@ -6,6 +6,7 @@ use crate::error::ParseError::{
     UnexpectedClosingBrace, UnexpectedEOF, UnexpectedToken,
 };
 use crate::parser::Expr::{LiteralExpr, Logical};
+use crate::parser::Stmt::{ExprStmt, While};
 use crate::{lexer, TokenKind};
 use lexer::Token;
 use miette::{Report, SourceOffset, SourceSpan};
@@ -334,6 +335,8 @@ impl<'a> Parser<'a> {
             return self.if_stmt();
         } else if self.match_token(&[TokenKind::While]) {
             return self.while_stmt();
+        } else if self.match_token(&[TokenKind::For]) {
+            return self.for_stmt();
         }
         self.expression_stmt()
     }
@@ -510,11 +513,80 @@ impl<'a> Parser<'a> {
             );
             self.advance();
         }
-        Ok(Stmt::While {
+        Ok(While {
             condition,
             body: Box::new(block),
             span: self.create_span(left_span, self.previous().span),
         })
+    }
+
+    fn for_stmt(&mut self) -> ParseResult<Stmt> {
+        let if_left_span = self.previous().span;
+        if !self.match_token(&[TokenKind::LeftParen]) {
+            let error = MissingLeftParenthesis {
+                src: self.source.to_string(),
+                span: self.peek().unwrap().span,
+                paren_type: "for".to_string(),
+            };
+            self.report(error.into());
+        }
+
+        let mut initializer = None;
+        if self.match_token(&[TokenKind::Var]) {
+            let expr = self.var_declaration()?;
+            initializer = Some(expr);
+        } else if !self.match_token(&[TokenKind::Semicolon]) {
+            let expr = self.expression_stmt()?;
+            initializer = Some(expr);
+        }
+
+        let mut condition = LiteralExpr(Literal::Bool {
+            value: true,
+            span: self.previous().span,
+        });
+        if !self.check(TokenKind::Semicolon) {
+            let expr = self.expression()?;
+            condition = expr;
+        }
+
+        if !self.match_token(&[TokenKind::Semicolon]) {
+            let error = MissingSemicolon {
+                src: self.source.to_string(),
+                span: self.previous().span,
+            };
+            self.report(error.into());
+        }
+
+        let increment_left_span = self.peek().unwrap().span;
+        let mut increment = None;
+        if !self.check(TokenKind::RightParen) {
+            let expr = self.expression()?;
+            increment = Some(expr);
+        }
+        self.advance();
+
+        let mut body = self.statement()?;
+
+        if let Some(increment) = increment {
+            body = Stmt::Block {
+                stmts: vec![
+                    body,
+                    ExprStmt {
+                        expr: increment,
+                        span: self.create_span(increment_left_span, self.previous().span),
+                    },
+                ],
+                span: self.create_span(if_left_span, self.previous().span),
+            }
+        }
+
+        body = While {
+            condition,
+            body: Box::new(body),
+            span: self.create_span(if_left_span, self.previous().span),
+        };
+
+        Ok(body)
     }
 
     fn expression(&mut self) -> ParseResult<Expr> {
@@ -522,6 +594,7 @@ impl<'a> Parser<'a> {
     }
 
     fn assignment(&mut self) -> ParseResult<Expr> {
+        let left_span = self.peek().unwrap().span;
         let expr = self.logic_or()?;
 
         if self.match_token(&[TokenKind::Equal]) {
@@ -545,12 +618,13 @@ impl<'a> Parser<'a> {
                     span,
                     value: Box::new(value),
                 }),
-                Expr::LiteralExpr(Literal::Number { value: _, span }) => {
+
+                LiteralExpr(Literal::Number { value: _, span }) => {
                     if let Some(next_token) = self.peek() {
                         if matches!(next_token.token_kind, TokenKind::Ident(_)) {
                             return Err(InvalidAssignmentTarget {
                                 src: self.source.to_string(),
-                                span,
+                                span: self.create_span(left_span, self.previous().span),
                                 message: "A variable cannot start with a number".to_string(),
                             }
                             .into());
@@ -787,17 +861,17 @@ impl<'a> Parser<'a> {
 
     fn primary(&mut self) -> ParseResult<Expr> {
         if self.match_token(&[TokenKind::False]) {
-            Ok(Expr::LiteralExpr(Literal::Bool {
+            Ok(LiteralExpr(Literal::Bool {
                 value: false,
                 span: self.previous().span,
             }))
         } else if self.match_token(&[TokenKind::True]) {
-            Ok(Expr::LiteralExpr(Literal::Bool {
+            Ok(LiteralExpr(Literal::Bool {
                 value: true,
                 span: self.previous().span,
             }))
         } else if self.match_token(&[TokenKind::Nil]) {
-            Ok(Expr::LiteralExpr(Literal::Nil {
+            Ok(LiteralExpr(Literal::Nil {
                 span: self.previous().span,
             }))
         } else if self.match_token(&[TokenKind::LeftParen]) {
@@ -805,7 +879,7 @@ impl<'a> Parser<'a> {
 
             if self.match_token(&[TokenKind::RightParen]) {
                 return Ok(Expr::Grouping {
-                    expr: Box::new(Expr::LiteralExpr(Literal::Nil {
+                    expr: Box::new(LiteralExpr(Literal::Nil {
                         span: self.previous().span,
                     })),
                     span: self.create_span(opening_paren.span, self.previous().span),
@@ -881,7 +955,7 @@ impl<'a> Parser<'a> {
                             .into());
                         }
                     }
-                    Ok(Expr::LiteralExpr(Literal::Number {
+                    Ok(LiteralExpr(Literal::Number {
                         value: number,
                         span,
                     }))
@@ -890,7 +964,7 @@ impl<'a> Parser<'a> {
                     let span = token.span.clone();
                     let string = value.clone();
                     self.advance();
-                    Ok(Expr::LiteralExpr(Literal::String {
+                    Ok(LiteralExpr(Literal::String {
                         value: string,
                         span,
                     }))
