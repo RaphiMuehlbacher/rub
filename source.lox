@@ -1,5 +1,2 @@
-if a > b {
-    print "greater";
-} else if 3 > 3{
-    print "smaller";
-}
+fun name(a, b) {
+    print 3;

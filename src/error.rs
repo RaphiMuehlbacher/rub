@@ -46,6 +46,16 @@ pub enum ParseError {
         paren_type: String,
     },
 
+    #[error("Expected left brace")]
+    #[diagnostic(help("A left brace is needed."), code(parser::missing_left_paren))]
+    MissingLeftBrace {
+        #[source_code]
+        src: String,
+
+        #[label("expected '{{' here")]
+        span: SourceSpan,
+    },
+
     #[error("Expected right parenthesis after `{paren_type}`")]
     #[diagnostic(
         help("The condition of {paren_type} must be enclosed in parenthesis"),

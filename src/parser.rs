@@ -1,10 +1,10 @@
 use crate::error::ParseError;
 use crate::error::ParseError::{
-    ExpectedExpression, InvalidAssignmentTarget, InvalidCondition, MissingLeftParenthesis,
-    MissingOperand, MissingRightParenthesis, MissingSemicolon, MissingStatement,
-    MissingVariableAssignmentName, MissingVariableDeclarationName, RedundantParenthesis,
-    RedundantSemicolon, UnclosedBrace, UnclosedParenthesis, UnexpectedClosingBrace, UnexpectedEOF,
-    UnexpectedToken,
+    ExpectedExpression, InvalidAssignmentTarget, InvalidCondition, MissingLeftBrace,
+    MissingLeftParenthesis, MissingOperand, MissingRightParenthesis, MissingSemicolon,
+    MissingStatement, MissingVariableAssignmentName, MissingVariableDeclarationName,
+    RedundantParenthesis, RedundantSemicolon, UnclosedBrace, UnclosedParenthesis,
+    UnexpectedClosingBrace, UnexpectedEOF, UnexpectedToken,
 };
 use crate::parser::Expr::{Call, LiteralExpr, Logical};
 use crate::parser::Stmt::{ExprStmt, While};
@@ -27,6 +27,12 @@ pub enum Stmt {
     VarDecl {
         name: String,
         initializer: Option<Expr>,
+        span: SourceSpan,
+    },
+    FunDecl {
+        name: String,
+        params: Vec<String>,
+        body: Box<Stmt>,
         span: SourceSpan,
     },
     Block {
@@ -236,6 +242,25 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn skip_block(&mut self) {
+        while !self.is_at_end() {
+            if self.match_token(&[TokenKind::LeftBrace]) {
+                let mut brace_count = 1;
+                while brace_count > 0 && !self.is_at_end() {
+                    if self.match_token(&[TokenKind::LeftBrace]) {
+                        brace_count += 1;
+                    } else if self.match_token(&[TokenKind::RightBrace]) {
+                        brace_count -= 1;
+                    } else {
+                        self.advance();
+                    }
+                }
+                break;
+            }
+            self.advance();
+        }
+    }
+
     pub fn parse(&mut self) -> Vec<Stmt> {
         let mut statements = vec![];
         if self.peek().unwrap().token_kind == TokenKind::EOF {
@@ -258,12 +283,14 @@ impl<'a> Parser<'a> {
     fn declaration(&mut self) -> ParseResult<Stmt> {
         if self.match_token(&[TokenKind::Var]) {
             return self.var_declaration();
+        } else if self.match_token(&[TokenKind::Fun]) {
+            return self.fun_declaration();
         }
         self.statement()
     }
 
     fn var_declaration(&mut self) -> ParseResult<Stmt> {
-        let next_token = self.peek().unwrap();
+        let next_token = self.peek().unwrap().clone();
         let left_span = next_token.span;
 
         let variable_name = match &next_token.token_kind {
@@ -328,6 +355,124 @@ impl<'a> Parser<'a> {
         Ok(Stmt::VarDecl {
             name: variable_name.to_string(),
             initializer,
+            span: self.create_span(left_span, self.previous().span),
+        })
+    }
+
+    fn fun_declaration(&mut self) -> ParseResult<Stmt> {
+        let next_token = self.peek().unwrap().clone();
+        let left_span = next_token.span;
+
+        let function_name = match &next_token.token_kind {
+            TokenKind::Ident(name) => {
+                let name_clone = name.clone();
+                self.advance();
+                name_clone
+            }
+            TokenKind::Number(_) => {
+                self.advance();
+                if let Some(next_token) = self.peek() {
+                    if matches!(next_token.token_kind, TokenKind::Ident(_)) {
+                        return Err(InvalidAssignmentTarget {
+                            src: self.source.to_string(),
+                            span: left_span,
+                            message: "A function name cannot start with a number".to_string(),
+                        }
+                        .into());
+                    }
+                }
+                return Err(InvalidAssignmentTarget {
+                    src: self.source.to_string(),
+                    span: left_span,
+                    message: "A function name name cannot be a number".to_string(),
+                }
+                .into());
+            }
+            other => {
+                let token_kind = other.clone();
+                self.skip_block();
+                return Err(UnexpectedToken {
+                    src: self.source.to_string(),
+                    span: next_token.span,
+                    found: token_kind,
+                    expected: "an identifier".to_string(),
+                }
+                .into());
+            }
+        };
+
+        if !self.match_token(&[TokenKind::LeftParen]) {
+            self.report(
+                MissingLeftParenthesis {
+                    src: self.source.to_string(),
+                    span: self.peek().unwrap().span,
+                    paren_type: "function".to_string(),
+                }
+                .into(),
+            );
+        }
+
+        let mut parameters = vec![];
+        if !self.check(TokenKind::RightParen) {
+            loop {
+                let token = self.peek().unwrap();
+                if let TokenKind::Ident(name) = &token.token_kind {
+                    parameters.push(name.clone());
+                    self.advance();
+
+                    if self.match_token(&[TokenKind::Comma]) {
+                        if self.check(TokenKind::RightParen) {
+                            self.report(
+                                ExpectedExpression {
+                                    src: self.source.to_string(),
+                                    span: self.previous().span,
+                                }
+                                .into(),
+                            );
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                } else {
+                    self.report(
+                        ExpectedExpression {
+                            src: self.source.to_string(),
+                            span: token.span,
+                        }
+                        .into(),
+                    );
+                    self.advance();
+                    break;
+                }
+            }
+        }
+
+        if !self.match_token(&[TokenKind::RightParen]) {
+            self.report(
+                MissingRightParenthesis {
+                    src: self.source.to_string(),
+                    span: self.peek().unwrap().span,
+                    paren_type: "function".to_string(),
+                }
+                .into(),
+            );
+        }
+
+        if !self.match_token(&[TokenKind::LeftBrace]) {
+            self.report(
+                MissingLeftBrace {
+                    src: self.source.to_string(),
+                    span: self.peek().unwrap().span,
+                }
+                .into(),
+            );
+        }
+        let body = self.block()?;
+        Ok(Stmt::FunDecl {
+            name: function_name,
+            params: parameters,
+            body: Box::new(body),
             span: self.create_span(left_span, self.previous().span),
         })
     }
