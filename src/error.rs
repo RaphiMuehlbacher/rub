@@ -17,6 +17,21 @@ pub enum ParseError {
         span: SourceSpan,
     },
 
+    #[error("Expected statement after {keyword}")]
+    #[diagnostic(
+        help("A {keyword} statement must be followed by a body."),
+        code(parser::missing_statement)
+    )]
+    MissingStatement {
+        #[source_code]
+        src: String,
+
+        #[label("expected statement here")]
+        span: SourceSpan,
+
+        keyword: String,
+    },
+
     #[error("Expected left parenthesis after `{paren_type}`")]
     #[diagnostic(
         help("The condition of {paren_type} must be enclosed in parenthesis"),

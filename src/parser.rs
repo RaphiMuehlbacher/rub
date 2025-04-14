@@ -1,9 +1,9 @@
 use crate::error::ParseError;
 use crate::error::ParseError::{
     ExpectedExpression, InvalidAssignmentTarget, InvalidCondition, MissingLeftParenthesis,
-    MissingOperand, MissingRightParenthesis, MissingSemicolon, MissingVariableAssignmentName,
-    MissingVariableDeclarationName, RedundantSemicolon, UnclosedBrace, UnclosedParenthesis,
-    UnexpectedClosingBrace, UnexpectedEOF, UnexpectedToken,
+    MissingOperand, MissingRightParenthesis, MissingSemicolon, MissingStatement,
+    MissingVariableAssignmentName, MissingVariableDeclarationName, RedundantSemicolon,
+    UnclosedBrace, UnclosedParenthesis, UnexpectedClosingBrace, UnexpectedEOF, UnexpectedToken,
 };
 use crate::parser::Expr::{Call, LiteralExpr, Logical};
 use crate::parser::Stmt::{ExprStmt, While};
@@ -352,7 +352,7 @@ impl<'a> Parser<'a> {
 
         self.expect_semicolon();
 
-        Ok(Stmt::ExprStmt {
+        Ok(ExprStmt {
             expr: value,
             span: self.create_span(left, self.previous().span),
         })
@@ -399,7 +399,11 @@ impl<'a> Parser<'a> {
     }
 
     fn if_stmt(&mut self) -> ParseResult<Stmt> {
-        if !self.match_token(&[TokenKind::LeftParen]) {
+        let if_span = self.previous().span;
+
+        let (left_paren_span, had_left_paren) = if self.match_token(&[TokenKind::LeftParen]) {
+            (self.previous().span, true)
+        } else {
             self.report(
                 MissingLeftParenthesis {
                     src: self.source.to_string(),
@@ -408,20 +412,30 @@ impl<'a> Parser<'a> {
                 }
                 .into(),
             );
-        }
-
-        let left_paren_span = self.previous().span;
+            (self.peek().unwrap().span, false)
+        };
 
         let condition = match self.expression() {
             Ok(con) => con,
             Err(_) => {
-                while !self.is_at_end() && !self.check(TokenKind::RightParen) {
+                while !self.is_at_end()
+                    && !matches!(
+                        self.peek().map(|t| &t.token_kind),
+                        Some(
+                            TokenKind::Print
+                                | TokenKind::If
+                                | TokenKind::While
+                                | TokenKind::For
+                                | TokenKind::LeftBrace
+                        )
+                    )
+                {
                     self.advance();
                 }
 
                 let error = InvalidCondition {
                     src: self.source.to_string(),
-                    span: self.create_span(left_paren_span, self.peek().unwrap().span),
+                    span: self.create_span(left_paren_span, self.previous().span),
                 };
                 self.report(error.into());
                 LiteralExpr(Literal::Bool {
@@ -430,19 +444,42 @@ impl<'a> Parser<'a> {
                 })
             }
         };
+        if self.check(TokenKind::EOF) {
+            return Err(UnclosedParenthesis {
+                src: self.source.to_string(),
+                span: left_paren_span,
+            }
+            .into());
+        }
 
-        if !self.match_token(&[TokenKind::RightParen]) {
+        if !self.match_token(&[TokenKind::RightParen]) && had_left_paren {
             self.report(
-                MissingRightParenthesis {
+                UnclosedParenthesis {
                     src: self.source.to_string(),
-                    span: self.peek().unwrap().span,
-                    paren_type: "if".to_string(),
+                    span: left_paren_span,
                 }
                 .into(),
             );
         }
 
-        let then_branch = self.statement()?;
+        let then_branch = match self.statement() {
+            Ok(stmt) => stmt,
+            Err(_) => {
+                self.report(
+                    MissingStatement {
+                        src: self.source.to_string(),
+                        span: self.previous().span,
+                        keyword: "if".to_string(),
+                    }
+                    .into(),
+                );
+                Stmt::Block {
+                    stmts: vec![],
+                    span: self.create_span(if_span, self.previous().span),
+                }
+            }
+        };
+
         if self.check(TokenKind::RightBrace) {
             self.report(
                 UnexpectedClosingBrace {
@@ -461,7 +498,7 @@ impl<'a> Parser<'a> {
             condition,
             then_branch: Box::new(then_branch),
             else_branch,
-            span: self.create_span(left_paren_span, self.previous().span),
+            span: self.create_span(if_span, self.previous().span),
         })
     }
 
@@ -875,43 +912,44 @@ impl<'a> Parser<'a> {
     fn call(&mut self) -> ParseResult<Expr> {
         let mut expr = self.primary()?;
 
-        loop {
-            if self.match_token(&[TokenKind::LeftParen]) {
-                expr = self.finish_call(expr)?;
-            } else {
-                break;
-            }
+        while self.match_token(&[TokenKind::LeftParen]) {
+            expr = self.finish_call(expr)?;
         }
+
         Ok(expr)
     }
 
     fn finish_call(&mut self, callee: Expr) -> ParseResult<Expr> {
         let mut arguments = vec![];
-        let left_span = self.peek().unwrap().span;
+        let left_paren_span = self.previous().span;
+
+        if self.check(TokenKind::EOF) || self.check(TokenKind::Semicolon) {
+            return Err(UnclosedParenthesis {
+                src: self.source.to_string(),
+                span: left_paren_span,
+            }
+            .into());
+        }
 
         if !self.check(TokenKind::RightParen) {
-            if !self.check(TokenKind::Semicolon) {
+            arguments.push(self.expression()?);
+            while self.match_token(&[TokenKind::Comma]) {
                 arguments.push(self.expression()?);
-                while self.match_token(&[TokenKind::Comma]) {
-                    arguments.push(self.expression()?);
-                }
             }
         }
 
         if !self.match_token(&[TokenKind::RightParen]) {
-            self.report(
-                MissingRightParenthesis {
-                    src: self.source.to_string(),
-                    span: self.previous().span,
-                    paren_type: "arguments".to_string(),
-                }
-                .into(),
-            );
+            return Err(UnclosedParenthesis {
+                src: self.source.to_string(),
+                span: left_paren_span,
+            }
+            .into());
         }
+
         Ok(Call {
             callee: Box::new(callee),
             arguments,
-            span: self.create_span(left_span, self.previous().span),
+            span: self.create_span(left_paren_span, self.previous().span),
         })
     }
 
