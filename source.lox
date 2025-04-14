@@ -1,1 +1,5 @@
-if (a == 3) {
+if a > b {
+    print "greater";
+} else if 3 > 3{
+    print "smaller";
+}

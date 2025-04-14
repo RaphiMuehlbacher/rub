@@ -141,6 +141,20 @@ pub enum ParseError {
         span: SourceSpan,
     },
 
+    #[error("unnecessary parenthesis")]
+    #[diagnostic(
+        help("these parentheses are not needed"),
+        code(parser::redundant_parenthesis),
+        severity(Warning)
+    )]
+    RedundantParenthesis {
+        #[source_code]
+        src: String,
+
+        #[label("help: remove these parenthesis")]
+        span: SourceSpan,
+    },
+
     #[error("Expected {expected:?}, found EOF")]
     #[diagnostic(help("Complete the expression"), code(parser::unexpected_eof))]
     UnexpectedEOF {

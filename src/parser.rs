@@ -2,8 +2,9 @@ use crate::error::ParseError;
 use crate::error::ParseError::{
     ExpectedExpression, InvalidAssignmentTarget, InvalidCondition, MissingLeftParenthesis,
     MissingOperand, MissingRightParenthesis, MissingSemicolon, MissingStatement,
-    MissingVariableAssignmentName, MissingVariableDeclarationName, RedundantSemicolon,
-    UnclosedBrace, UnclosedParenthesis, UnexpectedClosingBrace, UnexpectedEOF, UnexpectedToken,
+    MissingVariableAssignmentName, MissingVariableDeclarationName, RedundantParenthesis,
+    RedundantSemicolon, UnclosedBrace, UnclosedParenthesis, UnexpectedClosingBrace, UnexpectedEOF,
+    UnexpectedToken,
 };
 use crate::parser::Expr::{Call, LiteralExpr, Logical};
 use crate::parser::Stmt::{ExprStmt, While};
@@ -401,41 +402,28 @@ impl<'a> Parser<'a> {
     fn if_stmt(&mut self) -> ParseResult<Stmt> {
         let if_span = self.previous().span;
 
-        let (left_paren_span, had_left_paren) = if self.match_token(&[TokenKind::LeftParen]) {
-            (self.previous().span, true)
-        } else {
-            self.report(
-                MissingLeftParenthesis {
-                    src: self.source.to_string(),
-                    span: self.peek().unwrap().span,
-                    paren_type: "if".to_string(),
-                }
-                .into(),
-            );
-            (self.peek().unwrap().span, false)
-        };
-
+        let condition_left_span = self.peek().unwrap().span;
         let condition = match self.expression() {
-            Ok(con) => con,
+            Ok(con) => {
+                if let Expr::Grouping { expr, span } = &con {
+                    self.report(
+                        RedundantParenthesis {
+                            src: self.source.to_string(),
+                            span: *span,
+                        }
+                        .into(),
+                    );
+                }
+                con
+            }
             Err(_) => {
-                while !self.is_at_end()
-                    && !matches!(
-                        self.peek().map(|t| &t.token_kind),
-                        Some(
-                            TokenKind::Print
-                                | TokenKind::If
-                                | TokenKind::While
-                                | TokenKind::For
-                                | TokenKind::LeftBrace
-                        )
-                    )
-                {
+                while !self.is_at_end() && !self.check(TokenKind::LeftBrace) {
                     self.advance();
                 }
 
                 let error = InvalidCondition {
                     src: self.source.to_string(),
-                    span: self.create_span(left_paren_span, self.previous().span),
+                    span: self.create_span(condition_left_span, self.previous().span),
                 };
                 self.report(error.into());
                 LiteralExpr(Literal::Bool {
@@ -444,55 +432,13 @@ impl<'a> Parser<'a> {
                 })
             }
         };
-        if self.check(TokenKind::EOF) {
-            return Err(UnclosedParenthesis {
-                src: self.source.to_string(),
-                span: left_paren_span,
-            }
-            .into());
-        }
 
-        if !self.match_token(&[TokenKind::RightParen]) && had_left_paren {
-            self.report(
-                UnclosedParenthesis {
-                    src: self.source.to_string(),
-                    span: left_paren_span,
-                }
-                .into(),
-            );
-        }
+        self.advance();
+        let then_branch = self.block()?;
 
-        let then_branch = match self.statement() {
-            Ok(stmt) => stmt,
-            Err(_) => {
-                self.report(
-                    MissingStatement {
-                        src: self.source.to_string(),
-                        span: self.previous().span,
-                        keyword: "if".to_string(),
-                    }
-                    .into(),
-                );
-                Stmt::Block {
-                    stmts: vec![],
-                    span: self.create_span(if_span, self.previous().span),
-                }
-            }
-        };
-
-        if self.check(TokenKind::RightBrace) {
-            self.report(
-                UnexpectedClosingBrace {
-                    src: self.source.to_string(),
-                    span: self.peek().unwrap().span,
-                }
-                .into(),
-            );
-            self.advance();
-        }
         let mut else_branch = None;
         if self.match_token(&[TokenKind::Else]) {
-            else_branch = Some(Box::new(self.statement()?));
+            else_branch = Some(Box::new(self.block()?));
         }
         Ok(Stmt::If {
             condition,
@@ -503,27 +449,30 @@ impl<'a> Parser<'a> {
     }
 
     fn while_stmt(&mut self) -> ParseResult<Stmt> {
-        if !self.match_token(&[TokenKind::LeftParen]) {
-            let error = MissingLeftParenthesis {
-                src: self.source.to_string(),
-                span: self.peek().unwrap().span,
-                paren_type: "while".to_string(),
-            };
-            self.report(error.into());
-        }
-
         let left_span = self.previous().span;
 
+        let condition_left_span = self.peek().unwrap().span;
         let condition = match self.expression() {
-            Ok(con) => con,
+            Ok(con) => {
+                if let Expr::Grouping { expr, span } = &con {
+                    self.report(
+                        RedundantParenthesis {
+                            src: self.source.to_string(),
+                            span: *span,
+                        }
+                        .into(),
+                    );
+                }
+                con
+            }
             Err(_) => {
-                while !self.is_at_end() && !self.check(TokenKind::RightParen) {
+                while !self.is_at_end() && !self.check(TokenKind::LeftBrace) {
                     self.advance();
                 }
 
                 let error = InvalidCondition {
                     src: self.source.to_string(),
-                    span: self.create_span(left_span, self.peek().unwrap().span),
+                    span: self.create_span(condition_left_span, self.previous().span),
                 };
                 self.report(error.into());
                 LiteralExpr(Literal::Bool {
@@ -533,28 +482,7 @@ impl<'a> Parser<'a> {
             }
         };
 
-        if !self.match_token(&[TokenKind::RightParen]) {
-            self.report(
-                MissingRightParenthesis {
-                    src: self.source.to_string(),
-                    span: self.peek().unwrap().span,
-                    paren_type: "while".to_string(),
-                }
-                .into(),
-            );
-        }
-
-        let block = self.statement()?;
-        if self.check(TokenKind::RightBrace) {
-            self.report(
-                UnexpectedClosingBrace {
-                    src: self.source.to_string(),
-                    span: self.peek().unwrap().span,
-                }
-                .into(),
-            );
-            self.advance();
-        }
+        let block = self.block()?;
         Ok(While {
             condition,
             body: Box::new(block),
