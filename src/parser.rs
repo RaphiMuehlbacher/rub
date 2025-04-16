@@ -5,8 +5,8 @@ use crate::ast::{
     LiteralExpr, LogicalExpr, LogicalOp, Spanned, Stmt, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
-    ExpectedExpression, ExpectedIdentifier, InvalidAssignmentTarget, MissingBlock, MissingOperand,
-    MissingSemicolon, RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter,
+    ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock,
+    MissingOperand, MissingSemicolon, RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter,
     UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken, UnmatchedDelimiter,
 };
 use crate::{lexer, TokenKind};
@@ -36,12 +36,12 @@ impl<'a> Parser<'a> {
         &self.tokens[self.position - 1]
     }
 
-    fn next_is_eof(&self) -> bool {
+    fn at_eof(&self) -> bool {
         self.current().token_kind == TokenKind::EOF
     }
 
     fn advance_position(&mut self) {
-        if !self.next_is_eof() {
+        if !self.at_eof() {
             self.position += 1;
         }
     }
@@ -55,6 +55,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// token to match is `current`
     fn matches(&self, kinds: &[TokenKind]) -> bool {
         for kind in kinds {
             if self.current_is(kind.clone()) {
@@ -102,6 +103,7 @@ impl<'a> Parser<'a> {
         self.errors.push(error);
     }
 
+    /// if `current` is not a left brace it skips the whole block
     fn expect_block(&mut self) -> ParseResult<()> {
         if !self.matches(&[TokenKind::LeftBrace]) {
             let opening_span = self.current().span;
@@ -115,6 +117,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// if `current` is not a semicolon it skips to the next statement
     fn expect_semicolon(&mut self) {
         if !self.consume(&[TokenKind::Semicolon]) {
             let previous_span = self.previous().span;
@@ -147,14 +150,14 @@ impl<'a> Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn eat_to_tokens(&mut self, tokens: &[TokenKind]) {
-        while !self.matches(tokens) && !self.next_is_eof() {
+        while !self.at_eof() && !self.matches(tokens) {
             self.advance_position();
         }
     }
 
-    /// stops before block ending
+    /// skips past the next semicolon, stops before block ending
     fn skip_to_next_stmt(&mut self) {
-        while !self.matches(&[TokenKind::Semicolon, TokenKind::RightBrace]) && !self.next_is_eof() {
+        while !self.matches(&[TokenKind::Semicolon, TokenKind::RightBrace]) && !self.at_eof() {
             self.advance_position();
         }
         if self.matches(&[TokenKind::Semicolon]) {
@@ -162,11 +165,17 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// skips until next left brace
     fn skip_to_next_block(&mut self) {
         self.eat_to_tokens(&[TokenKind::LeftBrace]);
-        self.advance_position();
     }
 
+    /// skips until next left paren
+    fn skip_to_next_paren(&mut self) {
+        self.eat_to_tokens(&[TokenKind::LeftParen])
+    }
+
+    /// skips past the whole next block
     fn skip_next_block(&mut self) {
         let mut brace_count = 0;
 
@@ -175,7 +184,7 @@ impl<'a> Parser<'a> {
         brace_count = 1;
         self.advance_position();
 
-        while brace_count > 0 && !self.next_is_eof() {
+        while brace_count > 0 && !self.at_eof() {
             match self.current().token_kind {
                 TokenKind::LeftBrace => {
                     brace_count += 1;
@@ -268,7 +277,7 @@ impl<'a> Parser<'a> {
             return statements;
         }
 
-        while !self.next_is_eof() {
+        while !self.at_eof() {
             let statement = self.declaration();
             match statement {
                 Ok(stmt) => statements.push(stmt),
@@ -278,6 +287,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+
         statements
     }
 
@@ -295,7 +305,6 @@ impl<'a> Parser<'a> {
         self.advance_position();
 
         let variable_name = self.parse_variable_name()?;
-        println!("{:?}", self.current());
 
         let initializer = self.parse_var_initializer()?;
         self.expect_semicolon();
@@ -321,14 +330,14 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Number(_) => {
                 if self.matches(&[TokenKind::Ident(String::new())]) {
-                    return Err(InvalidAssignmentTarget {
+                    return Err(InvalidVariableName {
                         src: self.source.to_string(),
                         span: variable_token.span,
                         message: "A variable cannot start with a number".to_string(),
                     }
                     .into());
                 }
-                return Err(InvalidAssignmentTarget {
+                return Err(InvalidVariableName {
                     src: self.source.to_string(),
                     span: variable_token.span,
                     message: "A variable name cannot be a number".to_string(),
@@ -411,22 +420,31 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Number(_) => {
                 if self.matches(&[TokenKind::Ident(String::new())]) {
-                    return Err(InvalidAssignmentTarget {
-                        src: self.source.to_string(),
-                        span: function_token.span,
-                        message: "A function name cannot start with a number".to_string(),
-                    }
-                    .into());
+                    self.skip_to_next_paren();
+                    self.report(
+                        InvalidFunctionName {
+                            src: self.source.to_string(),
+                            span: function_token.span,
+                            message: "A function name cannot start with a number".to_string(),
+                        }
+                        .into(),
+                    );
+                    Ident::new("err_fun", self.current().span)
+                } else {
+                    self.skip_to_next_paren();
+                    self.report(
+                        InvalidFunctionName {
+                            src: self.source.to_string(),
+                            span: function_token.span,
+                            message: "A function name name cannot be a number".to_string(),
+                        }
+                        .into(),
+                    );
+                    Ident::new("err fun", self.current().span)
                 }
-                return Err(InvalidAssignmentTarget {
-                    src: self.source.to_string(),
-                    span: function_token.span,
-                    message: "A function name name cannot be a number".to_string(),
-                }
-                .into());
             }
             _ => {
-                self.skip_next_block();
+                self.skip_to_next_paren();
                 return Err(ExpectedIdentifier {
                     src: self.source.to_string(),
                     span: function_token.span,
@@ -565,7 +583,7 @@ impl<'a> Parser<'a> {
         self.open_delimiter(self.current().token_kind.clone())?;
 
         let mut statements = vec![];
-        while !self.matches(&[TokenKind::RightBrace]) && !self.next_is_eof() {
+        while !self.matches(&[TokenKind::RightBrace]) && !self.at_eof() {
             let statement = self.declaration();
             match statement {
                 Ok(stmt) => statements.push(stmt),
@@ -651,93 +669,73 @@ impl<'a> Parser<'a> {
         }))
     }
 
+    /// current is for, end is after block
     fn for_stmt(&mut self) -> ParseResult<Stmt> {
-        todo!();
-        // let if_left_span = self.current().span;
-        // if !self.consume(&[TokenKind::LeftParen]) {
-        //     let error = MissingLeftParenthesis {
-        //         src: self.source.to_string(),
-        //         span: self.peek().unwrap().span,
-        //         paren_type: "for".to_string(),
-        //     };
-        //     self.report(error.into());
-        // }
-        //
-        // let mut initializer = None;
-        // if self.consume(&[TokenKind::Var]) {
-        //     let expr = self.var_declaration()?;
-        //     initializer = Some(expr);
-        // } else if !self.consume(&[TokenKind::Semicolon]) {
-        //     let expr = self.expression_stmt()?;
-        //     initializer = Some(expr);
-        // }
-        //
-        // let mut condition = Literal(Spanned {
-        //     node: Literal(Spanned {
-        //         node: Bool(true),
-        //         span: self.previous().span,
-        //     }),
-        //     span: self.previous().span,
-        // });
-        //
-        // if !self.current_is(TokenKind::Semicolon) {
-        //     let expr = self.expression()?;
-        //     condition = expr;
-        // }
-        //
-        // if !self.consume(&[TokenKind::Semicolon]) {
-        //     let error = MissingSemicolon {
-        //         src: self.source.to_string(),
-        //         span: self.previous().span,
-        //     };
-        //     self.report(error.into());
-        // }
-        //
-        // let increment_left_span = self.peek().unwrap().span;
-        // let mut increment = None;
-        // if !self.current_is(TokenKind::RightParen) {
-        //     let expr = self.expression()?;
-        //     increment = Some(expr);
-        // }
-        //
-        // if !self.consume(&[TokenKind::RightParen]) {
-        //     let error = MissingRightParenthesis {
-        //         src: self.source.to_string(),
-        //         span: self.peek().unwrap().span,
-        //         paren_type: "for".to_string(),
-        //     };
-        //     self.report(error.into());
-        // }
-        //
-        // let mut body = self.statement()?;
-        //
-        // if let Some(increment) = increment {
-        //     body = Stmt::Block {
-        //         stmts: vec![
-        //             body,
-        //             ExprStmt {
-        //                 expr: increment,
-        //                 span: self.create_span(increment_left_span, self.previous().span),
-        //             },
-        //         ],
-        //         span: self.create_span(if_left_span, self.previous().span),
-        //     }
-        // }
-        //
-        // body = While {
-        //     condition,
-        //     body: Box::new(body),
-        //     span: self.create_span(if_left_span, self.previous().span),
-        // };
-        //
-        // if let Some(initializer) = initializer {
-        //     body = Stmt::Block {
-        //         stmts: vec![initializer, body],
-        //         span: self.create_span(if_left_span, self.previous().span),
-        //     };
-        // }
-        //
-        // Ok(body)
+        let for_span = self.current().span;
+        self.advance_position();
+
+        let initializer = if self.matches(&[TokenKind::Var]) {
+            Some(self.var_declaration()?)
+        } else if !self.consume(&[TokenKind::Semicolon]) {
+            Some(self.expression_stmt()?)
+        } else {
+            None
+        };
+
+        let condition = if !self.matches(&[TokenKind::Semicolon]) {
+            self.expression()?
+        } else {
+            Literal(Spanned {
+                node: LiteralExpr::Bool(false),
+                span: self.previous().span,
+            })
+        };
+
+        if !self.consume(&[TokenKind::Semicolon]) {
+            let error = MissingSemicolon {
+                src: self.source.to_string(),
+                span: self.previous().span,
+            };
+            self.report(error.into());
+        }
+
+        let increment = if !self.matches(&[TokenKind::LeftBrace]) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+
+        let mut body = self.statement()?;
+
+        if let Some(inc) = increment {
+            body = Stmt::Block(Spanned {
+                node: vec![
+                    body,
+                    ExprStmt(Spanned {
+                        node: inc,
+                        span: self.create_span(for_span, self.previous().span),
+                    }),
+                ],
+                span: self.create_span(for_span, self.previous().span),
+            });
+        }
+
+        body = While(Spanned {
+            node: WhileStmt {
+                condition,
+                body: Box::new(body),
+            },
+            span: self.create_span(for_span, self.previous().span),
+        });
+
+        if let Some(init) = initializer {
+            body = Stmt::Block(Spanned {
+                node: vec![init, body],
+                span: self.create_span(for_span, self.previous().span),
+            });
+        }
+
+        Ok(body)
     }
 
     /// starts at first token, ends after the last token of the expression
@@ -1120,7 +1118,7 @@ impl<'a> Parser<'a> {
                 self.advance_position();
 
                 if matches!(self.current().token_kind, TokenKind::Ident(_)) {
-                    return Err(InvalidAssignmentTarget {
+                    return Err(InvalidVariableName {
                         src: self.source.to_string(),
                         span,
                         message: "A variable cannot start with a number".to_string(),

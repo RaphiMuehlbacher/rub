@@ -318,16 +318,31 @@ pub enum ParseError {
         span: SourceSpan,
     },
 
-    #[error("Invalid assignment target: {message}")]
+    #[error("Invalid variable name: {message}")]
     #[diagnostic(
         help("Only variables can be assignment targets"),
         code(parser::invalid_assignment_target)
     )]
-    InvalidAssignmentTarget {
+    InvalidVariableName {
         #[source_code]
         src: String,
 
         #[label("cannot assign to this")]
+        span: SourceSpan,
+
+        message: String,
+    },
+
+    #[error("Invalid function name: {message}")]
+    #[diagnostic(
+        help("change the function name"),
+        code(parser::invalid_assignment_target)
+    )]
+    InvalidFunctionName {
+        #[source_code]
+        src: String,
+
+        #[label("this function")]
         span: SourceSpan,
 
         message: String,
