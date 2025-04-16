@@ -49,7 +49,7 @@ pub enum TokenKind {
     EOF,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token<'a> {
     pub token_kind: TokenKind,
     pub span: SourceSpan,

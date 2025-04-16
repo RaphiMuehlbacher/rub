@@ -124,7 +124,7 @@ pub enum ParseError {
         expected: String,
         found: TokenKind,
     },
-    #[error("Missing semicolon at end of statement")]
+    #[error("Missing semicolon")]
     #[diagnostic(
         help("statements must end with a semicolon (`;`)."),
         code(parser::missing_semicolon)
@@ -161,8 +161,11 @@ pub enum ParseError {
         #[source_code]
         src: String,
 
-        #[label("help: remove these parenthesis")]
-        span: SourceSpan,
+        #[label("opening")]
+        first: SourceSpan,
+
+        #[label("closing")]
+        second: SourceSpan,
     },
 
     #[error("Expected {expected:?}, found EOF")]
@@ -172,6 +175,53 @@ pub enum ParseError {
         src: String,
 
         expected: String,
+    },
+
+    #[error("Unmatched delimiter")]
+    #[diagnostic(help("Complete the expression"), code(parser::unmatched_delimiter))]
+    UnmatchedDelimiter {
+        #[source_code]
+        src: String,
+
+        #[label("opening delimiter here")]
+        opening_span: SourceSpan,
+
+        #[label("expected '{expected:?}' here")]
+        closing_span: SourceSpan,
+        expected: TokenKind,
+    },
+
+    #[error("unexpected closing delimiter: '{delimiter:?}'")]
+    #[diagnostic(
+        help("I have no clue which error message"),
+        code(parser::unexpected_closing_delimiter)
+    )]
+    UnexpectedClosingDelimiter {
+        #[source_code]
+        src: String,
+
+        #[label("no matching opening delimiter")]
+        span: SourceSpan,
+        delimiter: TokenKind,
+    },
+
+    #[error("expected '{expected:?}' but found '{found:?}'")]
+    #[diagnostic(
+        help("I have no clue which error message"),
+        code(parser::mismatched_delimiter)
+    )]
+    MismatchedDelimiter {
+        #[source_code]
+        src: String,
+
+        #[label("mismatched closing delimiter")]
+        closing_span: SourceSpan,
+
+        #[label("opening delimiter here")]
+        opening_span: SourceSpan,
+
+        found: TokenKind,
+        expected: TokenKind,
     },
 
     #[error("Expected expression")]
