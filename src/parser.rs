@@ -5,8 +5,8 @@ use crate::ast::{
     LiteralExpr, LogicalExpr, LogicalOp, Spanned, Stmt, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
-    ExpectedExpression, InvalidAssignmentTarget, MismatchedDelimiter, MissingLeftParenthesis,
-    MissingOperand, MissingSemicolon, MissingVariableAssignmentName,
+    ExpectedExpression, ExpectedIdentifier, InvalidAssignmentTarget, MismatchedDelimiter,
+    MissingLeftParenthesis, MissingOperand, MissingSemicolon, MissingVariableAssignmentName,
     MissingVariableDeclarationName, RedundantParenthesis, RedundantSemicolon, UnclosedBrace,
     UnclosedParenthesis, UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken,
     UnmatchedDelimiter,
@@ -154,6 +154,29 @@ impl<'a> Parser<'a> {
     fn skip_to_next_block(&mut self) {
         self.eat_to_tokens(&[TokenKind::LeftBrace]);
         self.advance_position();
+    }
+
+    fn skip_next_block(&mut self) {
+        let mut brace_count = 0;
+
+        self.eat_to_tokens(&[TokenKind::LeftBrace]);
+
+        brace_count = 1;
+        self.advance_position();
+
+        while brace_count > 0 && !self.next_is_eof() {
+            match self.current().token_kind {
+                TokenKind::LeftBrace => {
+                    brace_count += 1;
+                    self.advance_position();
+                }
+                TokenKind::RightBrace => {
+                    brace_count -= 1;
+                    self.advance_position();
+                }
+                _ => self.advance_position(),
+            }
+        }
     }
 }
 
@@ -313,11 +336,10 @@ impl<'a> Parser<'a> {
                 .into());
             }
             _ => {
-                return Err(UnexpectedToken {
+                return Err(ExpectedIdentifier {
                     src: self.source.to_string(),
                     span: variable_token.span,
-                    found: variable_token.token_kind.clone(),
-                    expected: "an identifier".to_string(),
+                    context: "variable".to_string(),
                 }
                 .into());
             }
@@ -388,12 +410,11 @@ impl<'a> Parser<'a> {
                 .into());
             }
             _ => {
-                panic!("Should skip after the function");
-                return Err(UnexpectedToken {
+                self.skip_next_block();
+                return Err(ExpectedIdentifier {
                     src: self.source.to_string(),
                     span: function_token.span,
-                    found: function_token.token_kind.clone(),
-                    expected: "an identifier".to_string(),
+                    context: "function".to_string(),
                 }
                 .into());
             }
@@ -412,7 +433,7 @@ impl<'a> Parser<'a> {
         }
 
         loop {
-            let curr_token = self.current();
+            let curr_token = self.current().clone();
             match &curr_token.token_kind {
                 TokenKind::Ident(name) => {
                     let span = self.current().span;
@@ -423,11 +444,10 @@ impl<'a> Parser<'a> {
                         TokenKind::Comma => {
                             self.advance_position();
                             if self.current_is(TokenKind::RightParen) {
-                                // ExpectedIdent
-                                todo!();
-                                return Err(ExpectedExpression {
+                                return Err(ExpectedIdentifier {
                                     src: self.source.to_string(),
                                     span: self.previous().span,
+                                    context: "parameter".to_string(),
                                 }
                                 .into());
                             }
@@ -462,10 +482,11 @@ impl<'a> Parser<'a> {
                     .into());
                 }
                 _ => {
-                    // ExpectedIdent
-                    return Err(ExpectedExpression {
+                    self.skip_next_block();
+                    return Err(ExpectedIdentifier {
                         src: self.source.to_string(),
                         span: curr_token.span,
+                        context: "parameter".to_string(),
                     }
                     .into());
                 }

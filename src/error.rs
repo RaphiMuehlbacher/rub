@@ -17,6 +17,21 @@ pub enum ParseError {
         span: SourceSpan,
     },
 
+    #[error("Expected identifier")]
+    #[diagnostic(
+        code(parser::expected_identifier),
+        help("Expected {context} name here")
+    )]
+    ExpectedIdentifier {
+        #[source_code]
+        src: String,
+
+        #[label("expected identifier here")]
+        span: SourceSpan,
+
+        context: String,
+    },
+
     #[error("Expected statement after {keyword}")]
     #[diagnostic(
         help("A {keyword} statement must be followed by a body."),
