@@ -5,11 +5,9 @@ use crate::ast::{
     LiteralExpr, LogicalExpr, LogicalOp, Spanned, Stmt, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
-    ExpectedExpression, ExpectedIdentifier, InvalidAssignmentTarget, MismatchedDelimiter,
-    MissingLeftParenthesis, MissingOperand, MissingSemicolon, MissingVariableAssignmentName,
-    MissingVariableDeclarationName, RedundantParenthesis, RedundantSemicolon, UnclosedBrace,
-    UnclosedParenthesis, UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken,
-    UnmatchedDelimiter,
+    ExpectedExpression, ExpectedIdentifier, InvalidAssignmentTarget, MissingBlock, MissingOperand,
+    MissingSemicolon, RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter,
+    UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken, UnmatchedDelimiter,
 };
 use crate::{lexer, TokenKind};
 use lexer::Token;
@@ -102,6 +100,19 @@ impl<'a> Parser<'a> {
 
     fn report(&mut self, error: Report) {
         self.errors.push(error);
+    }
+
+    fn expect_block(&mut self) -> ParseResult<()> {
+        if !self.matches(&[TokenKind::LeftBrace]) {
+            let opening_span = self.current().span;
+            self.skip_next_block();
+            return Err(MissingBlock {
+                src: self.source.to_string(),
+                span: opening_span,
+            }
+            .into());
+        }
+        Ok(())
     }
 
     fn expect_semicolon(&mut self) {
@@ -212,8 +223,8 @@ impl<'a> Parser<'a> {
             self.advance_position();
             return Err(UnexpectedClosingDelimiter {
                 src: self.source.to_string(),
-                delimiter: close_delim,
                 span: self.previous().span,
+                delimiter: close_delim,
             }
             .into());
         }
@@ -225,23 +236,18 @@ impl<'a> Parser<'a> {
             _ => unreachable!("Invalid opening delimiter"),
         };
 
-        match close_delim {
-            TokenKind::RightParen if last_delimiter.delimiter == TokenKind::LeftParen => {
-                self.advance_position();
-                Ok(())
-            }
-            TokenKind::RightBrace if last_delimiter.delimiter == TokenKind::LeftBrace => {
-                self.advance_position();
-                Ok(())
-            }
-            _ => Err(UnmatchedDelimiter {
+        if close_delim != expected_closing {
+            return Err(UnmatchedDelimiter {
                 src: self.source.to_string(),
                 opening_span: last_delimiter.span,
                 closing_span: self.current().span,
                 expected: expected_closing,
+                found: self.current().token_kind.clone(),
             }
-            .into()),
+            .into());
         }
+        self.advance_position();
+        Ok(())
     }
 }
 
@@ -289,6 +295,7 @@ impl<'a> Parser<'a> {
         self.advance_position();
 
         let variable_name = self.parse_variable_name()?;
+        println!("{:?}", self.current());
 
         let initializer = self.parse_var_initializer()?;
         self.expect_semicolon();
@@ -329,9 +336,10 @@ impl<'a> Parser<'a> {
                 .into());
             }
             TokenKind::Semicolon | TokenKind::Equal => {
-                return Err(MissingVariableDeclarationName {
+                return Err(ExpectedIdentifier {
                     src: self.source.to_string(),
                     span: var_keyword_span,
+                    context: "variable name".to_string(),
                 }
                 .into());
             }
@@ -358,8 +366,16 @@ impl<'a> Parser<'a> {
                 .into());
             }
             Some(self.expression()?)
-        } else {
+        } else if self.matches(&[TokenKind::Semicolon]) {
             None
+        } else {
+            return Err(UnexpectedToken {
+                src: self.source.to_string(),
+                span: self.current().span,
+                expected: "'=' or ';'".to_string(),
+                found: self.current().token_kind.clone(),
+            }
+            .into());
         };
         Ok(initializer)
     }
@@ -425,14 +441,25 @@ impl<'a> Parser<'a> {
     /// current is '(' ends after ')'
     fn parse_function_parameters(&mut self) -> ParseResult<Vec<Ident>> {
         let mut parameters = vec![];
+        let opening_paren_span = self.current().span;
+
         self.open_delimiter(self.current().token_kind.clone())?;
 
-        if self.consume(&[TokenKind::RightParen]) {
+        if self.matches(&[TokenKind::RightParen]) {
             self.close_delimiter(self.current().token_kind.clone())?;
             return Ok(parameters);
         }
 
         loop {
+            if self.matches(&[TokenKind::EOF]) {
+                return Err(UnclosedDelimiter {
+                    src: self.source.to_string(),
+                    span: opening_paren_span,
+                    delimiter: TokenKind::LeftParen,
+                }
+                .into());
+            }
+
             let curr_token = self.current().clone();
             match &curr_token.token_kind {
                 TokenKind::Ident(name) => {
@@ -473,13 +500,6 @@ impl<'a> Parser<'a> {
                             .into());
                         }
                     }
-                }
-                TokenKind::EOF => {
-                    return Err(UnexpectedEOF {
-                        src: self.source.to_string(),
-                        expected: "')' after function parameters".to_string(),
-                    }
-                    .into());
                 }
                 _ => {
                     self.skip_next_block();
@@ -555,7 +575,6 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        println!("{:?}", self.current());
         self.close_delimiter(self.current().token_kind.clone())?;
 
         Ok(Stmt::Block(Spanned {
@@ -621,9 +640,7 @@ impl<'a> Parser<'a> {
         self.advance_position();
 
         let condition = self.parse_condition()?;
-        println!("{:?}", self.current());
         let block = self.block()?;
-        println!("{:?}", self.current());
 
         Ok(While(Spanned {
             node: WhileStmt {
@@ -753,30 +770,12 @@ impl<'a> Parser<'a> {
                         target: variable_ident.clone(),
                         value: Box::new(value),
                     },
-                    span: variable_ident.span,
+                    span: self.create_span(left_assignment_span, self.current().span),
                 })),
-                // Literal(Literal::Number { value: _, span }) => {
-                //     if let Some(next_token) = self.peek() {
-                //         if matches!(next_token.token_kind, TokenKind::Ident(_)) {
-                //             return Err(InvalidAssignmentTarget {
-                //                 src: self.source.to_string(),
-                //                 span: self.create_span(left_span, self.previous().span),
-                //                 message: "A variable cannot start with a number".to_string(),
-                //             }
-                //             .into());
-                //         }
-                //     }
-                //
-                //     Err(InvalidAssignmentTarget {
-                //         src: self.source.to_string(),
-                //         span,
-                //         message: "Cannot assign to a number literal".to_string(),
-                //     }
-                //     .into())
-                // }
-                _ => Err(MissingVariableAssignmentName {
+                _ => Err(ExpectedIdentifier {
                     src: self.source.to_string(),
                     span: equal_span,
+                    context: "variable name".to_string(),
                 }
                 .into()),
             };
@@ -1033,9 +1032,10 @@ impl<'a> Parser<'a> {
         self.open_delimiter(self.current().token_kind.clone())?;
 
         if self.matches(&[TokenKind::EOF, TokenKind::Semicolon]) {
-            return Err(UnclosedParenthesis {
+            return Err(UnclosedDelimiter {
                 src: self.source.to_string(),
                 span: left_paren_span,
+                delimiter: TokenKind::LeftParen,
             }
             .into());
         }
@@ -1070,26 +1070,6 @@ impl<'a> Parser<'a> {
                     src: self.source.to_string(),
                     span: self.current().span,
                     delimiter: self.current().token_kind.clone(),
-                }
-                .into())
-            }
-            TokenKind::Plus
-            | TokenKind::Minus
-            | TokenKind::Star
-            | TokenKind::Slash
-            | TokenKind::Less
-            | TokenKind::LessEqual
-            | TokenKind::Greater
-            | TokenKind::GreaterEqual
-            | TokenKind::BangEqual
-            | TokenKind::EqualEqual => {
-                let operator = self.current().clone();
-                self.advance_position();
-                let right = self.primary()?;
-                Err(MissingOperand {
-                    src: self.source.to_string(),
-                    span: operator.span,
-                    side: "left".to_string(),
                 }
                 .into())
             }

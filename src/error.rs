@@ -124,7 +124,20 @@ pub enum ParseError {
         span: SourceSpan,
     },
 
-    #[error("Expected {expected:?}, found {found:?}")]
+    #[error("Expected block")]
+    #[diagnostic(
+        code(parser::missing_block),
+        help("Expected a block enclosed in braces")
+    )]
+    MissingBlock {
+        #[source_code]
+        src: String,
+
+        #[label("expected block here")]
+        span: SourceSpan,
+    },
+
+    #[error("Expected {expected}, found {found:?}")]
     #[diagnostic(
         help("The parser expected a different token here."),
         code(parser::unexpected_token)
@@ -193,7 +206,10 @@ pub enum ParseError {
     },
 
     #[error("Unmatched delimiter")]
-    #[diagnostic(help("Complete the expression"), code(parser::unmatched_delimiter))]
+    #[diagnostic(
+        help("expected {expected:?}, found {found:?}"),
+        code(parser::unmatched_delimiter)
+    )]
     UnmatchedDelimiter {
         #[source_code]
         src: String,
@@ -201,9 +217,23 @@ pub enum ParseError {
         #[label("opening delimiter here")]
         opening_span: SourceSpan,
 
-        #[label("expected '{expected:?}' here")]
+        #[label("mismatched closing delimiter here")]
         closing_span: SourceSpan,
+
         expected: TokenKind,
+        found: TokenKind,
+    },
+
+    #[error("unclosed delimiter")]
+    #[diagnostic(code(parse::unclosed_delimiter), help("missing closing {delimiter:?}"))]
+    UnclosedDelimiter {
+        #[source_code]
+        src: String,
+
+        #[label("unclosed delimiter here")]
+        span: SourceSpan,
+
+        delimiter: TokenKind,
     },
 
     #[error("unexpected closing delimiter: '{delimiter:?}'")]
