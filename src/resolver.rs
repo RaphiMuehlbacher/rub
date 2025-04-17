@@ -2,20 +2,38 @@ use crate::ast::{
     AssignExpr, BinaryExpr, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LogicalExpr, Program,
     Spanned, Stmt, UnaryExpr, VarDeclStmt, WhileStmt,
 };
+use crate::error::ResolverError;
+use crate::error::ResolverError::{UndefinedVariable, UninitializedVariable};
 use miette::Report;
+use std::collections::HashMap;
 use std::ops::Deref;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Symbol {
+    Variable { initialized: bool },
+    Function { params: Vec<Ident> },
+}
+
 pub struct Resolver<'a> {
+    source: String,
     program: &'a Program,
     errors: Vec<Report>,
+    scope: HashMap<String, Symbol>,
 }
 
 impl<'a> Resolver<'a> {
-    pub fn new(ast: &'a Program) -> Self {
+    pub fn new(ast: &'a Program, source: String) -> Self {
+        let mut scope = HashMap::new();
         Self {
+            source,
             program: ast,
             errors: vec![],
+            scope,
         }
+    }
+
+    fn report(&mut self, error: ResolverError) {
+        self.errors.push(error.into());
     }
 
     pub fn resolve(mut self) -> Vec<Report> {
@@ -47,11 +65,21 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_var_decl(&mut self, var_decl: &Spanned<VarDeclStmt>) {
-        todo!()
+        self.scope.insert(
+            var_decl.node.ident.name.clone(),
+            Symbol::Variable {
+                initialized: var_decl.node.initializer.is_some(),
+            },
+        );
     }
 
     fn resolve_fun_decl(&mut self, fun_decl: &Spanned<FunDeclStmt>) {
-        todo!()
+        self.scope.insert(
+            fun_decl.node.ident.name.clone(),
+            Symbol::Function {
+                params: fun_decl.node.params.clone(),
+            },
+        );
     }
 
     fn resolve_block(&mut self, block: &Spanned<Vec<Stmt>>) {
@@ -99,7 +127,19 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_variable_expr(&mut self, variable_expr: &Ident) {
-        todo!()
+        match self.scope.get(variable_expr.name.as_str()) {
+            Some(Symbol::Variable { initialized: false }) => self.report(UninitializedVariable {
+                src: self.source.clone(),
+                span: variable_expr.span,
+                name: variable_expr.name.clone(),
+            }),
+            None => self.report(UndefinedVariable {
+                src: self.source.clone(),
+                span: variable_expr.span,
+                name: variable_expr.name.clone(),
+            }),
+            _ => {}
+        }
     }
 
     fn resolve_assign_expr(&mut self, assign_expr: &Spanned<AssignExpr>) {

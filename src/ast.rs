@@ -48,13 +48,13 @@ pub enum Stmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarDeclStmt {
-    pub name: Ident,
+    pub ident: Ident,
     pub initializer: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDeclStmt {
-    pub name: Ident,
+    pub ident: Ident,
     pub params: Vec<Ident>,
     pub body: Box<Stmt>,
 }

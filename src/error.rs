@@ -3,6 +3,38 @@ use miette::{diagnostic, Diagnostic, SourceSpan};
 use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]
+pub enum ResolverError {
+    #[error("Variable '{name}' used before initialization")]
+    #[diagnostic(
+        help("Make sure to initialize the variable before using it"),
+        code(resolver::uninitialized_variable)
+    )]
+    UninitializedVariable {
+        #[source_code]
+        src: String,
+
+        #[label("variable used here before being initialized")]
+        span: SourceSpan,
+
+        name: String,
+    },
+
+    #[error("Undefined variable '{name}'")]
+    #[diagnostic(
+        help("Make sure the variable is declared before using it"),
+        code(resolver::undefined_variable)
+    )]
+    UndefinedVariable {
+        #[source_code]
+        src: String,
+
+        #[label("undefined variable used here")]
+        span: SourceSpan,
+
+        name: String,
+    },
+}
+#[derive(Debug, Error, Diagnostic)]
 pub enum ParseError {
     #[error("Unclosed parenthesis")]
     #[diagnostic(

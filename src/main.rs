@@ -21,8 +21,11 @@ fn main() {
         println!("{:?}", error);
     }
 
-    let mut resolver = Resolver::new(&ast);
+    let mut resolver = Resolver::new(&ast, source);
     let errors = resolver.resolve();
 
+    for error in errors {
+        println!("{:?}", error);
+    }
     // let typechecker = Typechecker::new(&mut ast, source.as_str());
 }

@@ -319,7 +319,7 @@ impl<'a> Parser<'a> {
 
         Ok(Stmt::VarDecl(Spanned {
             node: VarDeclStmt {
-                name: variable_name,
+                ident: variable_name,
                 initializer,
             },
             span: self.create_span(var_keyword_span, self.current().span),
@@ -409,7 +409,7 @@ impl<'a> Parser<'a> {
 
         Ok(Stmt::FunDecl(Spanned {
             node: FunDeclStmt {
-                name: function_name,
+                ident: function_name,
                 params: parameters,
                 body: Box::new(body),
             },
