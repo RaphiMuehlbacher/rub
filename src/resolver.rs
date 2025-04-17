@@ -143,7 +143,13 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_assign_expr(&mut self, assign_expr: &Spanned<AssignExpr>) {
-        todo!()
+        if let None = self.scope.get(assign_expr.node.target.name.as_str()) {
+            self.report(UndefinedVariable {
+                src: self.source.clone(),
+                span: assign_expr.node.target.span,
+                name: assign_expr.node.target.name.clone(),
+            })
+        }
     }
 
     fn resolve_logical_expr(&mut self, logical_expr: &Spanned<LogicalExpr>) {
