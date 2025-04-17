@@ -18,22 +18,34 @@ pub struct Resolver<'a> {
     source: String,
     program: &'a Program,
     errors: Vec<Report>,
-    scope: HashMap<String, Symbol>,
+    scopes: Vec<HashMap<String, Symbol>>,
 }
 
 impl<'a> Resolver<'a> {
     pub fn new(ast: &'a Program, source: String) -> Self {
-        let mut scope = HashMap::new();
         Self {
             source,
             program: ast,
             errors: vec![],
-            scope,
+            scopes: vec![HashMap::new()],
         }
     }
 
     fn report(&mut self, error: ResolverError) {
         self.errors.push(error.into());
+    }
+
+    fn lookup_symbol(&self, key: &str) -> Option<Symbol> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(symbol) = scope.get(key) {
+                return Some(symbol.clone());
+            }
+        }
+        None
+    }
+
+    fn curr_scope(&mut self) -> &mut HashMap<String, Symbol> {
+        self.scopes.last_mut().unwrap()
     }
 
     pub fn resolve(mut self) -> Vec<Report> {
@@ -65,7 +77,10 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_var_decl(&mut self, var_decl: &Spanned<VarDeclStmt>) {
-        self.scope.insert(
+        if let Some(init) = &var_decl.node.initializer {
+            self.resolve_expr(init);
+        }
+        self.curr_scope().insert(
             var_decl.node.ident.name.clone(),
             Symbol::Variable {
                 initialized: var_decl.node.initializer.is_some(),
@@ -74,7 +89,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_fun_decl(&mut self, fun_decl: &Spanned<FunDeclStmt>) {
-        self.scope.insert(
+        self.curr_scope().insert(
             fun_decl.node.ident.name.clone(),
             Symbol::Function {
                 params: fun_decl.node.params.clone(),
@@ -83,7 +98,11 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_block(&mut self, block: &Spanned<Vec<Stmt>>) {
-        todo!()
+        self.scopes.push(HashMap::new());
+        for stmt in &block.node {
+            self.resolve_stmt(stmt);
+        }
+        self.scopes.pop();
     }
 
     fn resolve_if_stmt(&mut self, if_stmt: &Spanned<IfStmt>) {
@@ -127,7 +146,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_variable_expr(&mut self, variable_expr: &Ident) {
-        match self.scope.get(variable_expr.name.as_str()) {
+        match self.lookup_symbol(variable_expr.name.as_str()) {
             Some(Symbol::Variable { initialized: false }) => self.report(UninitializedVariable {
                 src: self.source.clone(),
                 span: variable_expr.span,
@@ -143,7 +162,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_assign_expr(&mut self, assign_expr: &Spanned<AssignExpr>) {
-        if let None = self.scope.get(assign_expr.node.target.name.as_str()) {
+        if let None = self.lookup_symbol(assign_expr.node.target.name.as_str()) {
             self.report(UndefinedVariable {
                 src: self.source.clone(),
                 span: assign_expr.node.target.span,
