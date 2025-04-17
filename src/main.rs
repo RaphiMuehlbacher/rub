@@ -1,4 +1,4 @@
-use rslox::{Lexer, Parser};
+use rslox::{Lexer, Parser, Resolver, Typechecker};
 use std::fs;
 
 fn main() {
@@ -15,11 +15,14 @@ fn main() {
     }
 
     let mut parser = Parser::new(tokens, source.as_str());
-    let ast = parser.parse();
+    let mut ast = parser.parse();
 
     for error in parser.get_errors() {
         println!("{:?}", error);
     }
 
-    println!("{:?}", ast);
+    let mut resolver = Resolver::new(&ast);
+    let errors = resolver.resolve();
+
+    // let typechecker = Typechecker::new(&mut ast, source.as_str());
 }

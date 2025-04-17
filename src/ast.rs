@@ -29,6 +29,12 @@ impl Ident {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Program {
+    pub statements: Vec<Stmt>,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     ExprStmt(Spanned<Expr>),
     PrintStmt(Spanned<Expr>),

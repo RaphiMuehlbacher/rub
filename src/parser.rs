@@ -2,7 +2,8 @@ use crate::ast::Expr::{Call, Grouping, Literal, Unary, Variable};
 use crate::ast::Stmt::{ExprStmt, PrintStmt, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, CallExpr, Delimiter, Expr, FunDeclStmt, Ident, IfStmt,
-    LiteralExpr, LogicalExpr, LogicalOp, Spanned, Stmt, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    LiteralExpr, LogicalExpr, LogicalOp, Program, Spanned, Stmt, UnaryExpr, UnaryOp, VarDeclStmt,
+    WhileStmt,
 };
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock,
@@ -271,10 +272,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Vec<Stmt> {
+    pub fn parse(&mut self) -> Program {
+        let left_program_span = self.current().span;
         let mut statements = vec![];
         if self.matches(&[TokenKind::EOF]) {
-            return statements;
+            return Program {
+                statements,
+                span: self.create_span(left_program_span, self.current().span),
+            };
         }
 
         while !self.at_eof() {
@@ -288,7 +293,10 @@ impl<'a> Parser<'a> {
             }
         }
 
-        statements
+        Program {
+            statements,
+            span: self.create_span(left_program_span, self.current().span),
+        }
     }
 
     fn declaration(&mut self) -> ParseResult<Stmt> {
