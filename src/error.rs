@@ -33,7 +33,23 @@ pub enum ResolverError {
 
         name: String,
     },
+
+    #[error("Cannot declare function '{function_name}' with duplicate parameter names")]
+    #[diagnostic(
+        help("Function parameters must have unique names"),
+        code(resolver::duplicate_parameter)
+    )]
+    DuplicateParameter {
+        #[source_code]
+        src: String,
+
+        #[label("duplicate parameter name")]
+        span: SourceSpan,
+
+        function_name: String,
+    },
 }
+
 #[derive(Debug, Error, Diagnostic)]
 pub enum ParseError {
     #[error("Unclosed parenthesis")]

@@ -1,9 +1,9 @@
 use crate::ast::{
-    AssignExpr, BinaryExpr, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LogicalExpr, Program,
-    Spanned, Stmt, UnaryExpr, VarDeclStmt, WhileStmt,
+    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LogicalExpr,
+    Program, Spanned, Stmt, UnaryExpr, VarDeclStmt, WhileStmt,
 };
 use crate::error::ResolverError;
-use crate::error::ResolverError::{UndefinedVariable, UninitializedVariable};
+use crate::error::ResolverError::{DuplicateParameter, UndefinedVariable, UninitializedVariable};
 use miette::Report;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -35,10 +35,10 @@ impl<'a> Resolver<'a> {
         self.errors.push(error.into());
     }
 
-    fn lookup_symbol(&self, key: &str) -> Option<Symbol> {
+    fn lookup_symbol(&self, key: &str) -> Option<&Symbol> {
         for scope in self.scopes.iter().rev() {
             if let Some(symbol) = scope.get(key) {
-                return Some(symbol.clone());
+                return Some(symbol);
             }
         }
         None
@@ -95,11 +95,30 @@ impl<'a> Resolver<'a> {
                 params: fun_decl.node.params.clone(),
             },
         );
+
+        self.scopes.push(HashMap::new());
+        for param in &fun_decl.node.params {
+            if self.curr_scope().get(param.name.as_str()).is_some() {
+                self.report(DuplicateParameter {
+                    src: self.source.to_string(),
+                    span: param.span,
+                    function_name: fun_decl.node.ident.name.clone(),
+                })
+            } else {
+                self.curr_scope()
+                    .insert(param.name.clone(), Symbol::Variable { initialized: true });
+            }
+        }
+
+        for stmt in &fun_decl.node.body.node.statements {
+            self.resolve_stmt(stmt);
+        }
+        self.scopes.pop();
     }
 
-    fn resolve_block(&mut self, block: &Spanned<Vec<Stmt>>) {
+    fn resolve_block(&mut self, block: &Spanned<BlockStmt>) {
         self.scopes.push(HashMap::new());
-        for stmt in &block.node {
+        for stmt in &block.node.statements {
             self.resolve_stmt(stmt);
         }
         self.scopes.pop();
@@ -107,15 +126,15 @@ impl<'a> Resolver<'a> {
 
     fn resolve_if_stmt(&mut self, if_stmt: &Spanned<IfStmt>) {
         self.resolve_expr(&if_stmt.node.condition);
-        self.resolve_stmt(&if_stmt.node.then_branch);
+        self.resolve_block(&if_stmt.node.then_branch);
         if let Some(else_branch) = &if_stmt.node.else_branch {
-            self.resolve_stmt(else_branch);
+            self.resolve_block(else_branch);
         }
     }
 
     fn resolve_while_stmt(&mut self, while_stmt: &Spanned<WhileStmt>) {
         self.resolve_expr(&while_stmt.node.condition);
-        self.resolve_stmt(&while_stmt.node.body);
+        self.resolve_block(&while_stmt.node.body);
     }
 
     fn resolve_return_stmt(&mut self, return_stmt: &Spanned<Option<Expr>>) {
@@ -181,7 +200,5 @@ impl<'a> Resolver<'a> {
         self.resolve_expr(&logical_expr.node.right);
     }
 
-    fn resolve_call_expr(&mut self, call_expr: &Spanned<CallExpr>) {
-        todo!()
-    }
+    fn resolve_call_expr(&mut self, call_expr: &Spanned<CallExpr>) {}
 }

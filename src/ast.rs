@@ -40,7 +40,7 @@ pub enum Stmt {
     PrintStmt(Spanned<Expr>),
     VarDecl(Spanned<VarDeclStmt>),
     FunDecl(Spanned<FunDeclStmt>),
-    Block(Spanned<Vec<Stmt>>),
+    Block(Spanned<BlockStmt>),
     If(Spanned<IfStmt>),
     While(Spanned<WhileStmt>),
     Return(Spanned<Option<Expr>>),
@@ -56,20 +56,25 @@ pub struct VarDeclStmt {
 pub struct FunDeclStmt {
     pub ident: Ident,
     pub params: Vec<Ident>,
-    pub body: Box<Stmt>,
+    pub body: Spanned<BlockStmt>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlockStmt {
+    pub statements: Vec<Stmt>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfStmt {
     pub condition: Expr,
-    pub then_branch: Box<Stmt>,
-    pub else_branch: Option<Box<Stmt>>,
+    pub then_branch: Spanned<BlockStmt>,
+    pub else_branch: Option<Spanned<BlockStmt>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileStmt {
     pub condition: Expr,
-    pub body: Box<Stmt>,
+    pub body: Spanned<BlockStmt>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

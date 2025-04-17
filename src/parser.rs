@@ -1,9 +1,9 @@
 use crate::ast::Expr::{Call, Grouping, Literal, Unary, Variable};
-use crate::ast::Stmt::{ExprStmt, PrintStmt, Return, While};
+use crate::ast::Stmt::{Block, ExprStmt, PrintStmt, Return, While};
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, CallExpr, Delimiter, Expr, FunDeclStmt, Ident, IfStmt,
-    LiteralExpr, LogicalExpr, LogicalOp, Program, Spanned, Stmt, UnaryExpr, UnaryOp, VarDeclStmt,
-    WhileStmt,
+    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident,
+    IfStmt, LiteralExpr, LogicalExpr, LogicalOp, Program, Spanned, Stmt, UnaryExpr, UnaryOp,
+    VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock,
@@ -411,7 +411,7 @@ impl<'a> Parser<'a> {
             node: FunDeclStmt {
                 ident: function_name,
                 params: parameters,
-                body: Box::new(body),
+                body: body,
             },
             span: self.create_span(fun_keyword_span, self.previous().span),
         }))
@@ -546,7 +546,7 @@ impl<'a> Parser<'a> {
         if self.matches(&[TokenKind::Print]) {
             return self.print_stmt();
         } else if self.matches(&[TokenKind::LeftBrace]) {
-            return self.block();
+            return Ok(Block(self.block()?));
         } else if self.matches(&[TokenKind::If]) {
             return self.if_stmt();
         } else if self.matches(&[TokenKind::While]) {
@@ -588,7 +588,7 @@ impl<'a> Parser<'a> {
     }
 
     /// current is '{' and ends after '}'
-    fn block(&mut self) -> ParseResult<Stmt> {
+    fn block(&mut self) -> ParseResult<Spanned<BlockStmt>> {
         let opening_brace_span = self.current().span;
         self.open_delimiter(self.current().token_kind.clone())?;
 
@@ -605,10 +605,10 @@ impl<'a> Parser<'a> {
         }
         self.close_delimiter(self.current().token_kind.clone())?;
 
-        Ok(Stmt::Block(Spanned {
-            node: statements,
+        Ok(Spanned {
+            node: BlockStmt { statements },
             span: self.create_span(opening_brace_span, self.previous().span),
-        }))
+        })
     }
 
     /// start is `if`, end is next statement
@@ -621,13 +621,13 @@ impl<'a> Parser<'a> {
 
         let mut else_branch = None;
         if self.consume(&[TokenKind::Else]) {
-            else_branch = Some(Box::new(self.block()?));
+            else_branch = Some(self.block()?);
         }
 
         Ok(Stmt::If(Spanned {
             node: IfStmt {
                 condition,
-                then_branch: Box::new(then_branch),
+                then_branch,
                 else_branch,
             },
             span: self.create_span(if_span, self.previous().span),
@@ -673,7 +673,7 @@ impl<'a> Parser<'a> {
         Ok(While(Spanned {
             node: WhileStmt {
                 condition,
-                body: Box::new(block),
+                body: block,
             },
             span: self.create_span(while_span, self.previous().span),
         }))
@@ -715,37 +715,41 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let mut body = self.statement()?;
+        let body = self.block()?;
+        let mut statements = vec![];
 
-        if let Some(inc) = increment {
-            body = Stmt::Block(Spanned {
-                node: vec![
-                    body,
-                    ExprStmt(Spanned {
-                        node: inc,
-                        span: self.create_span(for_span, self.previous().span),
-                    }),
-                ],
-                span: self.create_span(for_span, self.previous().span),
-            });
+        if let Some(init) = initializer {
+            statements.push(init);
         }
 
-        body = While(Spanned {
+        let mut while_body_statements = Vec::new();
+        while_body_statements.extend(body.node.statements);
+
+        if let Some(inc) = increment {
+            while_body_statements.push(ExprStmt(Spanned {
+                node: inc,
+                span: self.create_span(for_span, self.previous().span),
+            }));
+        }
+
+        let while_stmt = While(Spanned {
             node: WhileStmt {
                 condition,
-                body: Box::new(body),
+                body: Spanned {
+                    node: BlockStmt {
+                        statements: while_body_statements,
+                    },
+                    span: body.span,
+                },
             },
             span: self.create_span(for_span, self.previous().span),
         });
+        statements.push(while_stmt);
 
-        if let Some(init) = initializer {
-            body = Stmt::Block(Spanned {
-                node: vec![init, body],
-                span: self.create_span(for_span, self.previous().span),
-            });
-        }
-
-        Ok(body)
+        Ok(Block(Spanned {
+            node: BlockStmt { statements },
+            span: self.create_span(for_span, self.previous().span),
+        }))
     }
 
     /// current is `return` end is next statement
