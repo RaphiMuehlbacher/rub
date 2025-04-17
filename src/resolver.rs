@@ -106,11 +106,16 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_if_stmt(&mut self, if_stmt: &Spanned<IfStmt>) {
-        todo!()
+        self.resolve_expr(&if_stmt.node.condition);
+        self.resolve_stmt(&if_stmt.node.then_branch);
+        if let Some(else_branch) = &if_stmt.node.else_branch {
+            self.resolve_stmt(else_branch);
+        }
     }
 
     fn resolve_while_stmt(&mut self, while_stmt: &Spanned<WhileStmt>) {
-        todo!()
+        self.resolve_expr(&while_stmt.node.condition);
+        self.resolve_stmt(&while_stmt.node.body);
     }
 
     fn resolve_return_stmt(&mut self, return_stmt: &Spanned<Option<Expr>>) {
