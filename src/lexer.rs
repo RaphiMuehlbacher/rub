@@ -239,7 +239,7 @@ impl<'a> Lexer<'a> {
         }
         let eof_token = Token {
             token_kind: TokenKind::EOF,
-            span: SourceSpan::from(self.source.len()),
+            span: SourceSpan::from(self.source.len() - 1),
             literal: "",
         };
         self.tokens.push(eof_token);

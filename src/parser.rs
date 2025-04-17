@@ -1,5 +1,5 @@
 use crate::ast::Expr::{Call, Grouping, Literal, Unary, Variable};
-use crate::ast::Stmt::{ExprStmt, PrintStmt, While};
+use crate::ast::Stmt::{ExprStmt, PrintStmt, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, CallExpr, Delimiter, Expr, FunDeclStmt, Ident, IfStmt,
     LiteralExpr, LogicalExpr, LogicalOp, Spanned, Stmt, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
@@ -117,7 +117,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// if `current` is not a semicolon it skips to the next statement
+    /// if `current` is not a semicolon, it skips to the next statement
     fn expect_semicolon(&mut self) {
         if !self.consume(&[TokenKind::Semicolon]) {
             let previous_span = self.previous().span;
@@ -545,6 +545,8 @@ impl<'a> Parser<'a> {
             return self.while_stmt();
         } else if self.matches(&[TokenKind::For]) {
             return self.for_stmt();
+        } else if self.matches(&[TokenKind::Return]) {
+            return self.return_stmt();
         }
         self.expression_stmt()
     }
@@ -686,7 +688,7 @@ impl<'a> Parser<'a> {
             self.expression()?
         } else {
             Literal(Spanned {
-                node: LiteralExpr::Bool(false),
+                node: LiteralExpr::Bool(true),
                 span: self.previous().span,
             })
         };
@@ -736,6 +738,31 @@ impl<'a> Parser<'a> {
         }
 
         Ok(body)
+    }
+
+    /// current is `return` end is next statement
+    fn return_stmt(&mut self) -> ParseResult<Stmt> {
+        let left_return_span = self.current().span;
+        self.advance_position();
+
+        let value = if !self.matches(&[TokenKind::Semicolon]) {
+            if self.matches(&[TokenKind::EOF]) {
+                return Err(ExpectedExpression {
+                    src: self.source.to_string(),
+                    span: self.current().span,
+                }
+                .into());
+            }
+            Some(self.expression()?)
+        } else {
+            None
+        };
+
+        self.expect_semicolon();
+        Ok(Return(Spanned {
+            node: value,
+            span: self.create_span(left_return_span, self.previous().span),
+        }))
     }
 
     /// starts at first token, ends after the last token of the expression
