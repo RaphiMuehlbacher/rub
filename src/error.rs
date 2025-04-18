@@ -74,19 +74,6 @@ pub enum ResolverError {
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum ParseError {
-    #[error("Unclosed parenthesis")]
-    #[diagnostic(
-        help("Make sure all opening parentheses are closed."),
-        code(parser::unclosed_paren)
-    )]
-    UnclosedParenthesis {
-        #[source_code]
-        src: String,
-
-        #[label("opening parenthesis here requires a matching closing one")]
-        span: SourceSpan,
-    },
-
     #[error("Expected identifier")]
     #[diagnostic(
         code(parser::expected_identifier),
@@ -100,98 +87,6 @@ pub enum ParseError {
         span: SourceSpan,
 
         context: String,
-    },
-
-    #[error("Expected statement after {keyword}")]
-    #[diagnostic(
-        help("A {keyword} statement must be followed by a body."),
-        code(parser::missing_statement)
-    )]
-    MissingStatement {
-        #[source_code]
-        src: String,
-
-        #[label("expected statement here")]
-        span: SourceSpan,
-
-        keyword: String,
-    },
-
-    #[error("Expected left parenthesis after `{paren_type}`")]
-    #[diagnostic(
-        help("The condition of {paren_type} must be enclosed in parenthesis"),
-        code(parser::missing_left_paren)
-    )]
-    MissingLeftParenthesis {
-        #[source_code]
-        src: String,
-
-        #[label("expected '(' here")]
-        span: SourceSpan,
-        paren_type: String,
-    },
-
-    #[error("Expected left brace")]
-    #[diagnostic(help("A left brace is needed."), code(parser::missing_left_paren))]
-    MissingLeftBrace {
-        #[source_code]
-        src: String,
-
-        #[label("expected '{{' here")]
-        span: SourceSpan,
-    },
-
-    #[error("Expected right parenthesis after `{paren_type}`")]
-    #[diagnostic(
-        help("The condition of {paren_type} must be enclosed in parenthesis"),
-        code(parser::missing_right_paren)
-    )]
-    MissingRightParenthesis {
-        #[source_code]
-        src: String,
-
-        #[label("expected ')' here")]
-        span: SourceSpan,
-        paren_type: String,
-    },
-
-    #[error("Unclosed brace")]
-    #[diagnostic(
-        help("Make sure all opening braces are closed."),
-        code(parser::unclosed_paren)
-    )]
-    UnclosedBrace {
-        #[source_code]
-        src: String,
-
-        #[label("opening brace here requires a matching closing one")]
-        span: SourceSpan,
-    },
-
-    #[error("Unexpected closing brace")]
-    #[diagnostic(
-        help("This closing brace doesn't have a matching opening brace."),
-        code(parser::unexpected_closing_brace)
-    )]
-    UnexpectedClosingBrace {
-        #[source_code]
-        src: String,
-
-        #[label("unexpected closing brace with no matching opening brace")]
-        span: SourceSpan,
-    },
-
-    #[error("Invalid condition in if statement")]
-    #[diagnostic(
-        help("The condition in an if statement must be a valid expression."),
-        code(parser::invalid_condition)
-    )]
-    InvalidCondition {
-        #[source_code]
-        src: String,
-
-        #[label("invalid condition here")]
-        span: SourceSpan,
     },
 
     #[error("Expected block")]
@@ -360,32 +255,6 @@ pub enum ParseError {
         #[label("Operator here")]
         span: SourceSpan,
         side: String,
-    },
-
-    #[error("Missing variable name in declaration")]
-    #[diagnostic(
-        help("Variable declarations must include a variable name."),
-        code(parser::missing_variable_declaration_name)
-    )]
-    MissingVariableDeclarationName {
-        #[source_code]
-        src: String,
-
-        #[label("variable name expected after 'var' keyword")]
-        span: SourceSpan,
-    },
-
-    #[error("Missing variable name in assignment")]
-    #[diagnostic(
-        help("Variable assignments must include a variable name."),
-        code(parser::missing_variable_assignment_name)
-    )]
-    MissingVariableAssignmentName {
-        #[source_code]
-        src: String,
-
-        #[label("variable name expected")]
-        span: SourceSpan,
     },
 
     #[error("Invalid variable name: {message}")]

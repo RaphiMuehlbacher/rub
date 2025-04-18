@@ -2,9 +2,28 @@ use crate::TokenKind;
 use miette::SourceSpan;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Spanned<T> {
+pub struct Typed<T> {
     pub node: T,
     pub span: SourceSpan,
+    pub type_id: usize,
+}
+
+impl<T> Typed<T> {
+    pub fn new(node: T, span: SourceSpan) -> Self {
+        static mut TYPE_ID: usize = 0;
+
+        let type_id = unsafe {
+            let id = TYPE_ID;
+            TYPE_ID += 1;
+            id
+        };
+
+        Self {
+            node,
+            span,
+            type_id,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,6 +46,15 @@ impl Ident {
         }
     }
 }
+pub trait Visitor<T> {
+    fn visit_program(&mut self, program: &Program) -> T;
+    fn visit_stmt(&mut self, stmt: &Stmt) -> T;
+    fn visit_expr(&mut self, expr: &Expr) -> T;
+}
+
+pub trait Accept<T> {
+    fn accept(&self, visitor: &mut impl Visitor<T>) -> T;
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
@@ -34,16 +62,28 @@ pub struct Program {
     pub span: SourceSpan,
 }
 
+impl<T> Accept<T> for Program {
+    fn accept(&self, visitor: &mut impl Visitor<T>) -> T {
+        visitor.visit_program(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
-    ExprStmt(Spanned<Expr>),
-    PrintStmt(Spanned<Expr>),
-    VarDecl(Spanned<VarDeclStmt>),
-    FunDecl(Spanned<FunDeclStmt>),
-    Block(Spanned<BlockStmt>),
-    If(Spanned<IfStmt>),
-    While(Spanned<WhileStmt>),
-    Return(Spanned<Option<Expr>>),
+    ExprStmt(Typed<Expr>),
+    PrintStmt(Typed<Expr>),
+    VarDecl(Typed<VarDeclStmt>),
+    FunDecl(Typed<FunDeclStmt>),
+    Block(Typed<BlockStmt>),
+    If(Typed<IfStmt>),
+    While(Typed<WhileStmt>),
+    Return(Typed<Option<Expr>>),
+}
+
+impl<T> Accept<T> for Stmt {
+    fn accept(&self, visitor: &mut impl Visitor<T>) -> T {
+        visitor.visit_stmt(self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,7 +96,7 @@ pub struct VarDeclStmt {
 pub struct FunDeclStmt {
     pub ident: Ident,
     pub params: Vec<Ident>,
-    pub body: Spanned<BlockStmt>,
+    pub body: Typed<BlockStmt>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,27 +107,33 @@ pub struct BlockStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfStmt {
     pub condition: Expr,
-    pub then_branch: Spanned<BlockStmt>,
-    pub else_branch: Option<Spanned<BlockStmt>>,
+    pub then_branch: Typed<BlockStmt>,
+    pub else_branch: Option<Typed<BlockStmt>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileStmt {
     pub condition: Expr,
-    pub body: Spanned<BlockStmt>,
+    pub body: Typed<BlockStmt>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Literal(Spanned<LiteralExpr>),
-    Unary(Spanned<UnaryExpr>),
-    Binary(Spanned<BinaryExpr>),
-    Grouping(Spanned<Box<Expr>>),
+    Literal(Typed<LiteralExpr>),
+    Unary(Typed<UnaryExpr>),
+    Binary(Typed<BinaryExpr>),
+    Grouping(Typed<Box<Expr>>),
     Variable(Ident),
-    Assign(Spanned<AssignExpr>),
-    Logical(Spanned<LogicalExpr>),
-    Call(Spanned<CallExpr>),
-    Lambda(Spanned<LambdaExpr>),
+    Assign(Typed<AssignExpr>),
+    Logical(Typed<LogicalExpr>),
+    Call(Typed<CallExpr>),
+    Lambda(Typed<LambdaExpr>),
+}
+
+impl<T> Accept<T> for Expr {
+    fn accept(&self, visitor: &mut impl Visitor<T>) -> T {
+        visitor.visit_expr(self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -125,7 +171,7 @@ pub struct CallExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
     pub parameters: Vec<Ident>,
-    pub body: Spanned<BlockStmt>,
+    pub body: Typed<BlockStmt>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralExpr {

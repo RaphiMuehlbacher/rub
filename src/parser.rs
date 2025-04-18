@@ -2,7 +2,7 @@ use crate::ast::Expr::{Call, Grouping, Lambda, Literal, Unary, Variable};
 use crate::ast::Stmt::{Block, ExprStmt, PrintStmt, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident,
-    IfStmt, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, Program, Spanned, Stmt, UnaryExpr,
+    IfStmt, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, Program, Stmt, Typed, UnaryExpr,
     UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
@@ -317,13 +317,13 @@ impl<'a> Parser<'a> {
         let initializer = self.parse_var_initializer()?;
         self.expect_semicolon();
 
-        Ok(Stmt::VarDecl(Spanned {
-            node: VarDeclStmt {
+        Ok(Stmt::VarDecl(Typed::new(
+            VarDeclStmt {
                 ident: variable_name,
                 initializer,
             },
-            span: self.create_span(var_keyword_span, self.current().span),
-        }))
+            self.create_span(var_keyword_span, self.current().span),
+        )))
     }
 
     fn parse_variable_name(&mut self) -> ParseResult<Ident> {
@@ -407,14 +407,14 @@ impl<'a> Parser<'a> {
 
         let body = self.block()?;
 
-        Ok(Stmt::FunDecl(Spanned {
-            node: FunDeclStmt {
+        Ok(Stmt::FunDecl(Typed::new(
+            FunDeclStmt {
                 ident: function_name,
                 params: parameters,
                 body: body,
             },
-            span: self.create_span(fun_keyword_span, self.previous().span),
-        }))
+            self.create_span(fun_keyword_span, self.previous().span),
+        )))
     }
 
     /// current is function name, ends at '('
@@ -566,10 +566,10 @@ impl<'a> Parser<'a> {
 
         self.expect_semicolon();
 
-        Ok(ExprStmt(Spanned {
-            node: value,
-            span: self.create_span(left_span, self.previous().span),
-        }))
+        Ok(ExprStmt(Typed::new(
+            value,
+            self.create_span(left_span, self.previous().span),
+        )))
     }
 
     /// current is 'print', end is next statement
@@ -581,14 +581,14 @@ impl<'a> Parser<'a> {
 
         self.expect_semicolon();
 
-        Ok(PrintStmt(Spanned {
-            node: value,
-            span: self.create_span(left_span, self.previous().span),
-        }))
+        Ok(PrintStmt(Typed::new(
+            value,
+            self.create_span(left_span, self.previous().span),
+        )))
     }
 
     /// current is '{' and ends after '}'
-    fn block(&mut self) -> ParseResult<Spanned<BlockStmt>> {
+    fn block(&mut self) -> ParseResult<Typed<BlockStmt>> {
         let opening_brace_span = self.current().span;
         self.open_delimiter(self.current().token_kind.clone())?;
 
@@ -605,10 +605,10 @@ impl<'a> Parser<'a> {
         }
         self.close_delimiter(self.current().token_kind.clone())?;
 
-        Ok(Spanned {
-            node: BlockStmt { statements },
-            span: self.create_span(opening_brace_span, self.previous().span),
-        })
+        Ok(Typed::new(
+            BlockStmt { statements },
+            self.create_span(opening_brace_span, self.previous().span),
+        ))
     }
 
     /// start is `if`, end is next statement
@@ -624,14 +624,14 @@ impl<'a> Parser<'a> {
             else_branch = Some(self.block()?);
         }
 
-        Ok(Stmt::If(Spanned {
-            node: IfStmt {
+        Ok(Stmt::If(Typed::new(
+            IfStmt {
                 condition,
                 then_branch,
                 else_branch,
             },
-            span: self.create_span(if_span, self.previous().span),
-        }))
+            self.create_span(if_span, self.previous().span),
+        )))
     }
 
     /// starts at first condition token, ends after the condition
@@ -639,7 +639,12 @@ impl<'a> Parser<'a> {
         let left_condition_span = self.current().span;
         let condition = match self.expression() {
             Ok(con) => {
-                if let Grouping(Spanned { node: _, span: _ }) = &con {
+                if let Grouping(Typed {
+                    node: _,
+                    span: _,
+                    type_id: _,
+                }) = &con
+                {
                     self.report(
                         RedundantParenthesis {
                             src: self.source.to_string(),
@@ -653,10 +658,10 @@ impl<'a> Parser<'a> {
             }
             Err(err) => {
                 self.report(err.into());
-                Literal(Spanned {
-                    node: LiteralExpr::Bool(true),
-                    span: self.create_span(left_condition_span, self.previous().span),
-                })
+                Literal(Typed::new(
+                    LiteralExpr::Bool(true),
+                    self.create_span(left_condition_span, self.previous().span),
+                ))
             }
         };
         Ok(condition)
@@ -670,13 +675,13 @@ impl<'a> Parser<'a> {
         let condition = self.parse_condition()?;
         let block = self.block()?;
 
-        Ok(While(Spanned {
-            node: WhileStmt {
+        Ok(While(Typed::new(
+            WhileStmt {
                 condition,
                 body: block,
             },
-            span: self.create_span(while_span, self.previous().span),
-        }))
+            self.create_span(while_span, self.previous().span),
+        )))
     }
 
     /// current is for, end is after block
@@ -695,10 +700,7 @@ impl<'a> Parser<'a> {
         let condition = if !self.matches(&[TokenKind::Semicolon]) {
             self.expression()?
         } else {
-            Literal(Spanned {
-                node: LiteralExpr::Bool(true),
-                span: self.previous().span,
-            })
+            Literal(Typed::new(LiteralExpr::Bool(true), self.previous().span))
         };
 
         if !self.consume(&[TokenKind::Semicolon]) {
@@ -726,30 +728,30 @@ impl<'a> Parser<'a> {
         while_body_statements.extend(body.node.statements);
 
         if let Some(inc) = increment {
-            while_body_statements.push(ExprStmt(Spanned {
-                node: inc,
-                span: self.create_span(for_span, self.previous().span),
-            }));
+            while_body_statements.push(ExprStmt(Typed::new(
+                inc,
+                self.create_span(for_span, self.previous().span),
+            )));
         }
 
-        let while_stmt = While(Spanned {
-            node: WhileStmt {
+        let while_stmt = While(Typed::new(
+            WhileStmt {
                 condition,
-                body: Spanned {
-                    node: BlockStmt {
+                body: Typed::new(
+                    BlockStmt {
                         statements: while_body_statements,
                     },
-                    span: body.span,
-                },
+                    body.span,
+                ),
             },
-            span: self.create_span(for_span, self.previous().span),
-        });
+            self.create_span(for_span, self.previous().span),
+        ));
         statements.push(while_stmt);
 
-        Ok(Block(Spanned {
-            node: BlockStmt { statements },
-            span: self.create_span(for_span, self.previous().span),
-        }))
+        Ok(Block(Typed::new(
+            BlockStmt { statements },
+            self.create_span(for_span, self.previous().span),
+        )))
     }
 
     /// current is `return` end is next statement
@@ -771,10 +773,10 @@ impl<'a> Parser<'a> {
         };
 
         self.expect_semicolon();
-        Ok(Return(Spanned {
-            node: value,
-            span: self.create_span(left_return_span, self.previous().span),
-        }))
+        Ok(Return(Typed::new(
+            value,
+            self.create_span(left_return_span, self.previous().span),
+        )))
     }
 
     /// starts at first token, ends after the last token of the expression
@@ -792,13 +794,13 @@ impl<'a> Parser<'a> {
         let parameters = self.parse_function_parameters()?;
         let block = self.block()?;
 
-        Ok(Lambda(Spanned {
-            node: LambdaExpr {
+        Ok(Lambda(Typed::new(
+            LambdaExpr {
                 parameters,
                 body: block,
             },
-            span: self.create_span(left_lambda_span, self.previous().span),
-        }))
+            self.create_span(left_lambda_span, self.previous().span),
+        )))
     }
 
     fn assignment(&mut self) -> ParseResult<Expr> {
@@ -821,13 +823,13 @@ impl<'a> Parser<'a> {
             };
 
             return match expr {
-                Variable(variable_ident) => Ok(Expr::Assign(Spanned {
-                    node: AssignExpr {
+                Variable(variable_ident) => Ok(Expr::Assign(Typed::new(
+                    AssignExpr {
                         target: variable_ident.clone(),
                         value: Box::new(value),
                     },
-                    span: self.create_span(left_assignment_span, self.current().span),
-                })),
+                    self.create_span(left_assignment_span, self.current().span),
+                ))),
                 _ => Err(ExpectedIdentifier {
                     src: self.source.to_string(),
                     span: equal_span,
@@ -858,29 +860,29 @@ impl<'a> Parser<'a> {
                 };
                 self.report(error.into());
 
-                return Ok(Expr::Logical(Spanned {
-                    node: LogicalExpr {
+                return Ok(Expr::Logical(Typed::new(
+                    LogicalExpr {
                         left: Box::new(expr),
                         op,
-                        right: Box::new(Literal(Spanned {
-                            node: LiteralExpr::Bool(false),
-                            span: self.current().span,
-                        })),
+                        right: Box::new(Literal(Typed::new(
+                            LiteralExpr::Bool(false),
+                            self.current().span,
+                        ))),
                     },
-                    span: self.create_span(logic_or_left_span, self.current().span),
-                }));
+                    self.create_span(logic_or_left_span, self.current().span),
+                )));
             }
 
             let right = self.logic_and()?;
 
-            expr = Expr::Logical(Spanned {
-                node: LogicalExpr {
+            expr = Expr::Logical(Typed::new(
+                LogicalExpr {
                     left: Box::new(expr),
                     op,
                     right: Box::new(right),
                 },
-                span: self.create_span(logic_or_left_span, self.previous().span),
-            })
+                self.create_span(logic_or_left_span, self.previous().span),
+            ))
         }
         Ok(expr)
     }
@@ -904,28 +906,28 @@ impl<'a> Parser<'a> {
                 };
                 self.report(error.into());
 
-                return Ok(Expr::Logical(Spanned {
-                    node: LogicalExpr {
+                return Ok(Expr::Logical(Typed::new(
+                    LogicalExpr {
                         left: Box::new(expr),
                         op,
-                        right: Box::new(Literal(Spanned {
-                            node: LiteralExpr::Bool(false),
-                            span: self.current().span,
-                        })),
+                        right: Box::new(Literal(Typed::new(
+                            LiteralExpr::Bool(false),
+                            self.current().span,
+                        ))),
                     },
-                    span: self.create_span(logic_and_left_span, self.current().span),
-                }));
+                    self.create_span(logic_and_left_span, self.current().span),
+                )));
             }
 
             let right = self.equality()?;
-            expr = Expr::Logical(Spanned {
-                node: LogicalExpr {
+            expr = Expr::Logical(Typed::new(
+                LogicalExpr {
                     left: Box::new(expr),
                     op,
                     right: Box::new(right),
                 },
-                span: self.create_span(logic_and_left_span, self.previous().span),
-            });
+                self.create_span(logic_and_left_span, self.previous().span),
+            ));
         }
 
         Ok(expr)
@@ -945,14 +947,14 @@ impl<'a> Parser<'a> {
             let operator_span = operator.span;
             let result = self.comparison();
             let right = self.expect_expr(result, "right", operator_span)?;
-            expr = Expr::Binary(Spanned {
-                node: BinaryExpr {
+            expr = Expr::Binary(Typed::new(
+                BinaryExpr {
                     left: Box::new(expr),
                     op,
                     right: Box::new(right),
                 },
-                span: self.create_span(equality_left_span, self.previous().span),
-            })
+                self.create_span(equality_left_span, self.previous().span),
+            ))
         }
         Ok(expr)
     }
@@ -979,14 +981,14 @@ impl<'a> Parser<'a> {
             let operator_span = operator.span;
             let result = self.term();
             let right = self.expect_expr(result, "right", operator_span)?;
-            expr = Expr::Binary(Spanned {
-                node: BinaryExpr {
+            expr = Expr::Binary(Typed::new(
+                BinaryExpr {
                     left: Box::new(expr),
                     op,
                     right: Box::new(right),
                 },
-                span: self.create_span(comparison_left_span, self.previous().span),
-            });
+                self.create_span(comparison_left_span, self.previous().span),
+            ));
         }
         Ok(expr)
     }
@@ -1006,14 +1008,14 @@ impl<'a> Parser<'a> {
             let operator_span = operator.span;
             let result = self.factor();
             let right = self.expect_expr(result, "right", operator_span)?;
-            expr = Expr::Binary(Spanned {
-                node: BinaryExpr {
+            expr = Expr::Binary(Typed::new(
+                BinaryExpr {
                     left: Box::new(expr),
                     op,
                     right: Box::new(right),
                 },
-                span: self.create_span(term_left_span, self.previous().span),
-            });
+                self.create_span(term_left_span, self.previous().span),
+            ));
         }
         Ok(expr)
     }
@@ -1033,14 +1035,14 @@ impl<'a> Parser<'a> {
             let operator_span = operator.span;
             let result = self.unary();
             let right = self.expect_expr(result, "right", operator_span)?;
-            expr = Expr::Binary(Spanned {
-                node: BinaryExpr {
+            expr = Expr::Binary(Typed::new(
+                BinaryExpr {
                     left: Box::new(expr),
                     op,
                     right: Box::new(right),
                 },
-                span: self.create_span(facto_left_span, self.previous().span),
-            });
+                self.create_span(facto_left_span, self.previous().span),
+            ));
         }
         Ok(expr)
     }
@@ -1060,13 +1062,13 @@ impl<'a> Parser<'a> {
             let result = self.unary();
             let expr = self.expect_expr(result, "right", operator_span)?;
 
-            Ok(Unary(Spanned {
-                node: UnaryExpr {
+            Ok(Unary(Typed::new(
+                UnaryExpr {
                     op,
                     expr: Box::new(expr),
                 },
-                span: self.create_span(unary_left_span, self.previous().span),
-            }))
+                self.create_span(unary_left_span, self.previous().span),
+            )))
         } else {
             self.call()
         }
@@ -1107,13 +1109,13 @@ impl<'a> Parser<'a> {
 
         self.close_delimiter(self.current().token_kind.clone())?;
 
-        Ok(Call(Spanned {
-            node: CallExpr {
+        Ok(Call(Typed::new(
+            CallExpr {
                 callee: Box::new(callee),
                 arguments,
             },
-            span: self.create_span(left_paren_span, self.previous().span),
-        }))
+            self.create_span(left_paren_span, self.previous().span),
+        )))
     }
 
     /// current is token to parse, end is after the token
@@ -1131,24 +1133,21 @@ impl<'a> Parser<'a> {
             }
             TokenKind::False => {
                 self.advance_position();
-                Ok(Literal(Spanned {
-                    node: LiteralExpr::Bool(false),
-                    span: self.previous().span,
-                }))
+                Ok(Literal(Typed::new(
+                    LiteralExpr::Bool(false),
+                    self.previous().span,
+                )))
             }
             TokenKind::True => {
                 self.advance_position();
-                Ok(Literal(Spanned {
-                    node: LiteralExpr::Bool(true),
-                    span: self.previous().span,
-                }))
+                Ok(Literal(Typed::new(
+                    LiteralExpr::Bool(true),
+                    self.previous().span,
+                )))
             }
             TokenKind::Nil => {
                 self.advance_position();
-                Ok(Literal(Spanned {
-                    node: LiteralExpr::Nil,
-                    span: self.previous().span,
-                }))
+                Ok(Literal(Typed::new(LiteralExpr::Nil, self.previous().span)))
             }
             TokenKind::LeftParen => {
                 let opening_paren_span = self.current().span;
@@ -1166,10 +1165,10 @@ impl<'a> Parser<'a> {
 
                 self.close_delimiter(self.current().token_kind.clone())?;
 
-                Ok(Grouping(Spanned {
-                    node: Box::new(expr),
-                    span: self.create_span(opening_paren_span, self.previous().span),
-                }))
+                Ok(Grouping(Typed::new(
+                    Box::new(expr),
+                    self.create_span(opening_paren_span, self.previous().span),
+                )))
             }
             TokenKind::Number(value) => {
                 let span = self.current().span;
@@ -1183,19 +1182,13 @@ impl<'a> Parser<'a> {
                     }
                     .into());
                 }
-                Ok(Literal(Spanned {
-                    node: LiteralExpr::Number(value),
-                    span,
-                }))
+                Ok(Literal(Typed::new(LiteralExpr::Number(value), span)))
             }
             TokenKind::String(ref value) => {
                 let span = self.current().span;
                 let string = value.clone();
                 self.advance_position();
-                Ok(Literal(Spanned {
-                    node: LiteralExpr::String(string),
-                    span,
-                }))
+                Ok(Literal(Typed::new(LiteralExpr::String(string), span)))
             }
             TokenKind::Ident(ref name) => {
                 let string = name.clone();

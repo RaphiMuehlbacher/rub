@@ -1,6 +1,6 @@
 use crate::ast::{
-    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr,
-    LogicalExpr, Program, Spanned, Stmt, UnaryExpr, VarDeclStmt, WhileStmt,
+    Accept, AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt,
+    LambdaExpr, LogicalExpr, Program, Stmt, Typed, UnaryExpr, VarDeclStmt, Visitor, WhileStmt,
 };
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
@@ -34,6 +34,11 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    pub fn resolve(&mut self) -> &Vec<Report> {
+        self.program.accept(self);
+        &self.errors
+    }
+
     fn report(&mut self, error: ResolverError) {
         self.errors.push(error.into());
     }
@@ -51,37 +56,17 @@ impl<'a> Resolver<'a> {
         self.scopes.last_mut().unwrap()
     }
 
-    pub fn resolve(mut self) -> Vec<Report> {
-        for stmt in &self.program.statements {
-            self.resolve_stmt(stmt);
-        }
-        self.errors
+    fn resolve_expr_stmt(&mut self, expr_stmt: &Typed<Expr>) {
+        expr_stmt.node.accept(self);
     }
 
-    fn resolve_stmt(&mut self, stmt: &Stmt) {
-        match stmt {
-            Stmt::ExprStmt(expr_stmt) => self.resolve_expr_stmt(expr_stmt),
-            Stmt::PrintStmt(print_stmt) => self.resolve_print_stmt(print_stmt),
-            Stmt::VarDecl(var_decl) => self.resolve_var_decl(var_decl),
-            Stmt::FunDecl(fun_decl) => self.resolve_fun_decl(fun_decl),
-            Stmt::Block(block) => self.resolve_block(block),
-            Stmt::If(if_stmt) => self.resolve_if_stmt(if_stmt),
-            Stmt::While(while_stmt) => self.resolve_while_stmt(while_stmt),
-            Stmt::Return(return_stmt) => self.resolve_return_stmt(return_stmt),
-        }
+    fn resolve_print_stmt(&mut self, print_stmt: &Typed<Expr>) {
+        print_stmt.node.accept(self);
     }
 
-    fn resolve_expr_stmt(&mut self, expr_stmt: &Spanned<Expr>) {
-        self.resolve_expr(&expr_stmt.node);
-    }
-
-    fn resolve_print_stmt(&mut self, print_stmt: &Spanned<Expr>) {
-        self.resolve_expr(&print_stmt.node);
-    }
-
-    fn resolve_var_decl(&mut self, var_decl: &Spanned<VarDeclStmt>) {
+    fn resolve_var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) {
         if let Some(init) = &var_decl.node.initializer {
-            self.resolve_expr(init);
+            init.accept(self);
         }
         self.curr_scope().insert(
             var_decl.node.ident.name.clone(),
@@ -91,7 +76,7 @@ impl<'a> Resolver<'a> {
         );
     }
 
-    fn resolve_fun_decl(&mut self, fun_decl: &Spanned<FunDeclStmt>) {
+    fn resolve_fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) {
         self.curr_scope().insert(
             fun_decl.node.ident.name.clone(),
             Symbol::Function {
@@ -114,63 +99,49 @@ impl<'a> Resolver<'a> {
         }
 
         for stmt in &fun_decl.node.body.node.statements {
-            self.resolve_stmt(stmt);
+            stmt.accept(self);
         }
         self.scopes.pop();
     }
 
-    fn resolve_block(&mut self, block: &Spanned<BlockStmt>) {
+    fn resolve_block(&mut self, block: &Typed<BlockStmt>) {
         self.scopes.push(HashMap::new());
         for stmt in &block.node.statements {
-            self.resolve_stmt(stmt);
+            stmt.accept(self);
         }
         self.scopes.pop();
     }
 
-    fn resolve_if_stmt(&mut self, if_stmt: &Spanned<IfStmt>) {
-        self.resolve_expr(&if_stmt.node.condition);
+    fn resolve_if_stmt(&mut self, if_stmt: &Typed<IfStmt>) {
+        if_stmt.node.condition.accept(self);
         self.resolve_block(&if_stmt.node.then_branch);
         if let Some(else_branch) = &if_stmt.node.else_branch {
             self.resolve_block(else_branch);
         }
     }
 
-    fn resolve_while_stmt(&mut self, while_stmt: &Spanned<WhileStmt>) {
-        self.resolve_expr(&while_stmt.node.condition);
+    fn resolve_while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) {
+        while_stmt.node.condition.accept(self);
         self.resolve_block(&while_stmt.node.body);
     }
 
-    fn resolve_return_stmt(&mut self, return_stmt: &Spanned<Option<Expr>>) {
+    fn resolve_return_stmt(&mut self, return_stmt: &Typed<Option<Expr>>) {
         if let Some(node) = &return_stmt.node {
-            self.resolve_expr(node);
+            node.accept(self);
         }
     }
 
-    fn resolve_expr(&mut self, expr: &Expr) {
-        match expr {
-            Expr::Literal(_) => {}
-            Expr::Unary(unary_expr) => self.resolve_unary_expr(unary_expr),
-            Expr::Binary(binary_expr) => self.resolve_binary_expr(binary_expr),
-            Expr::Grouping(grouping) => self.resolve_grouping_expr(grouping),
-            Expr::Variable(variable_expr) => self.resolve_variable_expr(variable_expr),
-            Expr::Assign(assign) => self.resolve_assign_expr(assign),
-            Expr::Logical(logical_expr) => self.resolve_logical_expr(logical_expr),
-            Expr::Call(call) => self.resolve_call_expr(call),
-            Expr::Lambda(lambda) => self.lambda_expr(lambda),
-        }
+    fn resolve_unary_expr(&mut self, unary_expr: &Typed<UnaryExpr>) {
+        unary_expr.node.expr.accept(self);
     }
 
-    fn resolve_unary_expr(&mut self, unary_expr: &Spanned<UnaryExpr>) {
-        self.resolve_expr(&unary_expr.node.expr);
+    fn resolve_binary_expr(&mut self, binary_expr: &Typed<BinaryExpr>) {
+        binary_expr.node.left.accept(self);
+        binary_expr.node.right.accept(self);
     }
 
-    fn resolve_binary_expr(&mut self, binary_expr: &Spanned<BinaryExpr>) {
-        self.resolve_expr(&binary_expr.node.left);
-        self.resolve_expr(&binary_expr.node.right);
-    }
-
-    fn resolve_grouping_expr(&mut self, grouping_expr: &Spanned<Box<Expr>>) {
-        self.resolve_expr(grouping_expr.node.deref());
+    fn resolve_grouping_expr(&mut self, grouping_expr: &Typed<Box<Expr>>) {
+        grouping_expr.node.accept(self);
     }
 
     fn resolve_variable_expr(&mut self, variable_expr: &Ident) {
@@ -189,7 +160,7 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_assign_expr(&mut self, assign_expr: &Spanned<AssignExpr>) {
+    fn resolve_assign_expr(&mut self, assign_expr: &Typed<AssignExpr>) {
         if let None = self.lookup_symbol(assign_expr.node.target.name.as_str()) {
             self.report(UndefinedVariable {
                 src: self.source.clone(),
@@ -199,12 +170,12 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_logical_expr(&mut self, logical_expr: &Spanned<LogicalExpr>) {
-        self.resolve_expr(&logical_expr.node.left);
-        self.resolve_expr(&logical_expr.node.right);
+    fn resolve_logical_expr(&mut self, logical_expr: &Typed<LogicalExpr>) {
+        logical_expr.node.left.accept(self);
+        logical_expr.node.right.accept(self);
     }
 
-    fn resolve_call_expr(&mut self, call_expr: &Spanned<CallExpr>) {
+    fn resolve_call_expr(&mut self, call_expr: &Typed<CallExpr>) {
         if let Expr::Variable(ident) = &call_expr.node.callee.deref() {
             if let None = self.lookup_symbol(&ident.name) {
                 self.report(UndefinedFunction {
@@ -215,11 +186,11 @@ impl<'a> Resolver<'a> {
             }
         }
         for argument in &call_expr.node.arguments {
-            self.resolve_expr(argument);
+            argument.accept(self);
         }
     }
 
-    fn lambda_expr(&mut self, lambda: &Spanned<LambdaExpr>) {
+    fn lambda_expr(&mut self, lambda: &Typed<LambdaExpr>) {
         self.scopes.push(HashMap::new());
         for param in &lambda.node.parameters {
             if self.curr_scope().get(param.name.as_str()).is_some() {
@@ -234,8 +205,41 @@ impl<'a> Resolver<'a> {
         }
 
         for stmt in &lambda.node.body.node.statements {
-            self.resolve_stmt(stmt);
+            stmt.accept(self)
         }
         self.scopes.pop();
+    }
+}
+
+impl<'a> Visitor<()> for Resolver<'a> {
+    fn visit_program(&mut self, program: &Program) -> () {
+        for stmt in &program.statements {
+            stmt.accept(self)
+        }
+    }
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::ExprStmt(expr_stmt) => self.resolve_expr_stmt(expr_stmt),
+            Stmt::PrintStmt(print_stmt) => self.resolve_print_stmt(print_stmt),
+            Stmt::VarDecl(var_decl) => self.resolve_var_decl(var_decl),
+            Stmt::FunDecl(fun_decl) => self.resolve_fun_decl(fun_decl),
+            Stmt::Block(block) => self.resolve_block(block),
+            Stmt::If(if_stmt) => self.resolve_if_stmt(if_stmt),
+            Stmt::While(while_stmt) => self.resolve_while_stmt(while_stmt),
+            Stmt::Return(return_stmt) => self.resolve_return_stmt(return_stmt),
+        }
+    }
+    fn visit_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Literal(_) => {}
+            Expr::Unary(unary_expr) => self.resolve_unary_expr(unary_expr),
+            Expr::Binary(binary_expr) => self.resolve_binary_expr(binary_expr),
+            Expr::Grouping(grouping) => self.resolve_grouping_expr(grouping),
+            Expr::Variable(variable_expr) => self.resolve_variable_expr(variable_expr),
+            Expr::Assign(assign) => self.resolve_assign_expr(assign),
+            Expr::Logical(logical_expr) => self.resolve_logical_expr(logical_expr),
+            Expr::Call(call) => self.resolve_call_expr(call),
+            Expr::Lambda(lambda) => self.lambda_expr(lambda),
+        }
     }
 }
