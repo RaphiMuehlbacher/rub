@@ -1,0 +1,4 @@
+fun foo(a, b) {
+}
+var b = a;
+foo(3, b);

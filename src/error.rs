@@ -33,6 +33,15 @@ pub enum ResolverError {
 
         name: String,
     },
+    #[error("Call to undefined function '{name}'")]
+    #[diagnostic(code(resolver::undefined_function))]
+    UndefinedFunction {
+        #[source_code]
+        src: String,
+        #[label("Function '{name}' is not defined")]
+        span: SourceSpan,
+        name: String,
+    },
 
     #[error("Cannot declare function '{function_name}' with duplicate parameter names")]
     #[diagnostic(

@@ -3,7 +3,9 @@ use crate::ast::{
     Program, Spanned, Stmt, UnaryExpr, VarDeclStmt, WhileStmt,
 };
 use crate::error::ResolverError;
-use crate::error::ResolverError::{DuplicateParameter, UndefinedVariable, UninitializedVariable};
+use crate::error::ResolverError::{
+    DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable,
+};
 use miette::Report;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -200,5 +202,18 @@ impl<'a> Resolver<'a> {
         self.resolve_expr(&logical_expr.node.right);
     }
 
-    fn resolve_call_expr(&mut self, call_expr: &Spanned<CallExpr>) {}
+    fn resolve_call_expr(&mut self, call_expr: &Spanned<CallExpr>) {
+        if let Expr::Variable(ident) = &call_expr.node.callee.deref() {
+            if let None = self.lookup_symbol(&ident.name) {
+                self.report(UndefinedFunction {
+                    src: self.source.clone(),
+                    span: ident.span,
+                    name: ident.name.clone(),
+                })
+            }
+        }
+        for argument in &call_expr.node.arguments {
+            self.resolve_expr(argument);
+        }
+    }
 }

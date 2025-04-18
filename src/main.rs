@@ -16,6 +16,7 @@ fn main() {
 
     let mut parser = Parser::new(tokens, source.as_str());
     let mut ast = parser.parse();
+    println!("{:?}", ast);
 
     for error in parser.get_errors() {
         println!("{:?}", error);
