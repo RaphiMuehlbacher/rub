@@ -1,10 +1,11 @@
 use crate::ast::{
-    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LogicalExpr,
-    Program, Spanned, Stmt, UnaryExpr, VarDeclStmt, WhileStmt,
+    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr,
+    LogicalExpr, Program, Spanned, Stmt, UnaryExpr, VarDeclStmt, WhileStmt,
 };
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
-    DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable,
+    DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable,
+    UninitializedVariable,
 };
 use miette::Report;
 use std::collections::HashMap;
@@ -155,6 +156,7 @@ impl<'a> Resolver<'a> {
             Expr::Assign(assign) => self.resolve_assign_expr(assign),
             Expr::Logical(logical_expr) => self.resolve_logical_expr(logical_expr),
             Expr::Call(call) => self.resolve_call_expr(call),
+            Expr::Lambda(lambda) => self.lambda_expr(lambda),
         }
     }
 
@@ -215,5 +217,25 @@ impl<'a> Resolver<'a> {
         for argument in &call_expr.node.arguments {
             self.resolve_expr(argument);
         }
+    }
+
+    fn lambda_expr(&mut self, lambda: &Spanned<LambdaExpr>) {
+        self.scopes.push(HashMap::new());
+        for param in &lambda.node.parameters {
+            if self.curr_scope().get(param.name.as_str()).is_some() {
+                self.report(DuplicateLambdaParameter {
+                    src: self.source.to_string(),
+                    span: param.span,
+                })
+            } else {
+                self.curr_scope()
+                    .insert(param.name.clone(), Symbol::Variable { initialized: true });
+            }
+        }
+
+        for stmt in &lambda.node.body.node.statements {
+            self.resolve_stmt(stmt);
+        }
+        self.scopes.pop();
     }
 }

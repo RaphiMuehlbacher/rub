@@ -1,4 +1,4 @@
-fun foo(a, b) {
-}
-var b = a;
-foo(3, b);
+var a = fun (b) {
+    return b * 3;
+};
+

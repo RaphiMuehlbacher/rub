@@ -87,6 +87,7 @@ pub enum Expr {
     Assign(Spanned<AssignExpr>),
     Logical(Spanned<LogicalExpr>),
     Call(Spanned<CallExpr>),
+    Lambda(Spanned<LambdaExpr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -121,6 +122,11 @@ pub struct CallExpr {
     pub arguments: Vec<Expr>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct LambdaExpr {
+    pub parameters: Vec<Ident>,
+    pub body: Spanned<BlockStmt>,
+}
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralExpr {
     Number(f64),

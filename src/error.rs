@@ -43,6 +43,19 @@ pub enum ResolverError {
         name: String,
     },
 
+    #[error("Lambda functions cannot have duplicate parameter names")]
+    #[diagnostic(
+        help("Each parameter in a lambda function must have a unique name"),
+        code(resolver::duplicate_lambda_parameter)
+    )]
+    DuplicateLambdaParameter {
+        #[source_code]
+        src: String,
+
+        #[label("duplicate parameter name")]
+        span: SourceSpan,
+    },
+
     #[error("Cannot declare function '{function_name}' with duplicate parameter names")]
     #[diagnostic(
         help("Function parameters must have unique names"),

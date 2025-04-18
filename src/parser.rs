@@ -1,9 +1,9 @@
-use crate::ast::Expr::{Call, Grouping, Literal, Unary, Variable};
+use crate::ast::Expr::{Call, Grouping, Lambda, Literal, Unary, Variable};
 use crate::ast::Stmt::{Block, ExprStmt, PrintStmt, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident,
-    IfStmt, LiteralExpr, LogicalExpr, LogicalOp, Program, Spanned, Stmt, UnaryExpr, UnaryOp,
-    VarDeclStmt, WhileStmt,
+    IfStmt, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, Program, Spanned, Stmt, UnaryExpr,
+    UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock,
@@ -779,7 +779,26 @@ impl<'a> Parser<'a> {
 
     /// starts at first token, ends after the last token of the expression
     fn expression(&mut self) -> ParseResult<Expr> {
+        if self.matches(&[TokenKind::Fun]) {
+            return self.lambda_expr();
+        }
         self.assignment()
+    }
+
+    fn lambda_expr(&mut self) -> ParseResult<Expr> {
+        let left_lambda_span = self.current().span;
+        self.advance_position();
+
+        let parameters = self.parse_function_parameters()?;
+        let block = self.block()?;
+
+        Ok(Lambda(Spanned {
+            node: LambdaExpr {
+                parameters,
+                body: block,
+            },
+            span: self.create_span(left_lambda_span, self.previous().span),
+        }))
     }
 
     fn assignment(&mut self) -> ParseResult<Expr> {
