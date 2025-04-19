@@ -1,2 +1,5 @@
 var b = 3;
 var c = b;
+var d = 45;
+
+c = d;

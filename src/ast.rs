@@ -96,6 +96,22 @@ pub enum Expr {
     Lambda(Typed<LambdaExpr>),
 }
 
+impl Expr {
+    pub fn span(&self) -> SourceSpan {
+        match self {
+            Expr::Literal(typed) => typed.span,
+            Expr::Unary(typed) => typed.span,
+            Expr::Binary(typed) => typed.span,
+            Expr::Grouping(typed) => typed.span,
+            Expr::Variable(typed) => typed.span,
+            Expr::Assign(typed) => typed.span,
+            Expr::Logical(typed) => typed.span,
+            Expr::Call(typed) => typed.span,
+            Expr::Lambda(typed) => typed.span,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnaryExpr {
     pub op: UnaryOp,

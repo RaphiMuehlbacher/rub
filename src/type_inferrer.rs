@@ -168,6 +168,7 @@ impl<'a> TypeInferrer<'a> {
             Expr::Lambda(lambda) => self.lambda_expr(lambda),
         }
     }
+
     fn infer_literal_expr(&mut self, literal_expr: &Typed<LiteralExpr>) -> Type {
         let ty = match literal_expr.node {
             LiteralExpr::Number(_) => Type::Float,
@@ -200,7 +201,21 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_assign_expr(&mut self, assign_expr: &Typed<AssignExpr>) -> Type {
-        todo!()
+        let right_ty = self.infer_expr(assign_expr.node.value.deref());
+        let left_var = self
+            .var_env
+            .get(assign_expr.node.target.node.as_str())
+            .unwrap();
+
+        if let Err(err) = self.unify(
+            TypeVar(left_var.clone()),
+            right_ty.clone(),
+            assign_expr.node.value.deref().span(),
+        ) {
+            self.errors.push(err.into());
+        }
+
+        right_ty
     }
 
     fn infer_logical_expr(&mut self, logical_expr: &Typed<LogicalExpr>) -> Type {
