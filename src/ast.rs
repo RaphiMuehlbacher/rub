@@ -32,46 +32,10 @@ pub struct Delimiter {
     pub span: SourceSpan,
 }
 
-pub trait StmtVisitor {
-    fn visit_program(&mut self, program: &Program);
-    fn visit_stmt(&mut self, stmt: &Stmt);
-}
-
-pub trait ExprVisitor {
-    type Output;
-    fn visit_expr(&mut self, expr: &Expr) -> Self::Output;
-}
-
-pub trait Accept<V: ?Sized> {
-    type Output;
-    fn accept(&self, visitor: &mut V) -> Self::Output;
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub statements: Vec<Stmt>,
     pub span: SourceSpan,
-}
-
-impl<V: StmtVisitor> Accept<V> for Program {
-    type Output = ();
-    fn accept(&self, visitor: &mut V) -> Self::Output {
-        visitor.visit_program(self)
-    }
-}
-
-impl<V: StmtVisitor> Accept<V> for Stmt {
-    type Output = ();
-    fn accept(&self, visitor: &mut V) -> Self::Output {
-        visitor.visit_stmt(self)
-    }
-}
-
-impl<V: ExprVisitor> Accept<V> for Expr {
-    type Output = V::Output;
-    fn accept(&self, visitor: &mut V) -> Self::Output {
-        visitor.visit_expr(self)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

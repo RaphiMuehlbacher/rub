@@ -1,6 +1,54 @@
+use crate::type_inferrer::Type;
 use crate::TokenKind;
 use miette::{diagnostic, Diagnostic, SourceSpan};
 use thiserror::Error;
+
+#[derive(Debug, Error, Diagnostic)]
+pub enum TypeInferrerError {
+    #[error("Type mismatch: expected {expected:?}, found {found:?}")]
+    #[diagnostic(help("The types don't match"), code(type_inferrer::type_mismatch))]
+    TypeMismatch {
+        #[source_code]
+        src: String,
+
+        #[label("mismatched type here")]
+        span: SourceSpan,
+
+        expected: Type,
+        found: Type,
+    },
+
+    #[error("Cannot infer type of variable '{name}'")]
+    #[diagnostic(
+        help("Variable needs an initial value or type annotation"),
+        code(type_inferrer::cannot_infer_type)
+    )]
+    CannotInferType {
+        #[source_code]
+        src: String,
+
+        #[label("cannot infer type here")]
+        span: SourceSpan,
+
+        name: String,
+    },
+
+    #[error("Operation not supported between types {left:?} and {right:?}")]
+    #[diagnostic(
+        help("The operation cannot be performed with these types"),
+        code(type_inferrer::invalid_operation)
+    )]
+    InvalidOperation {
+        #[source_code]
+        src: String,
+
+        #[label("invalid operation here")]
+        span: SourceSpan,
+
+        left: Type,
+        right: Type,
+    },
+}
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum ResolverError {
