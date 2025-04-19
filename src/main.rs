@@ -1,4 +1,4 @@
-use rslox::{Lexer, Parser, Resolver, Typechecker};
+use rslox::{Lexer, Parser, Resolver, TypeInferrer};
 use std::fs;
 
 fn main() {
@@ -22,11 +22,17 @@ fn main() {
         println!("{:?}", error);
     }
 
-    let mut resolver = Resolver::new(&ast, source);
-    let errors = resolver.resolve();
+    let mut resolver = Resolver::new(&ast, source.clone());
+    let resolving_errors = resolver.resolve();
 
-    for error in errors {
+    for error in resolving_errors {
         println!("{:?}", error);
     }
-    // let typechecker = Typechecker::new(&mut ast, source.as_str());
+
+    let mut type_inferrer = TypeInferrer::new(&ast, source);
+    let inferring_errors = type_inferrer.infer();
+
+    for error in inferring_errors {
+        println!("{:?}", error);
+    }
 }

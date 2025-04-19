@@ -1,6 +1,7 @@
 use crate::ast::{
-    Accept, AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt,
-    LambdaExpr, LogicalExpr, Program, Stmt, Typed, UnaryExpr, VarDeclStmt, Visitor, WhileStmt,
+    Accept, AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, ExprVisitor, FunDeclStmt, Ident,
+    IfStmt, LambdaExpr, LogicalExpr, Program, Stmt, StmtVisitor, Typed, UnaryExpr, VarDeclStmt,
+    WhileStmt,
 };
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
@@ -69,7 +70,7 @@ impl<'a> Resolver<'a> {
             init.accept(self);
         }
         self.curr_scope().insert(
-            var_decl.node.ident.name.clone(),
+            var_decl.node.ident.node.clone(),
             Symbol::Variable {
                 initialized: var_decl.node.initializer.is_some(),
             },
@@ -78,7 +79,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) {
         self.curr_scope().insert(
-            fun_decl.node.ident.name.clone(),
+            fun_decl.node.ident.node.clone(),
             Symbol::Function {
                 params: fun_decl.node.params.clone(),
             },
@@ -86,15 +87,15 @@ impl<'a> Resolver<'a> {
 
         self.scopes.push(HashMap::new());
         for param in &fun_decl.node.params {
-            if self.curr_scope().get(param.name.as_str()).is_some() {
+            if self.curr_scope().get(param.node.as_str()).is_some() {
                 self.report(DuplicateParameter {
                     src: self.source.to_string(),
                     span: param.span,
-                    function_name: fun_decl.node.ident.name.clone(),
+                    function_name: fun_decl.node.ident.node.clone(),
                 })
             } else {
                 self.curr_scope()
-                    .insert(param.name.clone(), Symbol::Variable { initialized: true });
+                    .insert(param.node.clone(), Symbol::Variable { initialized: true });
             }
         }
 
@@ -145,27 +146,27 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_variable_expr(&mut self, variable_expr: &Ident) {
-        match self.lookup_symbol(variable_expr.name.as_str()) {
+        match self.lookup_symbol(variable_expr.node.as_str()) {
             Some(Symbol::Variable { initialized: false }) => self.report(UninitializedVariable {
                 src: self.source.clone(),
                 span: variable_expr.span,
-                name: variable_expr.name.clone(),
+                name: variable_expr.node.clone(),
             }),
             None => self.report(UndefinedVariable {
                 src: self.source.clone(),
                 span: variable_expr.span,
-                name: variable_expr.name.clone(),
+                name: variable_expr.node.clone(),
             }),
             _ => {}
         }
     }
 
     fn resolve_assign_expr(&mut self, assign_expr: &Typed<AssignExpr>) {
-        if let None = self.lookup_symbol(assign_expr.node.target.name.as_str()) {
+        if let None = self.lookup_symbol(assign_expr.node.target.node.as_str()) {
             self.report(UndefinedVariable {
                 src: self.source.clone(),
                 span: assign_expr.node.target.span,
-                name: assign_expr.node.target.name.clone(),
+                name: assign_expr.node.target.node.clone(),
             })
         }
     }
@@ -177,11 +178,11 @@ impl<'a> Resolver<'a> {
 
     fn resolve_call_expr(&mut self, call_expr: &Typed<CallExpr>) {
         if let Expr::Variable(ident) = &call_expr.node.callee.deref() {
-            if let None = self.lookup_symbol(&ident.name) {
+            if let None = self.lookup_symbol(&ident.node) {
                 self.report(UndefinedFunction {
                     src: self.source.clone(),
                     span: ident.span,
-                    name: ident.name.clone(),
+                    name: ident.node.clone(),
                 })
             }
         }
@@ -193,14 +194,14 @@ impl<'a> Resolver<'a> {
     fn lambda_expr(&mut self, lambda: &Typed<LambdaExpr>) {
         self.scopes.push(HashMap::new());
         for param in &lambda.node.parameters {
-            if self.curr_scope().get(param.name.as_str()).is_some() {
+            if self.curr_scope().get(param.node.as_str()).is_some() {
                 self.report(DuplicateLambdaParameter {
                     src: self.source.to_string(),
                     span: param.span,
                 })
             } else {
                 self.curr_scope()
-                    .insert(param.name.clone(), Symbol::Variable { initialized: true });
+                    .insert(param.node.clone(), Symbol::Variable { initialized: true });
             }
         }
 
@@ -211,24 +212,8 @@ impl<'a> Resolver<'a> {
     }
 }
 
-impl<'a> Visitor<()> for Resolver<'a> {
-    fn visit_program(&mut self, program: &Program) -> () {
-        for stmt in &program.statements {
-            stmt.accept(self)
-        }
-    }
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        match stmt {
-            Stmt::ExprStmt(expr_stmt) => self.resolve_expr_stmt(expr_stmt),
-            Stmt::PrintStmt(print_stmt) => self.resolve_print_stmt(print_stmt),
-            Stmt::VarDecl(var_decl) => self.resolve_var_decl(var_decl),
-            Stmt::FunDecl(fun_decl) => self.resolve_fun_decl(fun_decl),
-            Stmt::Block(block) => self.resolve_block(block),
-            Stmt::If(if_stmt) => self.resolve_if_stmt(if_stmt),
-            Stmt::While(while_stmt) => self.resolve_while_stmt(while_stmt),
-            Stmt::Return(return_stmt) => self.resolve_return_stmt(return_stmt),
-        }
-    }
+impl<'a> ExprVisitor for Resolver<'a> {
+    type Output = ();
     fn visit_expr(&mut self, expr: &Expr) {
         match expr {
             Expr::Literal(_) => {}
@@ -240,6 +225,26 @@ impl<'a> Visitor<()> for Resolver<'a> {
             Expr::Logical(logical_expr) => self.resolve_logical_expr(logical_expr),
             Expr::Call(call) => self.resolve_call_expr(call),
             Expr::Lambda(lambda) => self.lambda_expr(lambda),
+        }
+    }
+}
+impl<'a> StmtVisitor for Resolver<'a> {
+    fn visit_program(&mut self, program: &Program) {
+        for stmt in &program.statements {
+            stmt.accept(self)
+        }
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::ExprStmt(expr_stmt) => self.resolve_expr_stmt(expr_stmt),
+            Stmt::PrintStmt(print_stmt) => self.resolve_print_stmt(print_stmt),
+            Stmt::VarDecl(var_decl) => self.resolve_var_decl(var_decl),
+            Stmt::FunDecl(fun_decl) => self.resolve_fun_decl(fun_decl),
+            Stmt::Block(block) => self.resolve_block(block),
+            Stmt::If(if_stmt) => self.resolve_if_stmt(if_stmt),
+            Stmt::While(while_stmt) => self.resolve_while_stmt(while_stmt),
+            Stmt::Return(return_stmt) => self.resolve_return_stmt(return_stmt),
         }
     }
 }

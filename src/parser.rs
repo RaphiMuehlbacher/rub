@@ -334,7 +334,7 @@ impl<'a> Parser<'a> {
             TokenKind::Ident(name) => {
                 let variable_span = variable_token.span;
                 self.advance_position();
-                Ident::new(name, variable_span)
+                Typed::new(name.clone(), variable_span)
             }
             TokenKind::Number(_) => {
                 if self.matches(&[TokenKind::Ident(String::new())]) {
@@ -424,7 +424,7 @@ impl<'a> Parser<'a> {
         let function_name = match &function_token.token_kind {
             TokenKind::Ident(name) => {
                 self.advance_position();
-                Ident::new(name, function_token.span)
+                Typed::new(name.clone(), function_token.span)
             }
             TokenKind::Number(_) => {
                 if self.matches(&[TokenKind::Ident(String::new())]) {
@@ -437,7 +437,7 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
-                    Ident::new("err_fun", self.current().span)
+                    Typed::new("err_fun".to_string(), self.current().span)
                 } else {
                     self.skip_to_next_paren();
                     self.report(
@@ -448,7 +448,7 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
-                    Ident::new("err fun", self.current().span)
+                    Typed::new("err fun".to_string(), self.current().span)
                 }
             }
             _ => {
@@ -490,7 +490,7 @@ impl<'a> Parser<'a> {
             match &curr_token.token_kind {
                 TokenKind::Ident(name) => {
                     let span = self.current().span;
-                    parameters.push(Ident::new(name, span));
+                    parameters.push(Typed::new(name.clone(), span));
                     self.advance_position();
 
                     match self.current().token_kind {
@@ -1194,7 +1194,7 @@ impl<'a> Parser<'a> {
                 let string = name.clone();
                 let span = self.current().span;
                 self.advance_position();
-                Ok(Variable(Ident::new(&string, span)))
+                Ok(Variable(Typed::new(string, span)))
             }
             TokenKind::EOF => Err(UnexpectedEOF {
                 src: self.source.to_string(),

@@ -32,28 +32,19 @@ pub struct Delimiter {
     pub span: SourceSpan,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Ident {
-    pub name: String,
-    pub span: SourceSpan,
+pub trait StmtVisitor {
+    fn visit_program(&mut self, program: &Program);
+    fn visit_stmt(&mut self, stmt: &Stmt);
 }
 
-impl Ident {
-    pub fn new(name: &str, span: SourceSpan) -> Self {
-        Self {
-            name: name.to_string(),
-            span,
-        }
-    }
-}
-pub trait Visitor<T> {
-    fn visit_program(&mut self, program: &Program) -> T;
-    fn visit_stmt(&mut self, stmt: &Stmt) -> T;
-    fn visit_expr(&mut self, expr: &Expr) -> T;
+pub trait ExprVisitor {
+    type Output;
+    fn visit_expr(&mut self, expr: &Expr) -> Self::Output;
 }
 
-pub trait Accept<T> {
-    fn accept(&self, visitor: &mut impl Visitor<T>) -> T;
+pub trait Accept<V: ?Sized> {
+    type Output;
+    fn accept(&self, visitor: &mut V) -> Self::Output;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,9 +53,24 @@ pub struct Program {
     pub span: SourceSpan,
 }
 
-impl<T> Accept<T> for Program {
-    fn accept(&self, visitor: &mut impl Visitor<T>) -> T {
+impl<V: StmtVisitor> Accept<V> for Program {
+    type Output = ();
+    fn accept(&self, visitor: &mut V) -> Self::Output {
         visitor.visit_program(self)
+    }
+}
+
+impl<V: StmtVisitor> Accept<V> for Stmt {
+    type Output = ();
+    fn accept(&self, visitor: &mut V) -> Self::Output {
+        visitor.visit_stmt(self)
+    }
+}
+
+impl<V: ExprVisitor> Accept<V> for Expr {
+    type Output = V::Output;
+    fn accept(&self, visitor: &mut V) -> Self::Output {
+        visitor.visit_expr(self)
     }
 }
 
@@ -80,22 +86,18 @@ pub enum Stmt {
     Return(Typed<Option<Expr>>),
 }
 
-impl<T> Accept<T> for Stmt {
-    fn accept(&self, visitor: &mut impl Visitor<T>) -> T {
-        visitor.visit_stmt(self)
-    }
-}
+pub type Ident = Typed<String>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarDeclStmt {
-    pub ident: Ident,
+    pub ident: Typed<String>,
     pub initializer: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDeclStmt {
-    pub ident: Ident,
-    pub params: Vec<Ident>,
+    pub ident: Typed<String>,
+    pub params: Vec<Typed<String>>,
     pub body: Typed<BlockStmt>,
 }
 
@@ -123,17 +125,11 @@ pub enum Expr {
     Unary(Typed<UnaryExpr>),
     Binary(Typed<BinaryExpr>),
     Grouping(Typed<Box<Expr>>),
-    Variable(Ident),
+    Variable(Typed<String>),
     Assign(Typed<AssignExpr>),
     Logical(Typed<LogicalExpr>),
     Call(Typed<CallExpr>),
     Lambda(Typed<LambdaExpr>),
-}
-
-impl<T> Accept<T> for Expr {
-    fn accept(&self, visitor: &mut impl Visitor<T>) -> T {
-        visitor.visit_expr(self)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -158,7 +154,7 @@ pub struct LogicalExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignExpr {
-    pub target: Ident,
+    pub target: Typed<String>,
     pub value: Box<Expr>,
 }
 
@@ -170,7 +166,7 @@ pub struct CallExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
-    pub parameters: Vec<Ident>,
+    pub parameters: Vec<Typed<String>>,
     pub body: Typed<BlockStmt>,
 }
 #[derive(Debug, Clone, PartialEq)]
