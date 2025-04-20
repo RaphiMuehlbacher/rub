@@ -1,3 +1,9 @@
-fun add(a: String, b: Float) -> Float {
-    return a + b;
-}
+var a = fun(a: Float) -> Float {
+    return 3;
+};
+
+var b = fun(a: Float) -> Float {
+    return 3;
+};
+
+var c = a == b;
