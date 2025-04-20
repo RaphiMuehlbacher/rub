@@ -1,6 +1,7 @@
 use crate::ast::{
-    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr,
-    LiteralExpr, LogicalExpr, Program, Stmt, Typed, UnaryExpr, VarDeclStmt, WhileStmt,
+    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt,
+    LambdaExpr, LiteralExpr, LogicalExpr, Program, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt,
+    WhileStmt,
 };
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::TypeMismatch;
@@ -39,6 +40,10 @@ impl<'a> TypeInferrer<'a> {
         }
     }
 
+    fn report(&mut self, error: TypeInferrerError) {
+        self.errors.push(error.into());
+    }
+
     pub fn lookup_type(&mut self, ty: &Type) -> Type {
         match ty {
             TypeVar(id) => {
@@ -59,19 +64,19 @@ impl<'a> TypeInferrer<'a> {
         left: Type,
         right: Type,
         span: SourceSpan,
-    ) -> Result<(), TypeInferrerError> {
+    ) -> Result<Type, TypeInferrerError> {
         let left_ty = self.lookup_type(&left);
         let right_ty = self.lookup_type(&right);
 
         match (left_ty, right_ty) {
-            (Type::Float, Type::Float) => Ok(()),
-            (Type::String, Type::String) => Ok(()),
-            (Type::Bool, Type::Bool) => Ok(()),
-            (Type::Nil, Type::Nil) => Ok(()),
+            (Type::Float, Type::Float) => Ok(Type::Float),
+            (Type::String, Type::String) => Ok(Type::String),
+            (Type::Bool, Type::Bool) => Ok(Type::Bool),
+            (Type::Nil, Type::Nil) => Ok(Type::Nil),
 
             (ty, TypeVar(id)) | (TypeVar(id), ty) => {
                 self.type_env.insert(id, ty);
-                Ok(())
+                Ok(TypeVar(id))
             }
 
             (t1, t2) => Err(TypeMismatch {
@@ -86,7 +91,7 @@ impl<'a> TypeInferrer<'a> {
     pub fn infer(&mut self) -> &Vec<Report> {
         for stmt in &self.program.statements {
             if let Err(err) = self.infer_stmt(stmt) {
-                self.errors.push(err.into());
+                self.report(err);
             }
         }
         &self.errors
@@ -120,7 +125,7 @@ impl<'a> TypeInferrer<'a> {
             var_decl.node.ident.type_id,
         );
         if let Some(init) = &var_decl.node.initializer {
-            let init_type = self.infer_expr(init);
+            let init_type = self.infer_expr(init)?;
 
             self.unify(
                 TypeVar(var_decl.node.ident.type_id),
@@ -155,7 +160,7 @@ impl<'a> TypeInferrer<'a> {
         todo!()
     }
 
-    fn infer_expr(&mut self, expr: &Expr) -> Type {
+    fn infer_expr(&mut self, expr: &Expr) -> Result<Type, TypeInferrerError> {
         match expr {
             Expr::Literal(literal_expr) => self.infer_literal_expr(literal_expr),
             Expr::Unary(unary_expr) => self.infer_unary_expr(unary_expr),
@@ -169,7 +174,10 @@ impl<'a> TypeInferrer<'a> {
         }
     }
 
-    fn infer_literal_expr(&mut self, literal_expr: &Typed<LiteralExpr>) -> Type {
+    fn infer_literal_expr(
+        &mut self,
+        literal_expr: &Typed<LiteralExpr>,
+    ) -> Result<Type, TypeInferrerError> {
         let ty = match literal_expr.node {
             LiteralExpr::Number(_) => Type::Float,
             LiteralExpr::String(_) => Type::String,
@@ -178,55 +186,108 @@ impl<'a> TypeInferrer<'a> {
         };
 
         self.type_env.insert(literal_expr.type_id, ty);
-        TypeVar(literal_expr.type_id)
+        Ok(TypeVar(literal_expr.type_id))
     }
 
-    fn infer_unary_expr(&mut self, unary_expr: &Typed<UnaryExpr>) -> Type {
+    fn infer_unary_expr(
+        &mut self,
+        unary_expr: &Typed<UnaryExpr>,
+    ) -> Result<Type, TypeInferrerError> {
+        let right_ty = self.infer_expr(unary_expr.node.expr.deref())?;
+        let result_ty = match unary_expr.node.op {
+            UnaryOp::Bang => self.unify(right_ty, Type::Bool, unary_expr.node.expr.span())?,
+            UnaryOp::Minus => self.unify(right_ty, Type::Float, unary_expr.node.expr.span())?,
+        };
+
+        self.type_env.insert(unary_expr.type_id, result_ty.clone());
+        Ok(TypeVar(unary_expr.type_id))
+    }
+
+    fn infer_binary_expr(
+        &mut self,
+        binary_expr: &Typed<BinaryExpr>,
+    ) -> Result<Type, TypeInferrerError> {
+        let left = self.infer_expr(binary_expr.node.left.deref())?;
+        let right = self.infer_expr(binary_expr.node.right.deref())?;
+
+        let result_ty = match binary_expr.node.op {
+            BinaryOp::Plus => {
+                let left_ty = self.lookup_type(&left);
+                let right_ty = self.lookup_type(&right);
+                match (left_ty, right_ty) {
+                    (Type::Float, Type::Float) => Type::Float,
+                    (Type::String, Type::String) => Type::String,
+                    _ => {
+                        return Err(TypeMismatch {
+                            src: self.source.clone(),
+                            span: binary_expr.node.right.span(),
+                            expected: left,
+                            found: right,
+                        })
+                    }
+                }
+            }
+            BinaryOp::Star | BinaryOp::Minus | BinaryOp::Slash => {
+                self.unify(left, Type::Float, binary_expr.node.left.span())?;
+                self.unify(right, Type::Float, binary_expr.node.right.span())?
+            }
+            BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => {
+                self.unify(left, Type::Float, binary_expr.node.left.span())?;
+                self.unify(right, Type::Float, binary_expr.node.right.span())?
+            }
+            BinaryOp::EqualEqual | BinaryOp::BangEqual => {
+                self.unify(left, right, binary_expr.node.right.span())?
+            }
+        };
+
+        self.type_env.insert(binary_expr.type_id, result_ty);
+        Ok(TypeVar(binary_expr.type_id))
+    }
+
+    fn infer_grouping_expr(
+        &mut self,
+        grouping_expr: &Typed<Box<Expr>>,
+    ) -> Result<Type, TypeInferrerError> {
         todo!()
     }
 
-    fn infer_binary_expr(&mut self, binary_expr: &Typed<BinaryExpr>) -> Type {
-        self.infer_expr(binary_expr.node.left.deref());
-        self.infer_expr(binary_expr.node.right.deref());
-        todo!()
-    }
-
-    fn infer_grouping_expr(&mut self, grouping_expr: &Typed<Box<Expr>>) -> Type {
-        todo!()
-    }
-
-    fn infer_variable_expr(&mut self, variable_expr: &Ident) -> Type {
+    fn infer_variable_expr(&mut self, variable_expr: &Ident) -> Result<Type, TypeInferrerError> {
         let var_id = self.var_env.get(variable_expr.node.as_str()).unwrap();
-        TypeVar(var_id.clone())
+        Ok(TypeVar(var_id.clone()))
     }
 
-    fn infer_assign_expr(&mut self, assign_expr: &Typed<AssignExpr>) -> Type {
-        let right_ty = self.infer_expr(assign_expr.node.value.deref());
+    fn infer_assign_expr(
+        &mut self,
+        assign_expr: &Typed<AssignExpr>,
+    ) -> Result<Type, TypeInferrerError> {
+        let right_ty = self.infer_expr(assign_expr.node.value.deref())?;
         let left_var = self
             .var_env
             .get(assign_expr.node.target.node.as_str())
             .unwrap();
 
-        if let Err(err) = self.unify(
+        self.unify(
             TypeVar(left_var.clone()),
             right_ty.clone(),
             assign_expr.node.value.deref().span(),
-        ) {
-            self.errors.push(err.into());
-        }
+        )?;
 
-        right_ty
+        self.type_env.insert(assign_expr.type_id, right_ty);
+        Ok(TypeVar(assign_expr.type_id))
     }
 
-    fn infer_logical_expr(&mut self, logical_expr: &Typed<LogicalExpr>) -> Type {
+    fn infer_logical_expr(
+        &mut self,
+        logical_expr: &Typed<LogicalExpr>,
+    ) -> Result<Type, TypeInferrerError> {
         todo!()
     }
 
-    fn infer_call_expr(&mut self, call_expr: &Typed<CallExpr>) -> Type {
+    fn infer_call_expr(&mut self, call_expr: &Typed<CallExpr>) -> Result<Type, TypeInferrerError> {
         todo!()
     }
 
-    fn lambda_expr(&mut self, lambda: &Typed<LambdaExpr>) -> Type {
+    fn lambda_expr(&mut self, lambda: &Typed<LambdaExpr>) -> Result<Type, TypeInferrerError> {
         todo!()
     }
 }

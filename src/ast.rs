@@ -179,7 +179,6 @@ pub enum BinaryOp {
     GreaterEqual,
     Less,
     LessEqual,
-    Equal,
     EqualEqual,
     BangEqual,
 }

@@ -1,5 +1,3 @@
-var b = 3;
-var c = b;
-var d = 45;
-
-c = d;
+var a = "hello ";
+var b = "world";
+var c = a + b;
