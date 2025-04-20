@@ -8,6 +8,7 @@ use crate::type_inferrer::Type::TypeVar;
 use miette::{Report, SourceSpan};
 use std::collections::HashMap;
 use std::ops::Deref;
+use std::vec;
 
 pub type TypeVarId = usize;
 
@@ -17,6 +18,7 @@ pub enum Type {
     Bool,
     String,
     Nil,
+    Function { params: Vec<Box<Type>>, return_ty: Box<Type> },
     TypeVar(TypeVarId),
 }
 
@@ -24,8 +26,9 @@ pub struct TypeInferrer<'a> {
     program: &'a Program,
     source: String,
     errors: Vec<Report>,
+    current_function_return_ty: Option<Type>,
     pub type_env: HashMap<TypeVarId, Type>,
-    pub var_env: HashMap<String, TypeVarId>,
+    pub var_env: Vec<HashMap<String, TypeVarId>>,
 }
 
 impl<'a> TypeInferrer<'a> {
@@ -34,8 +37,9 @@ impl<'a> TypeInferrer<'a> {
             program: ast,
             source,
             errors: vec![],
+            current_function_return_ty: None,
             type_env: HashMap::new(),
-            var_env: HashMap::new(),
+            var_env: vec![HashMap::new()],
         }
     }
 
@@ -58,9 +62,21 @@ impl<'a> TypeInferrer<'a> {
         }
     }
 
+    fn lookup_var(&mut self, name: &str) -> Option<TypeVarId> {
+        for env in self.var_env.iter().rev() {
+            if let Some(id) = env.get(name) {
+                return Some(*id);
+            }
+        }
+        None
+    }
+
+    fn insert_var(&mut self, name: String, id: TypeVarId) {
+        self.var_env.last_mut().unwrap().insert(name, id);
+    }
+
     fn unify(&mut self, left: Type, right: Type, span: SourceSpan) -> Result<Type, TypeInferrerError> {
         let left_ty = self.lookup_type(&left);
-        println!("{:?}", left_ty);
         let right_ty = self.lookup_type(&right);
 
         match (left_ty, right_ty) {
@@ -116,7 +132,7 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) -> Result<(), TypeInferrerError> {
-        self.var_env.insert(var_decl.node.ident.node.clone(), var_decl.node.ident.type_id);
+        self.insert_var(var_decl.node.ident.node.clone(), var_decl.node.ident.type_id);
         if let Some(init) = &var_decl.node.initializer {
             let init_type = self.infer_expr(init)?;
 
@@ -127,14 +143,37 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) -> Result<(), TypeInferrerError> {
-        self.var_env.insert(fun_decl.node.ident.node.clone(), fun_decl.node.ident.type_id);
-        todo!()
+        self.insert_var(fun_decl.node.ident.node.clone(), fun_decl.node.ident.type_id);
+
+        self.var_env.push(HashMap::new());
+
+        for param in &fun_decl.node.params {
+            let param_id = param.node.name.type_id;
+            self.type_env.insert(param_id, param.node.type_annotation.clone());
+            self.insert_var(param.node.name.node.clone(), param_id);
+        }
+
+        let old_ret_ty = self.current_function_return_ty.clone();
+        self.current_function_return_ty = Some(fun_decl.node.return_type.clone());
+
+        for stmt in &fun_decl.node.body.node.statements {
+            self.infer_stmt(stmt)?;
+        }
+
+        self.current_function_return_ty = old_ret_ty;
+
+        self.var_env.pop();
+        Ok(())
     }
 
     fn infer_block(&mut self, block: &Typed<BlockStmt>) -> Result<(), TypeInferrerError> {
+        self.var_env.push(HashMap::new());
+
         for stmt in &block.node.statements {
             self.infer_stmt(stmt)?;
         }
+
+        self.var_env.pop();
         Ok(())
     }
 
@@ -156,7 +195,21 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_return_stmt(&mut self, return_stmt: &Typed<Option<Expr>>) -> Result<(), TypeInferrerError> {
-        todo!()
+        if let Some(ret_expr) = &return_stmt.node {
+            let ret_id = self.infer_expr(ret_expr)?;
+            let ret_ty = self.lookup_type(&ret_id);
+
+            if let Some(expected_ty) = &self.current_function_return_ty {
+                self.unify(expected_ty.clone(), ret_ty, ret_expr.span())?;
+            }
+        } else {
+            let ret_ty = Type::Nil;
+            if let Some(expected_ty) = &self.current_function_return_ty {
+                self.unify(expected_ty.clone(), ret_ty, return_stmt.span)?;
+            }
+        }
+
+        Ok(())
     }
 
     fn infer_expr(&mut self, expr: &Expr) -> Result<Type, TypeInferrerError> {
@@ -204,15 +257,15 @@ impl<'a> TypeInferrer<'a> {
             BinaryOp::Plus => {
                 let left_ty = self.lookup_type(&left);
                 let right_ty = self.lookup_type(&right);
-                match (left_ty, right_ty) {
+                match (left_ty.clone(), right_ty.clone()) {
                     (Type::Float, Type::Float) => Type::Float,
                     (Type::String, Type::String) => Type::String,
                     _ => {
                         return Err(TypeMismatch {
                             src: self.source.clone(),
                             span: binary_expr.node.right.span(),
-                            expected: left,
-                            found: right,
+                            expected: left_ty,
+                            found: right_ty,
                         })
                     }
                 }
@@ -242,13 +295,13 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_variable_expr(&mut self, variable_expr: &Ident) -> Result<Type, TypeInferrerError> {
-        let var_id = self.var_env.get(variable_expr.node.as_str()).unwrap();
+        let var_id = self.lookup_var(variable_expr.node.as_str()).unwrap();
         Ok(TypeVar(var_id.clone()))
     }
 
     fn infer_assign_expr(&mut self, assign_expr: &Typed<AssignExpr>) -> Result<Type, TypeInferrerError> {
         let right_ty = self.infer_expr(assign_expr.node.value.deref())?;
-        let left_var = self.var_env.get(assign_expr.node.target.node.as_str()).unwrap();
+        let left_var = self.lookup_var(assign_expr.node.target.node.as_str()).unwrap();
 
         self.unify(TypeVar(left_var.clone()), right_ty.clone(), assign_expr.node.value.deref().span())?;
 
@@ -268,7 +321,7 @@ impl<'a> TypeInferrer<'a> {
         };
 
         self.type_env.insert(logical_expr.type_id, result_ty.clone());
-        Ok(result_ty)
+        Ok(TypeVar(logical_expr.type_id))
     }
 
     fn infer_call_expr(&mut self, call_expr: &Typed<CallExpr>) -> Result<Type, TypeInferrerError> {
