@@ -106,12 +106,13 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_expr_stmt(&mut self, expr_stmt: &Typed<Expr>) -> Result<(), TypeInferrerError> {
-        self.infer_expr(&expr_stmt.node);
+        self.infer_expr(&expr_stmt.node)?;
         Ok(())
     }
 
     fn infer_print_stmt(&mut self, print_stmt: &Typed<Expr>) -> Result<(), TypeInferrerError> {
-        todo!()
+        self.infer_expr(&print_stmt.node)?;
+        Ok(())
     }
 
     fn infer_var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) -> Result<(), TypeInferrerError> {
@@ -130,15 +131,27 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_block(&mut self, block: &Typed<BlockStmt>) -> Result<(), TypeInferrerError> {
-        todo!()
+        for stmt in &block.node.statements {
+            self.infer_stmt(stmt)?;
+        }
+        Ok(())
     }
 
     fn infer_if_stmt(&mut self, if_stmt: &Typed<IfStmt>) -> Result<(), TypeInferrerError> {
-        todo!()
+        self.infer_expr(&if_stmt.node.condition)?;
+        self.infer_block(&if_stmt.node.then_branch)?;
+
+        if let Some(else_branch) = &if_stmt.node.else_branch {
+            self.infer_block(else_branch)?;
+        }
+        Ok(())
     }
 
     fn infer_while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) -> Result<(), TypeInferrerError> {
-        todo!()
+        self.infer_expr(&while_stmt.node.condition)?;
+        self.infer_block(&while_stmt.node.body)?;
+
+        Ok(())
     }
 
     fn infer_return_stmt(&mut self, return_stmt: &Typed<Option<Expr>>) -> Result<(), TypeInferrerError> {
