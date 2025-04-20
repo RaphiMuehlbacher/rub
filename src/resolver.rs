@@ -1,6 +1,11 @@
-use crate::ast::{AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LogicalExpr, Program, Stmt, Typed, UnaryExpr, VarDeclStmt, WhileStmt};
+use crate::ast::{
+    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LogicalExpr, Parameter, Program, Stmt,
+    Typed, UnaryExpr, VarDeclStmt, WhileStmt,
+};
 use crate::error::ResolverError;
-use crate::error::ResolverError::{DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable};
+use crate::error::ResolverError::{
+    DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable,
+};
 use miette::Report;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -8,7 +13,7 @@ use std::ops::Deref;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Symbol {
     Variable { initialized: bool },
-    Function { params: Vec<Ident> },
+    Function { params: Vec<Typed<Parameter>> },
 }
 
 pub struct Resolver<'a> {
@@ -85,18 +90,24 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) {
-        self.curr_scope().insert(fun_decl.node.ident.node.clone(), Symbol::Function { params: fun_decl.node.params.clone() });
+        self.curr_scope().insert(
+            fun_decl.node.ident.node.clone(),
+            Symbol::Function {
+                params: fun_decl.node.params.clone(),
+            },
+        );
 
         self.scopes.push(HashMap::new());
         for param in &fun_decl.node.params {
-            if self.curr_scope().get(param.node.as_str()).is_some() {
+            if self.curr_scope().get(param.node.name.node.as_str()).is_some() {
                 self.report(DuplicateParameter {
                     src: self.source.to_string(),
                     span: param.span,
                     function_name: fun_decl.node.ident.node.clone(),
                 })
             } else {
-                self.curr_scope().insert(param.node.clone(), Symbol::Variable { initialized: true });
+                self.curr_scope()
+                    .insert(param.node.name.node.clone(), Symbol::Variable { initialized: true });
             }
         }
 
@@ -208,13 +219,14 @@ impl<'a> Resolver<'a> {
     fn lambda_expr(&mut self, lambda: &Typed<LambdaExpr>) {
         self.scopes.push(HashMap::new());
         for param in &lambda.node.parameters {
-            if self.curr_scope().get(param.node.as_str()).is_some() {
+            if self.curr_scope().get(param.node.name.node.as_str()).is_some() {
                 self.report(DuplicateLambdaParameter {
                     src: self.source.to_string(),
                     span: param.span,
                 })
             } else {
-                self.curr_scope().insert(param.node.clone(), Symbol::Variable { initialized: true });
+                self.curr_scope()
+                    .insert(param.node.name.node.clone(), Symbol::Variable { initialized: true });
             }
         }
 

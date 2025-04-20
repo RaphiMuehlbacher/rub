@@ -22,8 +22,8 @@ pub enum TokenKind {
     GreaterEqual,
     Less,
     LessEqual,
-    Question,
     Colon,
+    Arrow,
 
     String(String),
     Ident(String),
@@ -45,6 +45,11 @@ pub enum TokenKind {
     True,
     Var,
     While,
+
+    TypeFloat,
+    TypeString,
+    TypeBool,
+    TypeNil,
 
     EOF,
 }
@@ -93,9 +98,16 @@ impl<'a> Lexer<'a> {
                 '}' => self.create_token(TokenKind::RightBrace),
                 ',' => self.create_token(TokenKind::Comma),
                 '.' => self.create_token(TokenKind::Dot),
-                '-' => self.create_token(TokenKind::Minus),
+                '-' => {
+                    if self.match_char('>') {
+                        self.create_token(TokenKind::Arrow)
+                    } else {
+                        self.create_token(TokenKind::Minus)
+                    }
+                }
                 '+' => self.create_token(TokenKind::Plus),
                 ';' => self.create_token(TokenKind::Semicolon),
+                ':' => self.create_token(TokenKind::Colon),
                 '/' => {
                     if self.match_char('/') {
                         while self.position < self.source.len() && !self.match_char('\n') {
@@ -183,6 +195,10 @@ impl<'a> Lexer<'a> {
                         "true" => TokenKind::True,
                         "var" => TokenKind::Var,
                         "while" => TokenKind::While,
+                        "Float" => TokenKind::TypeFloat,
+                        "String" => TokenKind::TypeString,
+                        "Bool" => TokenKind::TypeBool,
+                        "Nil" => TokenKind::TypeNil,
                         _ => TokenKind::Ident(literal.to_string()),
                     };
 

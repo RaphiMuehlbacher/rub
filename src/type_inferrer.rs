@@ -127,6 +127,7 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) -> Result<(), TypeInferrerError> {
+        self.var_env.insert(fun_decl.node.ident.node.clone(), fun_decl.node.ident.type_id);
         todo!()
     }
 

@@ -1,15 +1,15 @@
 use crate::ast::Expr::{Call, Grouping, Lambda, Literal, Unary, Variable};
 use crate::ast::Stmt::{Block, ExprStmt, PrintStmt, Return, While};
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident,
-    IfStmt, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, Program, Stmt, Typed, UnaryExpr,
-    UnaryOp, VarDeclStmt, WhileStmt,
+    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr,
+    LogicalExpr, LogicalOp, Parameter, Program, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
-    ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock,
-    MissingOperand, MissingSemicolon, RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter,
-    UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken, UnmatchedDelimiter,
+    ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock, MissingOperand, MissingSemicolon,
+    RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter, UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken,
+    UnmatchedDelimiter,
 };
+use crate::type_inferrer::Type;
 use crate::{lexer, TokenKind};
 use lexer::Token;
 use miette::{Report, SourceOffset, SourceSpan};
@@ -132,12 +132,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect_expr(
-        &self,
-        result: ParseResult<Expr>,
-        side: &str,
-        span: SourceSpan,
-    ) -> ParseResult<Expr> {
+    fn expect_expr(&self, result: ParseResult<Expr>, side: &str, span: SourceSpan) -> ParseResult<Expr> {
         result.map_err(|_| {
             MissingOperand {
                 src: self.source.to_string(),
@@ -404,6 +399,7 @@ impl<'a> Parser<'a> {
         let function_name = self.parse_function_name()?;
 
         let parameters = self.parse_function_parameters()?;
+        let return_type = self.parse_return_type()?;
 
         let body = self.block()?;
 
@@ -411,10 +407,43 @@ impl<'a> Parser<'a> {
             FunDeclStmt {
                 ident: function_name,
                 params: parameters,
-                body: body,
+                body,
+                return_type,
             },
             self.create_span(fun_keyword_span, self.previous().span),
         )))
+    }
+
+    fn parse_return_type(&mut self) -> ParseResult<Type> {
+        if !self.consume(&[TokenKind::Arrow]) {
+            return Ok(Type::Nil);
+        }
+
+        match self.current().token_kind {
+            TokenKind::TypeFloat => {
+                self.advance_position();
+                Ok(Type::Float)
+            }
+            TokenKind::TypeString => {
+                self.advance_position();
+                Ok(Type::String)
+            }
+            TokenKind::TypeBool => {
+                self.advance_position();
+                Ok(Type::Bool)
+            }
+            TokenKind::TypeNil => {
+                self.advance_position();
+                Ok(Type::Nil)
+            }
+            _ => Err(UnexpectedToken {
+                src: self.source.to_string(),
+                span: self.current().span,
+                expected: "type".to_string(),
+                found: self.current().token_kind.clone(),
+            }
+            .into()),
+        }
     }
 
     /// current is function name, ends at '('
@@ -464,8 +493,77 @@ impl<'a> Parser<'a> {
         Ok(function_name)
     }
 
+    /// current is `:` end is after type
+    fn parse_type_annotation(&mut self) -> ParseResult<Type> {
+        if !self.consume(&[TokenKind::Colon]) {
+            return Err(UnexpectedToken {
+                src: self.source.to_string(),
+                span: self.current().span,
+                expected: "type".to_string(),
+                found: self.current().token_kind.clone(),
+            }
+            .into());
+        }
+
+        match self.current().token_kind {
+            TokenKind::TypeFloat => {
+                self.advance_position();
+                Ok(Type::Float)
+            }
+            TokenKind::TypeString => {
+                self.advance_position();
+                Ok(Type::String)
+            }
+            TokenKind::TypeBool => {
+                self.advance_position();
+                Ok(Type::Bool)
+            }
+            TokenKind::TypeNil => {
+                self.advance_position();
+                Ok(Type::Nil)
+            }
+            _ => Err(UnexpectedToken {
+                src: self.source.to_string(),
+                span: self.current().span,
+                expected: "type".to_string(),
+                found: self.current().token_kind.clone(),
+            }
+            .into()),
+        }
+    }
+
+    fn parse_parameter(&mut self) -> ParseResult<Typed<Parameter>> {
+        let curr_token = self.current().clone();
+
+        match &curr_token.token_kind {
+            TokenKind::Ident(name) => {
+                let name_span = curr_token.span;
+                self.advance_position();
+
+                let type_annotation = self.parse_type_annotation()?;
+
+                Ok(Typed::new(
+                    Parameter {
+                        name: Typed::new(name.clone(), name_span),
+                        type_annotation,
+                    },
+                    self.create_span(curr_token.span, self.previous().span),
+                ))
+            }
+            _ => {
+                self.skip_next_block();
+                Err(ExpectedIdentifier {
+                    src: self.source.to_string(),
+                    span: curr_token.span,
+                    context: "parameter".to_string(),
+                }
+                .into())
+            }
+        }
+    }
+
     /// current is '(' ends after ')'
-    fn parse_function_parameters(&mut self) -> ParseResult<Vec<Ident>> {
+    fn parse_function_parameters(&mut self) -> ParseResult<Vec<Typed<Parameter>>> {
         let mut parameters = vec![];
         let opening_paren_span = self.current().span;
 
@@ -486,53 +584,38 @@ impl<'a> Parser<'a> {
                 .into());
             }
 
-            let curr_token = self.current().clone();
-            match &curr_token.token_kind {
-                TokenKind::Ident(name) => {
-                    let span = self.current().span;
-                    parameters.push(Typed::new(name.clone(), span));
-                    self.advance_position();
+            let parameter = self.parse_parameter()?;
+            parameters.push(parameter);
 
-                    match self.current().token_kind {
-                        TokenKind::Comma => {
-                            self.advance_position();
-                            if self.current_is(TokenKind::RightParen) {
-                                return Err(ExpectedIdentifier {
-                                    src: self.source.to_string(),
-                                    span: self.previous().span,
-                                    context: "parameter".to_string(),
-                                }
-                                .into());
-                            }
+            match self.current().token_kind {
+                TokenKind::Comma => {
+                    self.advance_position();
+                    if self.current_is(TokenKind::RightParen) {
+                        return Err(ExpectedIdentifier {
+                            src: self.source.to_string(),
+                            span: self.previous().span,
+                            context: "parameter".to_string(),
                         }
-                        TokenKind::RightParen => {
-                            self.close_delimiter(self.current().token_kind.clone())?;
-                            break;
-                        }
-                        TokenKind::EOF => {
-                            return Err(UnexpectedEOF {
-                                src: self.source.to_string(),
-                                expected: "')' after function parameters".to_string(),
-                            }
-                            .into());
-                        }
-                        _ => {
-                            return Err(UnexpectedToken {
-                                src: self.source.to_string(),
-                                span: self.current().span,
-                                found: self.current().token_kind.clone(),
-                                expected: "',', or ')'".to_string(),
-                            }
-                            .into());
-                        }
+                        .into());
                     }
                 }
-                _ => {
-                    self.skip_next_block();
-                    return Err(ExpectedIdentifier {
+                TokenKind::RightParen => {
+                    self.close_delimiter(self.current().token_kind.clone())?;
+                    break;
+                }
+                TokenKind::EOF => {
+                    return Err(UnexpectedEOF {
                         src: self.source.to_string(),
-                        span: curr_token.span,
-                        context: "parameter".to_string(),
+                        expected: "')' after function parameters".to_string(),
+                    }
+                    .into());
+                }
+                _ => {
+                    return Err(UnexpectedToken {
+                        src: self.source.to_string(),
+                        span: self.current().span,
+                        found: self.current().token_kind.clone(),
+                        expected: "',', or ')'".to_string(),
                     }
                     .into());
                 }
@@ -566,10 +649,7 @@ impl<'a> Parser<'a> {
 
         self.expect_semicolon();
 
-        Ok(ExprStmt(Typed::new(
-            value,
-            self.create_span(left_span, self.previous().span),
-        )))
+        Ok(ExprStmt(Typed::new(value, self.create_span(left_span, self.previous().span))))
     }
 
     /// current is 'print', end is next statement
@@ -581,10 +661,7 @@ impl<'a> Parser<'a> {
 
         self.expect_semicolon();
 
-        Ok(PrintStmt(Typed::new(
-            value,
-            self.create_span(left_span, self.previous().span),
-        )))
+        Ok(PrintStmt(Typed::new(value, self.create_span(left_span, self.previous().span))))
     }
 
     /// current is '{' and ends after '}'
@@ -676,10 +753,7 @@ impl<'a> Parser<'a> {
         let block = self.block()?;
 
         Ok(While(Typed::new(
-            WhileStmt {
-                condition,
-                body: block,
-            },
+            WhileStmt { condition, body: block },
             self.create_span(while_span, self.previous().span),
         )))
     }
@@ -728,10 +802,7 @@ impl<'a> Parser<'a> {
         while_body_statements.extend(body.node.statements);
 
         if let Some(inc) = increment {
-            while_body_statements.push(ExprStmt(Typed::new(
-                inc,
-                self.create_span(for_span, self.previous().span),
-            )));
+            while_body_statements.push(ExprStmt(Typed::new(inc, self.create_span(for_span, self.previous().span))));
         }
 
         let while_stmt = While(Typed::new(
@@ -773,10 +844,7 @@ impl<'a> Parser<'a> {
         };
 
         self.expect_semicolon();
-        Ok(Return(Typed::new(
-            value,
-            self.create_span(left_return_span, self.previous().span),
-        )))
+        Ok(Return(Typed::new(value, self.create_span(left_return_span, self.previous().span))))
     }
 
     /// starts at first token, ends after the last token of the expression
@@ -792,12 +860,14 @@ impl<'a> Parser<'a> {
         self.advance_position();
 
         let parameters = self.parse_function_parameters()?;
+        let return_type = self.parse_return_type()?;
         let block = self.block()?;
 
         Ok(Lambda(Typed::new(
             LambdaExpr {
                 parameters,
                 body: block,
+                return_type,
             },
             self.create_span(left_lambda_span, self.previous().span),
         )))
@@ -864,10 +934,7 @@ impl<'a> Parser<'a> {
                     LogicalExpr {
                         left: Box::new(expr),
                         op,
-                        right: Box::new(Literal(Typed::new(
-                            LiteralExpr::Bool(false),
-                            self.current().span,
-                        ))),
+                        right: Box::new(Literal(Typed::new(LiteralExpr::Bool(false), self.current().span))),
                     },
                     self.create_span(logic_or_left_span, self.current().span),
                 )));
@@ -910,10 +977,7 @@ impl<'a> Parser<'a> {
                     LogicalExpr {
                         left: Box::new(expr),
                         op,
-                        right: Box::new(Literal(Typed::new(
-                            LiteralExpr::Bool(false),
-                            self.current().span,
-                        ))),
+                        right: Box::new(Literal(Typed::new(LiteralExpr::Bool(false), self.current().span))),
                     },
                     self.create_span(logic_and_left_span, self.current().span),
                 )));
@@ -962,12 +1026,7 @@ impl<'a> Parser<'a> {
     fn comparison(&mut self) -> ParseResult<Expr> {
         let comparison_left_span = self.current().span;
         let mut expr = self.term()?;
-        while self.consume(&[
-            TokenKind::Less,
-            TokenKind::LessEqual,
-            TokenKind::Greater,
-            TokenKind::GreaterEqual,
-        ]) {
+        while self.consume(&[TokenKind::Less, TokenKind::LessEqual, TokenKind::Greater, TokenKind::GreaterEqual]) {
             let operator = self.previous();
 
             let op = match operator.token_kind {
@@ -1063,10 +1122,7 @@ impl<'a> Parser<'a> {
             let expr = self.expect_expr(result, "right", operator_span)?;
 
             Ok(Unary(Typed::new(
-                UnaryExpr {
-                    op,
-                    expr: Box::new(expr),
-                },
+                UnaryExpr { op, expr: Box::new(expr) },
                 self.create_span(unary_left_span, self.previous().span),
             )))
         } else {
@@ -1133,17 +1189,11 @@ impl<'a> Parser<'a> {
             }
             TokenKind::False => {
                 self.advance_position();
-                Ok(Literal(Typed::new(
-                    LiteralExpr::Bool(false),
-                    self.previous().span,
-                )))
+                Ok(Literal(Typed::new(LiteralExpr::Bool(false), self.previous().span)))
             }
             TokenKind::True => {
                 self.advance_position();
-                Ok(Literal(Typed::new(
-                    LiteralExpr::Bool(true),
-                    self.previous().span,
-                )))
+                Ok(Literal(Typed::new(LiteralExpr::Bool(true), self.previous().span)))
             }
             TokenKind::Nil => {
                 self.advance_position();

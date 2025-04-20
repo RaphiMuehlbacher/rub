@@ -1,3 +1,4 @@
+use crate::type_inferrer::Type;
 use crate::TokenKind;
 use miette::SourceSpan;
 
@@ -55,10 +56,17 @@ pub struct VarDeclStmt {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Parameter {
+    pub name: Ident,
+    pub type_annotation: Type,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunDeclStmt {
     pub ident: Typed<String>,
-    pub params: Vec<Typed<String>>,
+    pub params: Vec<Typed<Parameter>>,
     pub body: Typed<BlockStmt>,
+    pub return_type: Type,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -142,8 +150,9 @@ pub struct CallExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
-    pub parameters: Vec<Typed<String>>,
+    pub parameters: Vec<Typed<Parameter>>,
     pub body: Typed<BlockStmt>,
+    pub return_type: Type,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralExpr {
