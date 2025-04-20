@@ -248,7 +248,7 @@ impl<'a> TypeInferrer<'a> {
         &mut self,
         grouping_expr: &Typed<Box<Expr>>,
     ) -> Result<Type, TypeInferrerError> {
-        todo!()
+        self.infer_expr(grouping_expr.node.deref())
     }
 
     fn infer_variable_expr(&mut self, variable_expr: &Ident) -> Result<Type, TypeInferrerError> {
