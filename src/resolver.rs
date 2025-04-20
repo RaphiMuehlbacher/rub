@@ -1,12 +1,6 @@
-use crate::ast::{
-    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr,
-    LogicalExpr, Program, Stmt, Typed, UnaryExpr, VarDeclStmt, WhileStmt,
-};
+use crate::ast::{AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LogicalExpr, Program, Stmt, Typed, UnaryExpr, VarDeclStmt, WhileStmt};
 use crate::error::ResolverError;
-use crate::error::ResolverError::{
-    DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable,
-    UninitializedVariable,
-};
+use crate::error::ResolverError::{DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable};
 use miette::Report;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -91,12 +85,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) {
-        self.curr_scope().insert(
-            fun_decl.node.ident.node.clone(),
-            Symbol::Function {
-                params: fun_decl.node.params.clone(),
-            },
-        );
+        self.curr_scope().insert(fun_decl.node.ident.node.clone(), Symbol::Function { params: fun_decl.node.params.clone() });
 
         self.scopes.push(HashMap::new());
         for param in &fun_decl.node.params {
@@ -107,8 +96,7 @@ impl<'a> Resolver<'a> {
                     function_name: fun_decl.node.ident.node.clone(),
                 })
             } else {
-                self.curr_scope()
-                    .insert(param.node.clone(), Symbol::Variable { initialized: true });
+                self.curr_scope().insert(param.node.clone(), Symbol::Variable { initialized: true });
             }
         }
 
@@ -226,8 +214,7 @@ impl<'a> Resolver<'a> {
                     span: param.span,
                 })
             } else {
-                self.curr_scope()
-                    .insert(param.node.clone(), Symbol::Variable { initialized: true });
+                self.curr_scope().insert(param.node.clone(), Symbol::Variable { initialized: true });
             }
         }
 

@@ -18,11 +18,7 @@ impl<T> Typed<T> {
             id
         };
 
-        Self {
-            node,
-            span,
-            type_id,
-        }
+        Self { node, span, type_id }
     }
 }
 

@@ -160,9 +160,7 @@ impl<'a> Lexer<'a> {
                 }
                 'a'..='z' | 'A'..='Z' | '_' => {
                     let rest = &self.source[self.start..];
-                    let end_offset = rest
-                        .find(|c: char| !c.is_alphanumeric() && c != '_')
-                        .unwrap_or(rest.len());
+                    let end_offset = rest.find(|c: char| !c.is_alphanumeric() && c != '_').unwrap_or(rest.len());
 
                     self.position = self.start + end_offset;
 
@@ -192,30 +190,23 @@ impl<'a> Lexer<'a> {
                 }
                 '0'..='9' => {
                     let rest = &self.source[self.start..];
-                    let first_part_offset =
-                        rest.find(|c| !matches!(c, '0'..='9')).unwrap_or(rest.len());
+                    let first_part_offset = rest.find(|c| !matches!(c, '0'..='9')).unwrap_or(rest.len());
 
                     self.position = self.start + first_part_offset;
 
                     if self.match_char('.') {
                         let rest_after_dot = &self.source[self.position..];
-                        let second_part_offset = rest_after_dot
-                            .find(|c| !matches!(c, '0'..='9'))
-                            .unwrap_or(rest_after_dot.len());
+                        let second_part_offset = rest_after_dot.find(|c| !matches!(c, '0'..='9')).unwrap_or(rest_after_dot.len());
 
                         self.position += second_part_offset;
                         Token {
-                            token_kind: TokenKind::Number(
-                                self.source[self.start..self.position].parse().unwrap(),
-                            ),
+                            token_kind: TokenKind::Number(self.source[self.start..self.position].parse().unwrap()),
                             span: SourceSpan::new(self.start.into(), self.position - self.start),
                             literal: &self.source[self.start..self.position],
                         }
                     } else {
                         Token {
-                            token_kind: TokenKind::Number(
-                                rest[..first_part_offset].parse().unwrap(),
-                            ),
+                            token_kind: TokenKind::Number(rest[..first_part_offset].parse().unwrap()),
                             span: SourceSpan::new(self.start.into(), self.position - self.start),
                             literal: &rest[..first_part_offset],
                         }

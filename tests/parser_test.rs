@@ -27,10 +27,7 @@ fn test_binary() {
     assert_eq!(errors.len(), 0);
     assert_eq!(statements.len(), 1);
     if let Stmt::ExprStmt { expr, .. } = &statements[0] {
-        if let Expr::Binary {
-            left, op, right, ..
-        } = expr
-        {
+        if let Expr::Binary { left, op, right, .. } = expr {
             if let LiteralExpr(Literal::Number { value, .. }) = **left {
                 assert_eq!(value, 3.0);
             } else {
