@@ -35,6 +35,10 @@ impl<'a> Resolver<'a> {
 
     pub fn resolve(&mut self) -> &Vec<Report> {
         for stmt in &self.program.statements {
+            self.declare_stmt(&stmt);
+        }
+
+        for stmt in &self.program.statements {
             self.resolve_stmt(&stmt);
         }
         &self.errors
@@ -55,6 +59,21 @@ impl<'a> Resolver<'a> {
 
     fn curr_scope(&mut self) -> &mut HashMap<String, Symbol> {
         self.scopes.last_mut().unwrap()
+    }
+
+    fn declare_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::FunDecl(fun_decl) => {
+                let name = &fun_decl.node.ident.node;
+                self.curr_scope().insert(
+                    name.clone(),
+                    Symbol::Function {
+                        params: fun_decl.node.params.clone(),
+                    },
+                );
+            }
+            _ => {}
+        }
     }
 
     fn resolve_stmt(&mut self, stmt: &Stmt) {

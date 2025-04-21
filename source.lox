@@ -1,3 +1,0 @@
-fun test(f: (Float, String) -> Nil) {
-    return f(3, "h");
-}

@@ -119,11 +119,35 @@ impl<'a> TypeInferrer<'a> {
 
     pub fn infer(&mut self) -> &Vec<Report> {
         for stmt in &self.program.statements {
+            self.declare_stmt(stmt);
+        }
+        for stmt in &self.program.statements {
             if let Err(err) = self.infer_stmt(stmt) {
                 self.report(err);
             }
         }
         &self.errors
+    }
+
+    fn declare_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::FunDecl(fun_decl) => {
+                let name = &fun_decl.node.ident.node;
+                self.insert_var(name.clone(), fun_decl.node.ident.type_id);
+                let fn_type = Type::Function {
+                    params: fun_decl
+                        .node
+                        .params
+                        .iter()
+                        .map(|p| Box::new(p.node.type_annotation.clone()))
+                        .collect(),
+                    return_ty: Box::new(fun_decl.node.return_type.clone()),
+                };
+
+                self.type_env.insert(fun_decl.node.ident.type_id, fn_type);
+            }
+            _ => {}
+        }
     }
 
     fn infer_stmt(&mut self, stmt: &Stmt) -> Result<(), TypeInferrerError> {
@@ -170,8 +194,12 @@ impl<'a> TypeInferrer<'a> {
                 .collect(),
             return_ty: Box::new(fun_decl.node.return_type.clone()),
         };
+
+        if let Some(expected) = self.type_env.get(&fun_decl.node.ident.type_id) {
+            self.unify(expected.clone(), fn_type.clone(), fun_decl.node.ident.span)?;
+        }
+
         self.type_env.insert(fun_decl.node.ident.type_id, fn_type);
-        self.insert_var(fun_decl.node.ident.node.clone(), fun_decl.node.ident.type_id);
 
         self.var_env.push(HashMap::new());
 
