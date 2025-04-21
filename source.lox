@@ -1,9 +1,3 @@
-var a = fun(a: Float) -> Float {
-    return 3;
-};
-
-var b = fun(a: Float) -> Float {
-    return 3;
-};
-
-var c = a == b;
+fun test(f: (Float, String) -> Nil) {
+    return f(3, "h");
+}

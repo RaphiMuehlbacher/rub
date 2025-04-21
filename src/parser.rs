@@ -505,30 +505,65 @@ impl<'a> Parser<'a> {
             .into());
         }
 
-        match self.current().token_kind {
-            TokenKind::TypeFloat => {
-                self.advance_position();
-                Ok(Type::Float)
+        self.parse_type()
+    }
+
+    /// current is the type annotation
+    fn parse_type(&mut self) -> ParseResult<Type> {
+        if self.matches(&[TokenKind::LeftParen]) {
+            self.open_delimiter(self.current().token_kind.clone())?;
+            let mut param_types = vec![];
+
+            if !self.matches(&[TokenKind::RightParen]) {
+                param_types.push(Box::new(self.parse_type()?));
+                while self.consume(&[TokenKind::Comma]) {
+                    param_types.push(Box::new(self.parse_type()?));
+                }
             }
-            TokenKind::TypeString => {
-                self.advance_position();
-                Ok(Type::String)
+
+            self.close_delimiter(TokenKind::RightParen)?;
+
+            if !self.consume(&[TokenKind::Arrow]) {
+                return Err(UnexpectedToken {
+                    src: self.source.to_string(),
+                    span: self.current().span,
+                    expected: "'->'".to_string(),
+                    found: self.current().token_kind.clone(),
+                }
+                .into());
             }
-            TokenKind::TypeBool => {
-                self.advance_position();
-                Ok(Type::Bool)
+
+            let return_type = Box::new(self.parse_type()?);
+            Ok(Type::Function {
+                params: param_types,
+                return_ty: return_type,
+            })
+        } else {
+            match self.current().token_kind {
+                TokenKind::TypeFloat => {
+                    self.advance_position();
+                    Ok(Type::Float)
+                }
+                TokenKind::TypeString => {
+                    self.advance_position();
+                    Ok(Type::String)
+                }
+                TokenKind::TypeBool => {
+                    self.advance_position();
+                    Ok(Type::Bool)
+                }
+                TokenKind::TypeNil => {
+                    self.advance_position();
+                    Ok(Type::Nil)
+                }
+                _ => Err(UnexpectedToken {
+                    src: self.source.to_string(),
+                    span: self.current().span,
+                    expected: "type".to_string(),
+                    found: self.current().token_kind.clone(),
+                }
+                .into()),
             }
-            TokenKind::TypeNil => {
-                self.advance_position();
-                Ok(Type::Nil)
-            }
-            _ => Err(UnexpectedToken {
-                src: self.source.to_string(),
-                span: self.current().span,
-                expected: "type".to_string(),
-                found: self.current().token_kind.clone(),
-            }
-            .into()),
         }
     }
 

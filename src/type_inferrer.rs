@@ -161,6 +161,16 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) -> Result<(), TypeInferrerError> {
+        let fn_type = Type::Function {
+            params: fun_decl
+                .node
+                .params
+                .iter()
+                .map(|p| Box::new(p.node.type_annotation.clone()))
+                .collect(),
+            return_ty: Box::new(fun_decl.node.return_type.clone()),
+        };
+        self.type_env.insert(fun_decl.node.ident.type_id, fn_type);
         self.insert_var(fun_decl.node.ident.node.clone(), fun_decl.node.ident.type_id);
 
         self.var_env.push(HashMap::new());
@@ -179,7 +189,6 @@ impl<'a> TypeInferrer<'a> {
         }
 
         self.current_function_return_ty = old_ret_ty;
-
         self.var_env.pop();
         Ok(())
     }
@@ -343,23 +352,65 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_call_expr(&mut self, call_expr: &Typed<CallExpr>) -> Result<Type, TypeInferrerError> {
-        todo!()
+        let callee_ty = self.infer_expr(call_expr.node.callee.deref())?;
+        let callee_ty = self.lookup_type(&callee_ty);
+
+        match callee_ty {
+            Type::Function { params, return_ty } => {
+                if params.len() != call_expr.node.arguments.len() {
+                    return Err(TypeMismatch {
+                        src: self.source.clone(),
+                        span: call_expr.span,
+                        expected: Type::Function {
+                            params: params.clone(),
+                            return_ty: return_ty.clone(),
+                        },
+                        found: Type::Function {
+                            params: call_expr.node.arguments.iter().map(|_| Box::new(TypeVar(0))).collect(),
+                            return_ty: Box::new(TypeVar(0)),
+                        },
+                    });
+                }
+                for (arg, param_ty) in call_expr.node.arguments.iter().zip(params.iter()) {
+                    let arg_ty = self.infer_expr(arg)?;
+                    self.unify(*param_ty.clone(), arg_ty, arg.span())?;
+                }
+
+                self.type_env.insert(call_expr.type_id, *return_ty.clone());
+                Ok(TypeVar(call_expr.type_id))
+            }
+            found => Err(TypeMismatch {
+                src: self.source.clone(),
+                span: call_expr.node.callee.span(),
+                expected: Type::Function {
+                    params: vec![],
+                    return_ty: Box::new(TypeVar(0)),
+                },
+                found,
+            }),
+        }
     }
 
     fn lambda_expr(&mut self, lambda: &Typed<LambdaExpr>) -> Result<Type, TypeInferrerError> {
         self.var_env.push(HashMap::new());
 
-        let param_types = lambda
-            .node
-            .parameters
-            .iter()
-            .map(|param| {
-                let param_id = param.node.name.type_id;
-                self.type_env.insert(param_id, param.node.type_annotation.clone());
-                self.insert_var(param.node.name.node.clone(), param_id);
-                Box::new(param.node.type_annotation.clone())
-            })
-            .collect();
+        let fn_type = Type::Function {
+            params: lambda
+                .node
+                .parameters
+                .iter()
+                .map(|p| Box::new(p.node.type_annotation.clone()))
+                .collect(),
+            return_ty: Box::new(lambda.node.return_type.clone()),
+        };
+
+        self.type_env.insert(lambda.type_id, fn_type.clone());
+
+        for param in &lambda.node.parameters {
+            let param_id = param.node.name.type_id;
+            self.type_env.insert(param_id, param.node.type_annotation.clone());
+            self.insert_var(param.node.name.node.clone(), param_id);
+        }
 
         let old_ret_ty = self.current_function_return_ty.clone();
         self.current_function_return_ty = Some(lambda.node.return_type.clone());
@@ -370,13 +421,6 @@ impl<'a> TypeInferrer<'a> {
 
         self.current_function_return_ty = old_ret_ty;
         self.var_env.pop();
-
-        let function_type = Type::Function {
-            params: param_types,
-            return_ty: Box::new(lambda.node.return_type.clone()),
-        };
-
-        self.type_env.insert(lambda.type_id, function_type);
         Ok(TypeVar(lambda.type_id))
     }
 }
