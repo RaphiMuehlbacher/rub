@@ -1,0 +1,14 @@
+fun a(b: Float) -> Float {
+    if b > 3 {
+        return b;
+    }
+
+    return "hallo";
+}
+
+
+
+fun main() {
+    var b = a;
+    b(3.1);
+}

@@ -31,6 +31,11 @@ pub struct TypeInferrer<'a> {
     pub var_env: Vec<HashMap<String, TypeVarId>>,
 }
 
+pub struct TypeInferenceResult<'a> {
+    pub errors: &'a Vec<Report>,
+    pub type_env: &'a HashMap<TypeVarId, Type>,
+}
+
 impl<'a> TypeInferrer<'a> {
     pub fn new(ast: &'a Program, source: String) -> Self {
         Self {
@@ -117,7 +122,7 @@ impl<'a> TypeInferrer<'a> {
         }
     }
 
-    pub fn infer(&mut self) -> &Vec<Report> {
+    pub fn infer(&mut self) -> TypeInferenceResult {
         for stmt in &self.program.statements {
             self.declare_stmt(stmt);
         }
@@ -126,7 +131,11 @@ impl<'a> TypeInferrer<'a> {
                 self.report(err);
             }
         }
-        &self.errors
+
+        TypeInferenceResult {
+            errors: &self.errors,
+            type_env: &self.type_env,
+        }
     }
 
     fn declare_stmt(&mut self, stmt: &Stmt) {
