@@ -9,7 +9,6 @@ fn parse(source: &str) -> (Vec<Stmt>, Vec<miette::Report>) {
 
     let mut parser = Parser::new(tokens, &source);
     let statements = parser.parse();
-    let errors = parser.get_errors();
 
     (statements, errors)
 }

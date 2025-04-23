@@ -16,6 +16,11 @@ use miette::{Report, SourceOffset, SourceSpan};
 
 type ParseResult<T> = Result<T, Report>;
 
+pub struct ParserResult<'a> {
+    pub errors: &'a Vec<Report>,
+    pub ast: Program,
+}
+
 pub struct Parser<'a> {
     tokens: Vec<Token<'a>>,
     position: usize,
@@ -96,10 +101,6 @@ impl<'a> Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn get_errors(self) -> Vec<Report> {
-        self.errors
-    }
-
     fn report(&mut self, error: Report) {
         self.errors.push(error);
     }
@@ -173,11 +174,9 @@ impl<'a> Parser<'a> {
 
     /// skips past the whole next block
     fn skip_next_block(&mut self) {
-        let mut brace_count = 0;
-
         self.eat_to_tokens(&[TokenKind::LeftBrace]);
 
-        brace_count = 1;
+        let mut brace_count = 1;
         self.advance_position();
 
         while brace_count > 0 && !self.at_eof() {
@@ -267,13 +266,16 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Program {
+    pub fn parse(&mut self) -> ParserResult {
         let left_program_span = self.current().span;
         let mut statements = vec![];
         if self.matches(&[TokenKind::EOF]) {
-            return Program {
-                statements,
-                span: self.create_span(left_program_span, self.current().span),
+            return ParserResult {
+                ast: Program {
+                    statements,
+                    span: self.create_span(left_program_span, self.current().span),
+                },
+                errors: &self.errors,
             };
         }
 
@@ -288,9 +290,12 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Program {
-            statements,
-            span: self.create_span(left_program_span, self.current().span),
+        ParserResult {
+            ast: Program {
+                statements,
+                span: self.create_span(left_program_span, self.current().span),
+            },
+            errors: &self.errors,
         }
     }
 

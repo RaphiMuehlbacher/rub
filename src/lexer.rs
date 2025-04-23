@@ -61,6 +61,11 @@ pub struct Token<'a> {
     pub literal: &'a str,
 }
 
+pub struct LexerResult<'a> {
+    pub errors: &'a Vec<Report>,
+    pub tokens: Vec<Token<'a>>,
+}
+
 pub struct Lexer<'a> {
     source: &'a str,
     tokens: Vec<Token<'a>>,
@@ -80,11 +85,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn get_errors(self) -> Vec<Report> {
-        self.errors
-    }
-
-    pub fn lex(&mut self) -> Vec<Token<'a>> {
+    pub fn lex(&mut self) -> LexerResult {
         while self.position < self.source.len() {
             self.start = self.position;
             let c = self.source[self.position..].chars().next().unwrap();
@@ -250,7 +251,10 @@ impl<'a> Lexer<'a> {
             literal: "",
         };
         self.tokens.push(eof_token);
-        self.tokens.clone()
+        LexerResult {
+            errors: &self.errors,
+            tokens: self.tokens.clone(),
+        }
     }
 
     fn create_token(&self, token_kind: TokenKind) -> Token<'a> {

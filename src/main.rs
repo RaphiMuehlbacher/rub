@@ -7,30 +7,39 @@ fn main() {
     let source = format!("{} ", source);
 
     let mut lexer = Lexer::new(&source);
-    let tokens = lexer.lex();
+    let lex_result = lexer.lex();
 
-    for err in lexer.get_errors() {
-        println!("Lexing error: {:?}", err);
+    if !lex_result.errors.is_empty() {
+        for err in lex_result.errors {
+            println!("Lexing error: {:?}", err);
+        }
+        return;
     }
 
-    let mut parser = Parser::new(tokens, source.as_str());
-    let ast = parser.parse();
+    let mut parser = Parser::new(lex_result.tokens, source.as_str());
+    let parse_result = parser.parse();
 
-    for error in parser.get_errors() {
-        println!("{:?}", error);
+    if !parse_result.errors.is_empty() {
+        for error in parse_result.errors {
+            println!("{:?}", error);
+        }
     }
 
-    let mut resolver = Resolver::new(&ast, source.clone());
+    let mut resolver = Resolver::new(&parse_result.ast, source.clone());
     let resolving_errors = resolver.resolve();
 
-    for error in resolving_errors {
-        println!("{:?}", error);
+    if !resolving_errors.is_empty() {
+        for error in resolving_errors {
+            println!("{:?}", error);
+        }
     }
 
-    let mut type_inferrer = TypeInferrer::new(&ast, source);
-    let inferring_errors = type_inferrer.infer();
+    let mut type_inferrer = TypeInferrer::new(&parse_result.ast, source.clone());
+    let type_inference_result = type_inferrer.infer();
 
-    for error in inferring_errors {
-        println!("{:?}", error);
+    if !type_inference_result.errors.is_empty() {
+        for error in type_inference_result.errors {
+            println!("{:?}", error);
+        }
     }
 }
