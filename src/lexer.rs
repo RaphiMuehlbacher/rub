@@ -43,7 +43,7 @@ pub enum TokenKind {
     Super,
     This,
     True,
-    Var,
+    Let,
     While,
 
     TypeFloat,
@@ -194,7 +194,7 @@ impl<'a> Lexer<'a> {
                         "super" => TokenKind::Super,
                         "this" => TokenKind::This,
                         "true" => TokenKind::True,
-                        "var" => TokenKind::Var,
+                        "let" => TokenKind::Let,
                         "while" => TokenKind::While,
                         "Float" => TokenKind::TypeFloat,
                         "String" => TokenKind::TypeString,

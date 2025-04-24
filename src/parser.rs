@@ -300,7 +300,7 @@ impl<'a> Parser<'a> {
     }
 
     fn declaration(&mut self) -> ParseResult<Stmt> {
-        if self.matches(&[TokenKind::Var]) {
+        if self.matches(&[TokenKind::Let]) {
             return self.var_declaration();
         } else if self.matches(&[TokenKind::Fun]) {
             return self.fun_declaration();
@@ -803,7 +803,7 @@ impl<'a> Parser<'a> {
         let for_span = self.current().span;
         self.advance_position();
 
-        let initializer = if self.matches(&[TokenKind::Var]) {
+        let initializer = if self.matches(&[TokenKind::Let]) {
             Some(self.var_declaration()?)
         } else if !self.consume(&[TokenKind::Semicolon]) {
             Some(self.expression_stmt()?)
