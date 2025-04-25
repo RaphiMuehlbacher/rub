@@ -10,7 +10,7 @@ use crate::error::ParseError::{
     UnmatchedDelimiter,
 };
 use crate::type_inferrer::Type;
-use crate::{lexer, TokenKind};
+use crate::{TokenKind, lexer};
 use lexer::Token;
 use miette::{Report, SourceOffset, SourceSpan};
 
@@ -928,7 +928,7 @@ impl<'a> Parser<'a> {
                         src: self.source.to_string(),
                         span: self.previous().span,
                     }
-                    .into())
+                    .into());
                 }
             };
 

@@ -3,7 +3,8 @@ use std::fs;
 
 fn main() {
     let mut path = "source.lox".to_string();
-    let source = fs::read_to_string(&mut path).expect(format!("Error reading file {}", path).as_str());
+    let source =
+        fs::read_to_string(&mut path).expect(format!("Error reading file {}", path).as_str());
     let source = format!("{} ", source);
 
     let mut lexer = Lexer::new(&source);

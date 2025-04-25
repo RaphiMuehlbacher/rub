@@ -1,5 +1,5 @@
-use crate::type_inferrer::Type;
 use crate::TokenKind;
+use crate::type_inferrer::Type;
 use miette::SourceSpan;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -19,7 +19,11 @@ impl<T> Typed<T> {
             id
         };
 
-        Self { node, span, type_id }
+        Self {
+            node,
+            span,
+            type_id,
+        }
     }
 }
 
