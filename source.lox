@@ -9,6 +9,6 @@ fun a(b: Float) -> Float {
 
 
 fun main() {
-    var b = a;
+    let b = a;
     b(3.1);
 }

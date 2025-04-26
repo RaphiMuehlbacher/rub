@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 thiserror = "2.0.12"
 miette = { version = "7.5.0", features = ["fancy"] }
-inkwell = { version = "0.6.0", features = ["llvm18-1"] }
+inkwell = { version = "0.6.0", features = ["llvm15-0"] }

@@ -1,4 +1,5 @@
-use rslox::{Lexer, Parser, Resolver, TypeInferrer};
+use inkwell::context::Context;
+use rslox::{CodeGen, Lexer, Parser, Resolver, TypeInferrer};
 use std::fs;
 
 fn main() {
@@ -43,4 +44,7 @@ fn main() {
             println!("{:?}", error);
         }
     }
+
+    let context = Context::create();
+    let codegen = CodeGen::new(&context, "rslox");
 }

@@ -2,7 +2,7 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 
-struct CodeGen<'ctx> {
+pub struct CodeGen<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
@@ -13,6 +13,10 @@ impl<'ctx> CodeGen<'ctx> {
         let builder = context.create_builder();
         let module = context.create_module(module_name);
 
-        Self { context, module, builder }
+        Self {
+            context,
+            module,
+            builder,
+        }
     }
 }
