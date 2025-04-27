@@ -1,13 +1,14 @@
 use crate::ast::Expr::{Call, Grouping, Lambda, Literal, Unary, Variable};
 use crate::ast::Stmt::{Block, ExprStmt, PrintStmt, Return, While};
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr,
-    LogicalExpr, LogicalOp, Parameter, Program, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident,
+    IfStmt, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, Parameter, Program, Stmt, Typed,
+    UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
-    ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock, MissingOperand, MissingSemicolon,
-    RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter, UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken,
-    UnmatchedDelimiter,
+    ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock,
+    MissingOperand, MissingSemicolon, RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter,
+    UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken, UnmatchedDelimiter,
 };
 use crate::type_inferrer::Type;
 use crate::{TokenKind, lexer};
@@ -133,7 +134,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect_expr(&self, result: ParseResult<Expr>, side: &str, span: SourceSpan) -> ParseResult<Expr> {
+    fn expect_expr(
+        &self,
+        result: ParseResult<Expr>,
+        side: &str,
+        span: SourceSpan,
+    ) -> ParseResult<Expr> {
         result.map_err(|_| {
             MissingOperand {
                 src: self.source.to_string(),
@@ -689,7 +695,10 @@ impl<'a> Parser<'a> {
 
         self.expect_semicolon();
 
-        Ok(ExprStmt(Typed::new(value, self.create_span(left_span, self.previous().span))))
+        Ok(ExprStmt(Typed::new(
+            value,
+            self.create_span(left_span, self.previous().span),
+        )))
     }
 
     /// current is 'print', end is next statement
@@ -701,7 +710,10 @@ impl<'a> Parser<'a> {
 
         self.expect_semicolon();
 
-        Ok(PrintStmt(Typed::new(value, self.create_span(left_span, self.previous().span))))
+        Ok(PrintStmt(Typed::new(
+            value,
+            self.create_span(left_span, self.previous().span),
+        )))
     }
 
     /// current is '{' and ends after '}'
@@ -793,7 +805,10 @@ impl<'a> Parser<'a> {
         let block = self.block()?;
 
         Ok(While(Typed::new(
-            WhileStmt { condition, body: block },
+            WhileStmt {
+                condition,
+                body: block,
+            },
             self.create_span(while_span, self.previous().span),
         )))
     }
@@ -842,7 +857,10 @@ impl<'a> Parser<'a> {
         while_body_statements.extend(body.node.statements);
 
         if let Some(inc) = increment {
-            while_body_statements.push(ExprStmt(Typed::new(inc, self.create_span(for_span, self.previous().span))));
+            while_body_statements.push(ExprStmt(Typed::new(
+                inc,
+                self.create_span(for_span, self.previous().span),
+            )));
         }
 
         let while_stmt = While(Typed::new(
@@ -884,7 +902,10 @@ impl<'a> Parser<'a> {
         };
 
         self.expect_semicolon();
-        Ok(Return(Typed::new(value, self.create_span(left_return_span, self.previous().span))))
+        Ok(Return(Typed::new(
+            value,
+            self.create_span(left_return_span, self.previous().span),
+        )))
     }
 
     /// starts at first token, ends after the last token of the expression
@@ -974,7 +995,10 @@ impl<'a> Parser<'a> {
                     LogicalExpr {
                         left: Box::new(expr),
                         op,
-                        right: Box::new(Literal(Typed::new(LiteralExpr::Bool(false), self.current().span))),
+                        right: Box::new(Literal(Typed::new(
+                            LiteralExpr::Bool(false),
+                            self.current().span,
+                        ))),
                     },
                     self.create_span(logic_or_left_span, self.current().span),
                 )));
@@ -1017,7 +1041,10 @@ impl<'a> Parser<'a> {
                     LogicalExpr {
                         left: Box::new(expr),
                         op,
-                        right: Box::new(Literal(Typed::new(LiteralExpr::Bool(false), self.current().span))),
+                        right: Box::new(Literal(Typed::new(
+                            LiteralExpr::Bool(false),
+                            self.current().span,
+                        ))),
                     },
                     self.create_span(logic_and_left_span, self.current().span),
                 )));
@@ -1066,7 +1093,12 @@ impl<'a> Parser<'a> {
     fn comparison(&mut self) -> ParseResult<Expr> {
         let comparison_left_span = self.current().span;
         let mut expr = self.term()?;
-        while self.consume(&[TokenKind::Less, TokenKind::LessEqual, TokenKind::Greater, TokenKind::GreaterEqual]) {
+        while self.consume(&[
+            TokenKind::Less,
+            TokenKind::LessEqual,
+            TokenKind::Greater,
+            TokenKind::GreaterEqual,
+        ]) {
             let operator = self.previous();
 
             let op = match operator.token_kind {
@@ -1162,7 +1194,10 @@ impl<'a> Parser<'a> {
             let expr = self.expect_expr(result, "right", operator_span)?;
 
             Ok(Unary(Typed::new(
-                UnaryExpr { op, expr: Box::new(expr) },
+                UnaryExpr {
+                    op,
+                    expr: Box::new(expr),
+                },
                 self.create_span(unary_left_span, self.previous().span),
             )))
         } else {
@@ -1229,11 +1264,17 @@ impl<'a> Parser<'a> {
             }
             TokenKind::False => {
                 self.advance_position();
-                Ok(Literal(Typed::new(LiteralExpr::Bool(false), self.previous().span)))
+                Ok(Literal(Typed::new(
+                    LiteralExpr::Bool(false),
+                    self.previous().span,
+                )))
             }
             TokenKind::True => {
                 self.advance_position();
-                Ok(Literal(Typed::new(LiteralExpr::Bool(true), self.previous().span)))
+                Ok(Literal(Typed::new(
+                    LiteralExpr::Bool(true),
+                    self.previous().span,
+                )))
             }
             TokenKind::Nil => {
                 self.advance_position();
