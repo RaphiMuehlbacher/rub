@@ -1,14 +1,13 @@
 use crate::ast::Expr::{Call, Grouping, Lambda, Literal, Unary, Variable};
 use crate::ast::Stmt::{Block, ExprStmt, PrintStmt, Return, While};
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident,
-    IfStmt, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, Parameter, Program, Stmt, Typed,
-    UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr,
+    LogicalExpr, LogicalOp, Parameter, Program, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
-    ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock,
-    MissingOperand, MissingSemicolon, RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter,
-    UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken, UnmatchedDelimiter,
+    ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock, MissingOperand, MissingSemicolon,
+    RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter, UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken,
+    UnmatchedDelimiter,
 };
 use crate::type_inferrer::Type;
 use crate::{TokenKind, lexer};
@@ -134,12 +133,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect_expr(
-        &self,
-        result: ParseResult<Expr>,
-        side: &str,
-        span: SourceSpan,
-    ) -> ParseResult<Expr> {
+    fn expect_expr(&self, result: ParseResult<Expr>, side: &str, span: SourceSpan) -> ParseResult<Expr> {
         result.map_err(|_| {
             MissingOperand {
                 src: self.source.to_string(),
@@ -379,7 +373,7 @@ impl<'a> Parser<'a> {
         Ok(variable_name)
     }
 
-    fn parse_var_initializer(&mut self) -> ParseResult<Option<Expr>> {
+    fn parse_var_initializer(&mut self) -> ParseResult<Option<Typed<Expr>>> {
         let initializer = if self.consume(&[TokenKind::Equal]) {
             if self.consume(&[TokenKind::Semicolon]) {
                 return Err(ExpectedExpression {
@@ -388,7 +382,11 @@ impl<'a> Parser<'a> {
                 }
                 .into());
             }
-            Some(self.expression()?)
+            let expr_left_span = self.current().span;
+            Some(Typed::new(
+                self.expression()?,
+                self.create_span(expr_left_span, self.current().span),
+            ))
         } else if self.matches(&[TokenKind::Semicolon]) {
             None
         } else {
@@ -695,10 +693,7 @@ impl<'a> Parser<'a> {
 
         self.expect_semicolon();
 
-        Ok(ExprStmt(Typed::new(
-            value,
-            self.create_span(left_span, self.previous().span),
-        )))
+        Ok(ExprStmt(Typed::new(value, self.create_span(left_span, self.previous().span))))
     }
 
     /// current is 'print', end is next statement
@@ -710,10 +705,7 @@ impl<'a> Parser<'a> {
 
         self.expect_semicolon();
 
-        Ok(PrintStmt(Typed::new(
-            value,
-            self.create_span(left_span, self.previous().span),
-        )))
+        Ok(PrintStmt(Typed::new(value, self.create_span(left_span, self.previous().span))))
     }
 
     /// current is '{' and ends after '}'
@@ -744,6 +736,7 @@ impl<'a> Parser<'a> {
     fn if_stmt(&mut self) -> ParseResult<Stmt> {
         let if_span = self.current().span;
         self.advance_position();
+        let condition_span = self.current().span;
         let condition = self.parse_condition()?;
 
         let then_branch = self.block()?;
@@ -755,7 +748,7 @@ impl<'a> Parser<'a> {
 
         Ok(Stmt::If(Typed::new(
             IfStmt {
-                condition,
+                condition: Typed::new(condition, condition_span),
                 then_branch,
                 else_branch,
             },
@@ -765,35 +758,24 @@ impl<'a> Parser<'a> {
 
     /// starts at first condition token, ends after the condition
     fn parse_condition(&mut self) -> ParseResult<Expr> {
-        let left_condition_span = self.current().span;
-        let condition = match self.expression() {
-            Ok(con) => {
-                if let Grouping(Typed {
-                    node: _,
-                    span: _,
-                    type_id: _,
-                }) = &con
-                {
+        let expr_left_span = self.current().span;
+        let expr = match self.expression() {
+            Ok(expr) => {
+                if let Grouping(_) = &expr {
                     self.report(
                         RedundantParenthesis {
                             src: self.source.to_string(),
-                            first: left_condition_span,
+                            first: expr_left_span,
                             second: self.previous().span,
                         }
                         .into(),
                     );
                 }
-                con
+                expr
             }
-            Err(err) => {
-                self.report(err.into());
-                Literal(Typed::new(
-                    LiteralExpr::Bool(true),
-                    self.create_span(left_condition_span, self.previous().span),
-                ))
-            }
+            Err(_) => Literal(LiteralExpr::Bool(true)),
         };
-        Ok(condition)
+        Ok(expr)
     }
 
     /// start is `while`, end is next statement
@@ -801,14 +783,13 @@ impl<'a> Parser<'a> {
         let while_span = self.current().span;
         self.advance_position();
 
-        let condition = self.parse_condition()?;
+        let condition_span = self.current().span;
+        let condition = Typed::new(self.parse_condition()?, condition_span);
+
         let block = self.block()?;
 
         Ok(While(Typed::new(
-            WhileStmt {
-                condition,
-                body: block,
-            },
+            WhileStmt { condition, body: block },
             self.create_span(while_span, self.previous().span),
         )))
     }
@@ -826,11 +807,13 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let condition_span = self.current().span;
         let condition = if !self.matches(&[TokenKind::Semicolon]) {
             self.expression()?
         } else {
-            Literal(Typed::new(LiteralExpr::Bool(true), self.previous().span))
+            Literal(LiteralExpr::Bool(true))
         };
+        let condition = Typed::new(condition, condition_span);
 
         if !self.consume(&[TokenKind::Semicolon]) {
             let error = MissingSemicolon {
@@ -857,10 +840,7 @@ impl<'a> Parser<'a> {
         while_body_statements.extend(body.node.statements);
 
         if let Some(inc) = increment {
-            while_body_statements.push(ExprStmt(Typed::new(
-                inc,
-                self.create_span(for_span, self.previous().span),
-            )));
+            while_body_statements.push(ExprStmt(Typed::new(inc, self.create_span(for_span, self.previous().span))));
         }
 
         let while_stmt = While(Typed::new(
@@ -896,16 +876,16 @@ impl<'a> Parser<'a> {
                 }
                 .into());
             }
-            Some(self.expression()?)
+            Some(Typed::new(
+                self.expression()?,
+                self.create_span(left_return_span, self.current().span),
+            ))
         } else {
             None
         };
 
         self.expect_semicolon();
-        Ok(Return(Typed::new(
-            value,
-            self.create_span(left_return_span, self.previous().span),
-        )))
+        Ok(Return(value))
     }
 
     /// starts at first token, ends after the last token of the expression
@@ -917,21 +897,17 @@ impl<'a> Parser<'a> {
     }
 
     fn lambda_expr(&mut self) -> ParseResult<Expr> {
-        let left_lambda_span = self.current().span;
         self.advance_position();
 
         let parameters = self.parse_function_parameters()?;
         let return_type = self.parse_return_type()?;
         let block = self.block()?;
 
-        Ok(Lambda(Typed::new(
-            LambdaExpr {
-                parameters,
-                body: block,
-                return_type,
-            },
-            self.create_span(left_lambda_span, self.previous().span),
-        )))
+        Ok(Lambda(LambdaExpr {
+            parameters,
+            body: block,
+            return_type,
+        }))
     }
 
     fn assignment(&mut self) -> ParseResult<Expr> {
@@ -954,13 +930,10 @@ impl<'a> Parser<'a> {
             };
 
             return match expr {
-                Variable(variable_ident) => Ok(Expr::Assign(Typed::new(
-                    AssignExpr {
-                        target: variable_ident.clone(),
-                        value: Box::new(value),
-                    },
-                    self.create_span(left_assignment_span, self.current().span),
-                ))),
+                Variable(name) => Ok(Expr::Assign(AssignExpr {
+                    target: name,
+                    value: Box::new(Typed::new(value, self.create_span(left_assignment_span, self.current().span))),
+                })),
                 _ => Err(ExpectedIdentifier {
                     src: self.source.to_string(),
                     span: equal_span,
@@ -973,8 +946,9 @@ impl<'a> Parser<'a> {
     }
 
     fn logic_or(&mut self) -> ParseResult<Expr> {
-        let logic_or_left_span = self.current().span;
+        let expr_left_span = self.current().span;
         let mut expr = self.logic_and()?;
+        let expr_right_span = self.current().span;
 
         while self.consume(&[TokenKind::Or]) {
             let operator = self.previous();
@@ -984,43 +958,26 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
 
-            if self.current_is(TokenKind::Semicolon) {
-                let error = ExpectedExpression {
-                    src: self.source.to_string(),
-                    span: self.current().span,
-                };
-                self.report(error.into());
+            let operator_span = operator.span;
+            let result = self.logic_and();
 
-                return Ok(Expr::Logical(Typed::new(
-                    LogicalExpr {
-                        left: Box::new(expr),
-                        op,
-                        right: Box::new(Literal(Typed::new(
-                            LiteralExpr::Bool(false),
-                            self.current().span,
-                        ))),
-                    },
-                    self.create_span(logic_or_left_span, self.current().span),
-                )));
-            }
+            let right_left_span = self.current().span;
+            let right = self.expect_expr(result, "right", operator_span)?;
+            let right_right_span = self.current().span;
 
-            let right = self.logic_and()?;
-
-            expr = Expr::Logical(Typed::new(
-                LogicalExpr {
-                    left: Box::new(expr),
-                    op,
-                    right: Box::new(right),
-                },
-                self.create_span(logic_or_left_span, self.previous().span),
-            ))
+            expr = Expr::Logical(LogicalExpr {
+                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: Typed::new(op, operator_span),
+                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+            })
         }
         Ok(expr)
     }
 
     fn logic_and(&mut self) -> ParseResult<Expr> {
-        let logic_and_left_span = self.current().span;
+        let expr_left_span = self.current().span;
         let mut expr = self.equality()?;
+        let expr_right_span = self.current().span;
 
         while self.consume(&[TokenKind::And]) {
             let operator = self.previous();
@@ -1030,43 +987,27 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
 
-            if self.current_is(TokenKind::Semicolon) {
-                let error = ExpectedExpression {
-                    src: self.source.to_string(),
-                    span: self.current().span,
-                };
-                self.report(error.into());
+            let operator_span = operator.span;
+            let result = self.equality();
 
-                return Ok(Expr::Logical(Typed::new(
-                    LogicalExpr {
-                        left: Box::new(expr),
-                        op,
-                        right: Box::new(Literal(Typed::new(
-                            LiteralExpr::Bool(false),
-                            self.current().span,
-                        ))),
-                    },
-                    self.create_span(logic_and_left_span, self.current().span),
-                )));
-            }
+            let right_left_span = self.current().span;
+            let right = self.expect_expr(result, "right", operator_span)?;
+            let right_right_span = self.current().span;
 
-            let right = self.equality()?;
-            expr = Expr::Logical(Typed::new(
-                LogicalExpr {
-                    left: Box::new(expr),
-                    op,
-                    right: Box::new(right),
-                },
-                self.create_span(logic_and_left_span, self.previous().span),
-            ));
+            expr = Expr::Logical(LogicalExpr {
+                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: Typed::new(op, operator_span),
+                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+            })
         }
-
         Ok(expr)
     }
 
     fn equality(&mut self) -> ParseResult<Expr> {
-        let equality_left_span = self.current().span;
+        let expr_left_span = self.current().span;
         let mut expr = self.comparison()?;
+        let expr_right_span = self.current().span;
+
         while self.consume(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
             let operator = self.previous();
 
@@ -1077,28 +1018,26 @@ impl<'a> Parser<'a> {
             };
             let operator_span = operator.span;
             let result = self.comparison();
+
+            let right_left_span = self.current().span;
             let right = self.expect_expr(result, "right", operator_span)?;
-            expr = Expr::Binary(Typed::new(
-                BinaryExpr {
-                    left: Box::new(expr),
-                    op,
-                    right: Box::new(right),
-                },
-                self.create_span(equality_left_span, self.previous().span),
-            ))
+            let right_right_span = self.current().span;
+
+            expr = Expr::Binary(BinaryExpr {
+                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: Typed::new(op, operator_span),
+                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+            })
         }
         Ok(expr)
     }
 
     fn comparison(&mut self) -> ParseResult<Expr> {
-        let comparison_left_span = self.current().span;
+        let expr_left_span = self.current().span;
         let mut expr = self.term()?;
-        while self.consume(&[
-            TokenKind::Less,
-            TokenKind::LessEqual,
-            TokenKind::Greater,
-            TokenKind::GreaterEqual,
-        ]) {
+        let expr_right_span = self.current().span;
+
+        while self.consume(&[TokenKind::Less, TokenKind::LessEqual, TokenKind::Greater, TokenKind::GreaterEqual]) {
             let operator = self.previous();
 
             let op = match operator.token_kind {
@@ -1111,22 +1050,25 @@ impl<'a> Parser<'a> {
 
             let operator_span = operator.span;
             let result = self.term();
+
+            let right_left_span = self.current().span;
             let right = self.expect_expr(result, "right", operator_span)?;
-            expr = Expr::Binary(Typed::new(
-                BinaryExpr {
-                    left: Box::new(expr),
-                    op,
-                    right: Box::new(right),
-                },
-                self.create_span(comparison_left_span, self.previous().span),
-            ));
+            let right_right_span = self.current().span;
+
+            expr = Expr::Binary(BinaryExpr {
+                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: Typed::new(op, operator_span),
+                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+            })
         }
         Ok(expr)
     }
 
     fn term(&mut self) -> ParseResult<Expr> {
-        let term_left_span = self.current().span;
+        let expr_left_span = self.current().span;
         let mut expr = self.factor()?;
+        let expr_right_span = self.current().span;
+
         while self.consume(&[TokenKind::Plus, TokenKind::Minus]) {
             let operator = self.previous();
 
@@ -1138,22 +1080,24 @@ impl<'a> Parser<'a> {
 
             let operator_span = operator.span;
             let result = self.factor();
+
+            let right_left_span = self.current().span;
             let right = self.expect_expr(result, "right", operator_span)?;
-            expr = Expr::Binary(Typed::new(
-                BinaryExpr {
-                    left: Box::new(expr),
-                    op,
-                    right: Box::new(right),
-                },
-                self.create_span(term_left_span, self.previous().span),
-            ));
+            let right_right_span = self.current().span;
+
+            expr = Expr::Binary(BinaryExpr {
+                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: Typed::new(op, operator_span),
+                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+            })
         }
         Ok(expr)
     }
 
     fn factor(&mut self) -> ParseResult<Expr> {
-        let facto_left_span = self.current().span;
+        let expr_left_span = self.current().span;
         let mut expr = self.unary()?;
+        let expr_right_span = self.current().span;
         while self.consume(&[TokenKind::Slash, TokenKind::Star]) {
             let operator = self.previous();
 
@@ -1165,21 +1109,20 @@ impl<'a> Parser<'a> {
 
             let operator_span = operator.span;
             let result = self.unary();
+
+            let right_left_span = self.current().span;
             let right = self.expect_expr(result, "right", operator_span)?;
-            expr = Expr::Binary(Typed::new(
-                BinaryExpr {
-                    left: Box::new(expr),
-                    op,
-                    right: Box::new(right),
-                },
-                self.create_span(facto_left_span, self.previous().span),
-            ));
+            let right_right_span = self.current().span;
+            expr = Expr::Binary(BinaryExpr {
+                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: Typed::new(op, operator_span),
+                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+            })
         }
         Ok(expr)
     }
 
     fn unary(&mut self) -> ParseResult<Expr> {
-        let unary_left_span = self.current().span;
         if self.consume(&[TokenKind::Minus, TokenKind::Bang]) {
             let operator = self.previous();
 
@@ -1191,15 +1134,14 @@ impl<'a> Parser<'a> {
 
             let operator_span = operator.span;
             let result = self.unary();
+            let expr_left_span = self.current().span;
             let expr = self.expect_expr(result, "right", operator_span)?;
+            let expr_right_span = self.current().span;
 
-            Ok(Unary(Typed::new(
-                UnaryExpr {
-                    op,
-                    expr: Box::new(expr),
-                },
-                self.create_span(unary_left_span, self.previous().span),
-            )))
+            Ok(Unary(UnaryExpr {
+                op: Typed::new(op, operator_span),
+                expr: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
+            }))
         } else {
             self.call()
         }
@@ -1232,21 +1174,26 @@ impl<'a> Parser<'a> {
         let mut arguments = vec![];
 
         if !self.matches(&[TokenKind::RightParen]) {
-            arguments.push(self.expression()?);
+            let expr_left_span = self.current().span;
+            arguments.push(Typed::new(
+                self.expression()?,
+                self.create_span(expr_left_span, self.previous().span),
+            ));
             while self.consume(&[TokenKind::Comma]) {
-                arguments.push(self.expression()?);
+                let expr_left_span = self.current().span;
+                arguments.push(Typed::new(
+                    self.expression()?,
+                    self.create_span(expr_left_span, self.previous().span),
+                ));
             }
         }
 
         self.close_delimiter(self.current().token_kind.clone())?;
 
-        Ok(Call(Typed::new(
-            CallExpr {
-                callee: Box::new(callee),
-                arguments,
-            },
-            self.create_span(left_paren_span, self.previous().span),
-        )))
+        Ok(Call(CallExpr {
+            callee: Box::new(Typed::new(callee, left_paren_span)),
+            arguments,
+        }))
     }
 
     /// current is token to parse, end is after the token
@@ -1264,21 +1211,15 @@ impl<'a> Parser<'a> {
             }
             TokenKind::False => {
                 self.advance_position();
-                Ok(Literal(Typed::new(
-                    LiteralExpr::Bool(false),
-                    self.previous().span,
-                )))
+                Ok(Literal(LiteralExpr::Bool(false)))
             }
             TokenKind::True => {
                 self.advance_position();
-                Ok(Literal(Typed::new(
-                    LiteralExpr::Bool(true),
-                    self.previous().span,
-                )))
+                Ok(Literal(LiteralExpr::Bool(true)))
             }
             TokenKind::Nil => {
                 self.advance_position();
-                Ok(Literal(Typed::new(LiteralExpr::Nil, self.previous().span)))
+                Ok(Literal(LiteralExpr::Nil))
             }
             TokenKind::LeftParen => {
                 let opening_paren_span = self.current().span;
@@ -1296,10 +1237,7 @@ impl<'a> Parser<'a> {
 
                 self.close_delimiter(self.current().token_kind.clone())?;
 
-                Ok(Grouping(Typed::new(
-                    Box::new(expr),
-                    self.create_span(opening_paren_span, self.previous().span),
-                )))
+                Ok(Grouping(Box::new(expr)))
             }
             TokenKind::Number(value) => {
                 let span = self.current().span;
@@ -1313,19 +1251,17 @@ impl<'a> Parser<'a> {
                     }
                     .into());
                 }
-                Ok(Literal(Typed::new(LiteralExpr::Number(value), span)))
+                Ok(Literal(LiteralExpr::Number(value)))
             }
             TokenKind::String(ref value) => {
-                let span = self.current().span;
                 let string = value.clone();
                 self.advance_position();
-                Ok(Literal(Typed::new(LiteralExpr::String(string), span)))
+                Ok(Literal(LiteralExpr::String(string)))
             }
             TokenKind::Ident(ref name) => {
                 let string = name.clone();
-                let span = self.current().span;
                 self.advance_position();
-                Ok(Variable(Typed::new(string, span)))
+                Ok(Variable(Typed::new(string, self.previous().span)))
             }
             TokenKind::EOF => Err(UnexpectedEOF {
                 src: self.source.to_string(),

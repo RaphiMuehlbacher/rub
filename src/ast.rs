@@ -19,11 +19,7 @@ impl<T> Typed<T> {
             id
         };
 
-        Self {
-            node,
-            span,
-            type_id,
-        }
+        Self { node, span, type_id }
     }
 }
 
@@ -48,7 +44,7 @@ pub enum Stmt {
     Block(Typed<BlockStmt>),
     If(Typed<IfStmt>),
     While(Typed<WhileStmt>),
-    Return(Typed<Option<Expr>>),
+    Return(Option<Typed<Expr>>),
 }
 
 pub type Ident = Typed<String>;
@@ -56,7 +52,7 @@ pub type Ident = Typed<String>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarDeclStmt {
     pub ident: Typed<String>,
-    pub initializer: Option<Expr>,
+    pub initializer: Option<Typed<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,76 +76,60 @@ pub struct BlockStmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfStmt {
-    pub condition: Expr,
+    pub condition: Typed<Expr>,
     pub then_branch: Typed<BlockStmt>,
     pub else_branch: Option<Typed<BlockStmt>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileStmt {
-    pub condition: Expr,
+    pub condition: Typed<Expr>,
     pub body: Typed<BlockStmt>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Literal(Typed<LiteralExpr>),
-    Unary(Typed<UnaryExpr>),
-    Binary(Typed<BinaryExpr>),
-    Grouping(Typed<Box<Expr>>),
+    Literal(LiteralExpr),
+    Unary(UnaryExpr),
+    Binary(BinaryExpr),
+    Grouping(Box<Expr>),
     Variable(Typed<String>),
-    Assign(Typed<AssignExpr>),
-    Logical(Typed<LogicalExpr>),
-    Call(Typed<CallExpr>),
-    Lambda(Typed<LambdaExpr>),
-}
-
-impl Expr {
-    pub fn span(&self) -> SourceSpan {
-        match self {
-            Expr::Literal(typed) => typed.span,
-            Expr::Unary(typed) => typed.span,
-            Expr::Binary(typed) => typed.span,
-            Expr::Grouping(typed) => typed.span,
-            Expr::Variable(typed) => typed.span,
-            Expr::Assign(typed) => typed.span,
-            Expr::Logical(typed) => typed.span,
-            Expr::Call(typed) => typed.span,
-            Expr::Lambda(typed) => typed.span,
-        }
-    }
+    Assign(AssignExpr),
+    Logical(LogicalExpr),
+    Call(CallExpr),
+    Lambda(LambdaExpr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnaryExpr {
-    pub op: UnaryOp,
-    pub expr: Box<Expr>,
+    pub op: Typed<UnaryOp>,
+    pub expr: Box<Typed<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BinaryExpr {
-    pub left: Box<Expr>,
-    pub op: BinaryOp,
-    pub right: Box<Expr>,
+    pub left: Box<Typed<Expr>>,
+    pub op: Typed<BinaryOp>,
+    pub right: Box<Typed<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LogicalExpr {
-    pub left: Box<Expr>,
-    pub op: LogicalOp,
-    pub right: Box<Expr>,
+    pub left: Box<Typed<Expr>>,
+    pub op: Typed<LogicalOp>,
+    pub right: Box<Typed<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignExpr {
     pub target: Typed<String>,
-    pub value: Box<Expr>,
+    pub value: Box<Typed<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CallExpr {
-    pub callee: Box<Expr>,
-    pub arguments: Vec<Expr>,
+    pub callee: Box<Typed<Expr>>,
+    pub arguments: Vec<Typed<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -158,6 +138,7 @@ pub struct LambdaExpr {
     pub body: Typed<BlockStmt>,
     pub return_type: Type,
 }
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralExpr {
     Number(f64),

@@ -3,6 +3,14 @@ use crate::ast::{
     UnaryExpr, VarDeclStmt, WhileStmt,
 };
 use miette::Report;
+use std::ops::Deref;
+
+pub enum Value {
+    Number(f64),
+    String(String),
+    Bool(bool),
+    Nil,
+}
 
 pub struct Interpreter<'a> {
     source: String,
@@ -66,8 +74,8 @@ impl<'a> Interpreter<'a> {
         todo!()
     }
 
-    fn interpret_expr(&mut self, expr: &Typed<Expr>) -> () {
-        match &expr.node {
+    fn interpret_expr(&mut self, expr: &Typed<Expr>) -> Value {
+        match &expr {
             Expr::Literal(lit) => self.literal(lit),
             Expr::Unary(unary) => self.unary(unary),
             Expr::Binary(binary) => self.binary(binary),
@@ -80,44 +88,45 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn literal(&mut self, lit: &Typed<LiteralExpr>) {
+    fn literal(&mut self, lit: &Typed<LiteralExpr>) -> Value {
         match &lit.node {
-            LiteralExpr::Number(num) => {}
-            LiteralExpr::String(str) => {}
-            LiteralExpr::Bool(bool) => {}
-            LiteralExpr::Nil => {}
+            LiteralExpr::Number(num) => Value::Number(*num),
+            LiteralExpr::String(str) => Value::String(str.clone()),
+            LiteralExpr::Bool(bool) => Value::Bool(*bool),
+            LiteralExpr::Nil => Value::Nil,
         }
     }
 
-    fn unary(&mut self, unary: &Typed<UnaryExpr>) {
+    fn unary(&mut self, unary: &Typed<UnaryExpr>) -> Value {
         todo!()
     }
 
-    fn binary(&mut self, binary: &Typed<BinaryExpr>) {
+    fn binary(&mut self, binary: &Typed<BinaryExpr>) -> Value {
+        let left = self.interpret_expr(&binary.node.left);
         todo!()
     }
 
-    fn grouping(&mut self, grouping: &Typed<Box<Expr>>) {
+    fn grouping(&mut self, grouping: &Typed<Box<Expr>>) -> Value {
         todo!()
     }
 
-    fn variable(&mut self, variable: &Typed<String>) {
+    fn variable(&mut self, variable: &Typed<String>) -> Value {
         todo!()
     }
 
-    fn assign(&mut self, assign: &Typed<AssignExpr>) {
+    fn assign(&mut self, assign: &Typed<AssignExpr>) -> Value {
         todo!()
     }
 
-    fn logical(&mut self, logical: &Typed<LogicalExpr>) {
+    fn logical(&mut self, logical: &Typed<LogicalExpr>) -> Value {
         todo!()
     }
 
-    fn call_stmt(&mut self, call: &Typed<CallExpr>) {
+    fn call_stmt(&mut self, call: &Typed<CallExpr>) -> Value {
         todo!()
     }
 
-    fn lambda(&mut self, lambda: &Typed<LambdaExpr>) {
+    fn lambda(&mut self, lambda: &Typed<LambdaExpr>) -> Value {
         todo!()
     }
 }

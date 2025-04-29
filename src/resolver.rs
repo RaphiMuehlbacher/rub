@@ -1,11 +1,10 @@
 use crate::ast::{
-    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr,
-    LogicalExpr, Parameter, Program, Stmt, Typed, UnaryExpr, VarDeclStmt, WhileStmt,
+    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LogicalExpr, Parameter, Program, Stmt,
+    Typed, UnaryExpr, VarDeclStmt, WhileStmt,
 };
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
-    DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable,
-    UninitializedVariable,
+    DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable,
 };
 use miette::Report;
 use std::collections::HashMap;
@@ -90,11 +89,11 @@ impl<'a> Resolver<'a> {
         }
     }
     fn resolve_expr_stmt(&mut self, expr_stmt: &Typed<Expr>) {
-        self.resolve_expr(&expr_stmt.node);
+        self.resolve_expr(&expr_stmt);
     }
 
     fn resolve_print_stmt(&mut self, print_stmt: &Typed<Expr>) {
-        self.resolve_expr(&print_stmt.node);
+        self.resolve_expr(&print_stmt);
     }
 
     fn resolve_var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) {
@@ -119,21 +118,15 @@ impl<'a> Resolver<'a> {
 
         self.scopes.push(HashMap::new());
         for param in &fun_decl.node.params {
-            if self
-                .curr_scope()
-                .get(param.node.name.node.as_str())
-                .is_some()
-            {
+            if self.curr_scope().get(param.node.name.node.as_str()).is_some() {
                 self.report(DuplicateParameter {
                     src: self.source.to_string(),
                     span: param.span,
                     function_name: fun_decl.node.ident.node.clone(),
                 })
             } else {
-                self.curr_scope().insert(
-                    param.node.name.node.clone(),
-                    Symbol::Variable { initialized: true },
-                );
+                self.curr_scope()
+                    .insert(param.node.name.node.clone(), Symbol::Variable { initialized: true });
             }
         }
 
@@ -152,7 +145,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_if_stmt(&mut self, if_stmt: &Typed<IfStmt>) {
-        self.resolve_expr(&if_stmt.node.condition);
+        self.resolve_expr(&if_stmt.node.condition.node);
         self.resolve_block(&if_stmt.node.then_branch);
         if let Some(else_branch) = &if_stmt.node.else_branch {
             self.resolve_block(else_branch);
@@ -164,14 +157,14 @@ impl<'a> Resolver<'a> {
         self.resolve_block(&while_stmt.node.body);
     }
 
-    fn resolve_return_stmt(&mut self, return_stmt: &Typed<Option<Expr>>) {
-        if let Some(node) = &return_stmt.node {
-            self.resolve_expr(node);
+    fn resolve_return_stmt(&mut self, return_stmt: &Option<Typed<Expr>>) {
+        if let Some(return_expr) = &return_stmt {
+            self.resolve_expr(return_expr);
         }
     }
 
-    fn resolve_expr(&mut self, expr: &Expr) {
-        match expr {
+    fn resolve_expr(&mut self, expr: &Typed<Expr>) {
+        match &expr.node {
             Expr::Literal(_) => {}
             Expr::Unary(unary_expr) => self.resolve_unary_expr(unary_expr),
             Expr::Binary(binary_expr) => self.resolve_binary_expr(binary_expr),
@@ -245,20 +238,14 @@ impl<'a> Resolver<'a> {
     fn lambda_expr(&mut self, lambda: &Typed<LambdaExpr>) {
         self.scopes.push(HashMap::new());
         for param in &lambda.node.parameters {
-            if self
-                .curr_scope()
-                .get(param.node.name.node.as_str())
-                .is_some()
-            {
+            if self.curr_scope().get(param.node.name.node.as_str()).is_some() {
                 self.report(DuplicateLambdaParameter {
                     src: self.source.to_string(),
                     span: param.span,
                 })
             } else {
-                self.curr_scope().insert(
-                    param.node.name.node.clone(),
-                    Symbol::Variable { initialized: true },
-                );
+                self.curr_scope()
+                    .insert(param.node.name.node.clone(), Symbol::Variable { initialized: true });
             }
         }
 
