@@ -1,7 +1,6 @@
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt,
-    LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, Program, Stmt, Typed, UnaryExpr, UnaryOp,
-    VarDeclStmt, WhileStmt,
+    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr, LogicalExpr,
+    LogicalOp, Program, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::TypeMismatch;
@@ -19,10 +18,7 @@ pub enum Type {
     Bool,
     String,
     Nil,
-    Function {
-        params: Vec<Box<Type>>,
-        return_ty: Box<Type>,
-    },
+    Function { params: Vec<Box<Type>>, return_ty: Box<Type> },
     TypeVar(TypeVarId),
 }
 
@@ -84,12 +80,7 @@ impl<'a> TypeInferrer<'a> {
         self.var_env.last_mut().unwrap().insert(name, id);
     }
 
-    fn unify(
-        &mut self,
-        left: Type,
-        right: Type,
-        span: SourceSpan,
-    ) -> Result<Type, TypeInferrerError> {
+    fn unify(&mut self, left: Type, right: Type, span: SourceSpan) -> Result<Type, TypeInferrerError> {
         let left_ty = self.lookup_type(&left);
         let right_ty = self.lookup_type(&right);
 
@@ -99,28 +90,13 @@ impl<'a> TypeInferrer<'a> {
             (Type::Bool, Type::Bool) => Ok(Type::Bool),
             (Type::Nil, Type::Nil) => Ok(Type::Nil),
 
-            (
-                Type::Function {
-                    params: p1,
-                    return_ty: r1,
-                },
-                Type::Function {
-                    params: p2,
-                    return_ty: r2,
-                },
-            ) => {
+            (Type::Function { params: p1, return_ty: r1 }, Type::Function { params: p2, return_ty: r2 }) => {
                 if p1.len() != p2.len() {
                     return Err(TypeMismatch {
                         src: self.source.clone(),
                         span,
-                        expected: Type::Function {
-                            params: p1,
-                            return_ty: r1,
-                        },
-                        found: Type::Function {
-                            params: p2,
-                            return_ty: r2,
-                        },
+                        expected: Type::Function { params: p1, return_ty: r1 },
+                        found: Type::Function { params: p2, return_ty: r2 },
                     });
                 }
 
@@ -129,10 +105,7 @@ impl<'a> TypeInferrer<'a> {
                 }
 
                 self.unify(*r1.clone(), *r2, span)?;
-                Ok(Type::Function {
-                    params: p1,
-                    return_ty: r1,
-                })
+                Ok(Type::Function { params: p1, return_ty: r1 })
             }
 
             (ty, TypeVar(id)) | (TypeVar(id), ty) => {
@@ -200,28 +173,21 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_expr_stmt(&mut self, expr_stmt: &Typed<Expr>) -> Result<(), TypeInferrerError> {
-        self.infer_expr(&expr_stmt.node)?;
+        self.infer_expr(&expr_stmt)?;
         Ok(())
     }
 
     fn infer_print_stmt(&mut self, print_stmt: &Typed<Expr>) -> Result<(), TypeInferrerError> {
-        self.infer_expr(&print_stmt.node)?;
+        self.infer_expr(&print_stmt)?;
         Ok(())
     }
 
     fn infer_var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) -> Result<(), TypeInferrerError> {
-        self.insert_var(
-            var_decl.node.ident.node.clone(),
-            var_decl.node.ident.type_id,
-        );
+        self.insert_var(var_decl.node.ident.node.clone(), var_decl.node.ident.type_id);
         if let Some(init) = &var_decl.node.initializer {
             let init_type = self.infer_expr(init)?;
 
-            self.unify(
-                TypeVar(var_decl.node.ident.type_id),
-                init_type,
-                var_decl.node.ident.span,
-            )?;
+            self.unify(TypeVar(var_decl.node.ident.type_id), init_type, var_decl.node.ident.span)?;
         }
 
         Ok(())
@@ -248,8 +214,7 @@ impl<'a> TypeInferrer<'a> {
 
         for param in &fun_decl.node.params {
             let param_id = param.node.name.type_id;
-            self.type_env
-                .insert(param_id, param.node.type_annotation.clone());
+            self.type_env.insert(param_id, param.node.type_annotation.clone());
             self.insert_var(param.node.name.node.clone(), param_id);
         }
 
@@ -293,10 +258,7 @@ impl<'a> TypeInferrer<'a> {
         Ok(())
     }
 
-    fn infer_return_stmt(
-        &mut self,
-        return_stmt: &Typed<Option<Expr>>,
-    ) -> Result<(), TypeInferrerError> {
+    fn infer_return_stmt(&mut self, return_stmt: &Typed<Option<Expr>>) -> Result<(), TypeInferrerError> {
         if let Some(ret_expr) = &return_stmt.node {
             let ret_id = self.infer_expr(ret_expr)?;
             let ret_ty = self.lookup_type(&ret_id);
@@ -314,9 +276,9 @@ impl<'a> TypeInferrer<'a> {
         Ok(())
     }
 
-    fn infer_expr(&mut self, expr: &Expr) -> Result<Type, TypeInferrerError> {
-        match expr {
-            Expr::Literal(literal_expr) => self.infer_literal_expr(literal_expr),
+    fn infer_expr(&mut self, expr: &Typed<Expr>) -> Result<Type, TypeInferrerError> {
+        match &expr.node {
+            Expr::Literal(literal_expr) => {}
             Expr::Unary(unary_expr) => self.infer_unary_expr(unary_expr),
             Expr::Binary(binary_expr) => self.infer_binary_expr(binary_expr),
             Expr::Grouping(grouping) => self.infer_grouping_expr(grouping),
@@ -328,10 +290,7 @@ impl<'a> TypeInferrer<'a> {
         }
     }
 
-    fn infer_literal_expr(
-        &mut self,
-        literal_expr: &Typed<LiteralExpr>,
-    ) -> Result<Type, TypeInferrerError> {
+    fn infer_literal_expr(&mut self, literal_expr: &Typed<LiteralExpr>) -> Result<Type, TypeInferrerError> {
         let ty = match literal_expr.node {
             LiteralExpr::Number(_) => Type::Float,
             LiteralExpr::String(_) => Type::String,
@@ -343,10 +302,7 @@ impl<'a> TypeInferrer<'a> {
         Ok(TypeVar(literal_expr.type_id))
     }
 
-    fn infer_unary_expr(
-        &mut self,
-        unary_expr: &Typed<UnaryExpr>,
-    ) -> Result<Type, TypeInferrerError> {
+    fn infer_unary_expr(&mut self, unary_expr: &Typed<UnaryExpr>) -> Result<Type, TypeInferrerError> {
         let right_ty = self.infer_expr(unary_expr.node.expr.deref())?;
         let result_ty = match unary_expr.node.op {
             UnaryOp::Bang => self.unify(right_ty, Type::Bool, unary_expr.node.expr.span())?,
@@ -357,10 +313,7 @@ impl<'a> TypeInferrer<'a> {
         Ok(TypeVar(unary_expr.type_id))
     }
 
-    fn infer_binary_expr(
-        &mut self,
-        binary_expr: &Typed<BinaryExpr>,
-    ) -> Result<Type, TypeInferrerError> {
+    fn infer_binary_expr(&mut self, binary_expr: &Typed<BinaryExpr>) -> Result<Type, TypeInferrerError> {
         let left = self.infer_expr(binary_expr.node.left.deref())?;
         let right = self.infer_expr(binary_expr.node.right.deref())?;
 
@@ -401,10 +354,7 @@ impl<'a> TypeInferrer<'a> {
         Ok(TypeVar(binary_expr.type_id))
     }
 
-    fn infer_grouping_expr(
-        &mut self,
-        grouping_expr: &Typed<Box<Expr>>,
-    ) -> Result<Type, TypeInferrerError> {
+    fn infer_grouping_expr(&mut self, grouping_expr: &Typed<Box<Expr>>) -> Result<Type, TypeInferrerError> {
         self.infer_expr(grouping_expr.node.deref())
     }
 
@@ -413,29 +363,17 @@ impl<'a> TypeInferrer<'a> {
         Ok(TypeVar(var_id.clone()))
     }
 
-    fn infer_assign_expr(
-        &mut self,
-        assign_expr: &Typed<AssignExpr>,
-    ) -> Result<Type, TypeInferrerError> {
+    fn infer_assign_expr(&mut self, assign_expr: &Typed<AssignExpr>) -> Result<Type, TypeInferrerError> {
         let right_ty = self.infer_expr(assign_expr.node.value.deref())?;
-        let left_var = self
-            .lookup_var(assign_expr.node.target.node.as_str())
-            .unwrap();
+        let left_var = self.lookup_var(assign_expr.node.target.node.as_str()).unwrap();
 
-        self.unify(
-            TypeVar(left_var.clone()),
-            right_ty.clone(),
-            assign_expr.node.value.deref().span(),
-        )?;
+        self.unify(TypeVar(left_var.clone()), right_ty.clone(), assign_expr.node.value.deref().span())?;
 
         self.type_env.insert(assign_expr.type_id, right_ty);
         Ok(TypeVar(assign_expr.type_id))
     }
 
-    fn infer_logical_expr(
-        &mut self,
-        logical_expr: &Typed<LogicalExpr>,
-    ) -> Result<Type, TypeInferrerError> {
+    fn infer_logical_expr(&mut self, logical_expr: &Typed<LogicalExpr>) -> Result<Type, TypeInferrerError> {
         let left = self.infer_expr(logical_expr.node.left.deref())?;
         let right = self.infer_expr(logical_expr.node.right.deref())?;
 
@@ -446,8 +384,7 @@ impl<'a> TypeInferrer<'a> {
             }
         };
 
-        self.type_env
-            .insert(logical_expr.type_id, result_ty.clone());
+        self.type_env.insert(logical_expr.type_id, result_ty.clone());
         Ok(TypeVar(logical_expr.type_id))
     }
 
@@ -466,12 +403,7 @@ impl<'a> TypeInferrer<'a> {
                             return_ty: return_ty.clone(),
                         },
                         found: Type::Function {
-                            params: call_expr
-                                .node
-                                .arguments
-                                .iter()
-                                .map(|_| Box::new(TypeVar(0)))
-                                .collect(),
+                            params: call_expr.node.arguments.iter().map(|_| Box::new(TypeVar(0))).collect(),
                             return_ty: Box::new(TypeVar(0)),
                         },
                     });
@@ -513,8 +445,7 @@ impl<'a> TypeInferrer<'a> {
 
         for param in &lambda.node.parameters {
             let param_id = param.node.name.type_id;
-            self.type_env
-                .insert(param_id, param.node.type_annotation.clone());
+            self.type_env.insert(param_id, param.node.type_annotation.clone());
             self.insert_var(param.node.name.node.clone(), param_id);
         }
 

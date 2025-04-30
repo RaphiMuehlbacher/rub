@@ -2,7 +2,7 @@ use crate::ast::Expr::{Call, Grouping, Lambda, Literal, Unary, Variable};
 use crate::ast::Stmt::{Block, ExprStmt, PrintStmt, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr,
-    LogicalExpr, LogicalOp, Parameter, Program, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    LogicalExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock, MissingOperand, MissingSemicolon,
@@ -885,7 +885,10 @@ impl<'a> Parser<'a> {
         };
 
         self.expect_semicolon();
-        Ok(Return(value))
+        Ok(Return(Typed::new(
+            ReturnStmt { expr: value },
+            self.create_span(left_return_span, self.current().span),
+        )))
     }
 
     /// starts at first token, ends after the last token of the expression
@@ -1237,7 +1240,10 @@ impl<'a> Parser<'a> {
 
                 self.close_delimiter(self.current().token_kind.clone())?;
 
-                Ok(Grouping(Box::new(expr)))
+                Ok(Grouping(Box::new(Typed::new(
+                    expr,
+                    self.create_span(opening_paren_span, self.current().span),
+                ))))
             }
             TokenKind::Number(value) => {
                 let span = self.current().span;

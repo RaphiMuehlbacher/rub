@@ -1,7 +1,4 @@
-use crate::ast::{
-    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LogicalExpr, Parameter, Program, Stmt,
-    Typed, UnaryExpr, VarDeclStmt, WhileStmt,
-};
+use crate::ast::{BlockStmt, Expr, FunDeclStmt, IfStmt, Parameter, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt};
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
     DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable,
@@ -145,7 +142,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_if_stmt(&mut self, if_stmt: &Typed<IfStmt>) {
-        self.resolve_expr(&if_stmt.node.condition.node);
+        self.resolve_expr(&if_stmt.node.condition);
         self.resolve_block(&if_stmt.node.then_branch);
         if let Some(else_branch) = &if_stmt.node.else_branch {
             self.resolve_block(else_branch);
@@ -157,8 +154,8 @@ impl<'a> Resolver<'a> {
         self.resolve_block(&while_stmt.node.body);
     }
 
-    fn resolve_return_stmt(&mut self, return_stmt: &Option<Typed<Expr>>) {
-        if let Some(return_expr) = &return_stmt {
+    fn resolve_return_stmt(&mut self, return_stmt: &Typed<ReturnStmt>) {
+        if let Some(return_expr) = &return_stmt.node.expr {
             self.resolve_expr(return_expr);
         }
     }
@@ -166,92 +163,75 @@ impl<'a> Resolver<'a> {
     fn resolve_expr(&mut self, expr: &Typed<Expr>) {
         match &expr.node {
             Expr::Literal(_) => {}
-            Expr::Unary(unary_expr) => self.resolve_unary_expr(unary_expr),
-            Expr::Binary(binary_expr) => self.resolve_binary_expr(binary_expr),
-            Expr::Grouping(grouping) => self.resolve_grouping_expr(grouping),
-            Expr::Variable(variable_expr) => self.resolve_variable_expr(variable_expr),
-            Expr::Assign(assign) => self.resolve_assign_expr(assign),
-            Expr::Logical(logical_expr) => self.resolve_logical_expr(logical_expr),
-            Expr::Call(call) => self.resolve_call_expr(call),
-            Expr::Lambda(lambda) => self.lambda_expr(lambda),
-        }
-    }
-    fn resolve_unary_expr(&mut self, unary_expr: &Typed<UnaryExpr>) {
-        self.resolve_expr(unary_expr.node.expr.deref());
-    }
-
-    fn resolve_binary_expr(&mut self, binary_expr: &Typed<BinaryExpr>) {
-        self.resolve_expr(binary_expr.node.left.deref());
-        self.resolve_expr(binary_expr.node.right.deref());
-    }
-
-    fn resolve_grouping_expr(&mut self, grouping_expr: &Typed<Box<Expr>>) {
-        self.resolve_expr(grouping_expr.node.deref());
-    }
-
-    fn resolve_variable_expr(&mut self, variable_expr: &Ident) {
-        match self.lookup_symbol(variable_expr.node.as_str()) {
-            Some(Symbol::Variable { initialized: false }) => self.report(UninitializedVariable {
-                src: self.source.clone(),
-                span: variable_expr.span,
-                name: variable_expr.node.clone(),
-            }),
-            None => self.report(UndefinedVariable {
-                src: self.source.clone(),
-                span: variable_expr.span,
-                name: variable_expr.node.clone(),
-            }),
-            _ => {}
-        }
-    }
-
-    fn resolve_assign_expr(&mut self, assign_expr: &Typed<AssignExpr>) {
-        if let None = self.lookup_symbol(assign_expr.node.target.node.as_str()) {
-            self.report(UndefinedVariable {
-                src: self.source.clone(),
-                span: assign_expr.node.target.span,
-                name: assign_expr.node.target.node.clone(),
-            })
-        }
-    }
-
-    fn resolve_logical_expr(&mut self, logical_expr: &Typed<LogicalExpr>) {
-        self.resolve_expr(logical_expr.node.left.deref());
-        self.resolve_expr(logical_expr.node.right.deref());
-    }
-
-    fn resolve_call_expr(&mut self, call_expr: &Typed<CallExpr>) {
-        if let Expr::Variable(ident) = &call_expr.node.callee.deref() {
-            if let None = self.lookup_symbol(&ident.node) {
-                self.report(UndefinedFunction {
+            Expr::Unary(unary_expr) => {
+                self.resolve_expr(unary_expr.expr.deref());
+            }
+            Expr::Binary(binary_expr) => {
+                self.resolve_expr(binary_expr.left.deref());
+                self.resolve_expr(binary_expr.right.deref());
+            }
+            Expr::Grouping(grouping) => {
+                self.resolve_expr(grouping.deref());
+            }
+            Expr::Variable(variable_expr) => match self.lookup_symbol(variable_expr.node.as_str()) {
+                Some(Symbol::Variable { initialized: false }) => self.report(UninitializedVariable {
                     src: self.source.clone(),
-                    span: ident.span,
-                    name: ident.node.clone(),
-                })
+                    span: variable_expr.span,
+                    name: variable_expr.node.clone(),
+                }),
+                None => self.report(UndefinedVariable {
+                    src: self.source.clone(),
+                    span: variable_expr.span,
+                    name: variable_expr.node.clone(),
+                }),
+                _ => {}
+            },
+            Expr::Assign(assign) => {
+                if let None = self.lookup_symbol(assign.target.node.as_str()) {
+                    self.report(UndefinedVariable {
+                        src: self.source.clone(),
+                        span: assign.target.span,
+                        name: assign.target.node.clone(),
+                    })
+                }
+            }
+            Expr::Logical(logical_expr) => {
+                self.resolve_expr(logical_expr.left.deref());
+                self.resolve_expr(logical_expr.right.deref());
+            }
+            Expr::Call(call) => {
+                if let Expr::Variable(ident) = &call.callee.deref().node {
+                    if let None = self.lookup_symbol(&ident.node) {
+                        self.report(UndefinedFunction {
+                            src: self.source.clone(),
+                            span: ident.span,
+                            name: ident.node.clone(),
+                        })
+                    }
+                }
+                for argument in &call.arguments {
+                    self.resolve_expr(argument);
+                }
+            }
+            Expr::Lambda(lambda) => {
+                self.scopes.push(HashMap::new());
+                for param in &lambda.parameters {
+                    if self.curr_scope().get(param.node.name.node.as_str()).is_some() {
+                        self.report(DuplicateLambdaParameter {
+                            src: self.source.to_string(),
+                            span: param.span,
+                        })
+                    } else {
+                        self.curr_scope()
+                            .insert(param.node.name.node.clone(), Symbol::Variable { initialized: true });
+                    }
+                }
+
+                for stmt in &lambda.body.node.statements {
+                    self.resolve_stmt(stmt);
+                }
+                self.scopes.pop();
             }
         }
-        for argument in &call_expr.node.arguments {
-            self.resolve_expr(argument);
-        }
-    }
-
-    fn lambda_expr(&mut self, lambda: &Typed<LambdaExpr>) {
-        self.scopes.push(HashMap::new());
-        for param in &lambda.node.parameters {
-            if self.curr_scope().get(param.node.name.node.as_str()).is_some() {
-                self.report(DuplicateLambdaParameter {
-                    src: self.source.to_string(),
-                    span: param.span,
-                })
-            } else {
-                self.curr_scope()
-                    .insert(param.node.name.node.clone(), Symbol::Variable { initialized: true });
-            }
-        }
-
-        for stmt in &lambda.node.body.node.statements {
-            self.resolve_stmt(stmt);
-        }
-        self.scopes.pop();
     }
 }

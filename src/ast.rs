@@ -44,7 +44,7 @@ pub enum Stmt {
     Block(Typed<BlockStmt>),
     If(Typed<IfStmt>),
     While(Typed<WhileStmt>),
-    Return(Option<Typed<Expr>>),
+    Return(Typed<ReturnStmt>),
 }
 
 pub type Ident = Typed<String>;
@@ -86,13 +86,17 @@ pub struct WhileStmt {
     pub condition: Typed<Expr>,
     pub body: Typed<BlockStmt>,
 }
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReturnStmt {
+    pub expr: Option<Typed<Expr>>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Literal(LiteralExpr),
     Unary(UnaryExpr),
     Binary(BinaryExpr),
-    Grouping(Box<Expr>),
+    Grouping(Box<Typed<Expr>>),
     Variable(Typed<String>),
     Assign(AssignExpr),
     Logical(LogicalExpr),
