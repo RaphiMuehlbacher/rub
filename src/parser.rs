@@ -52,6 +52,15 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn next_is(&self, kind: TokenKind) -> bool {
+        match (&self.peek().token_kind, &kind) {
+            (TokenKind::Number(_), TokenKind::Number(_)) => true,
+            (TokenKind::String(_), TokenKind::String(_)) => true,
+            (TokenKind::Ident(_), TokenKind::Ident(_)) => true,
+            (a, b) => a == b,
+        }
+    }
+
     fn current_is(&self, kind: TokenKind) -> bool {
         match (&self.current().token_kind, &kind) {
             (TokenKind::Number(_), TokenKind::Number(_)) => true,
@@ -337,10 +346,11 @@ impl<'a> Parser<'a> {
                 Typed::new(name.clone(), variable_span)
             }
             TokenKind::Number(_) => {
-                if self.matches(&[TokenKind::Ident(String::new())]) {
+                if self.next_is(TokenKind::Ident(String::new())) {
+                    self.advance_position();
                     return Err(InvalidVariableName {
                         src: self.source.to_string(),
-                        span: variable_token.span,
+                        span: self.create_span(variable_token.span, self.current().span),
                         message: "A variable cannot start with a number".to_string(),
                     }
                     .into());
@@ -465,12 +475,12 @@ impl<'a> Parser<'a> {
                 Typed::new(name.clone(), function_token.span)
             }
             TokenKind::Number(_) => {
-                if self.matches(&[TokenKind::Ident(String::new())]) {
+                if self.next_is(TokenKind::Ident(String::new())) {
                     self.skip_to_next_paren();
                     self.report(
                         InvalidFunctionName {
                             src: self.source.to_string(),
-                            span: function_token.span,
+                            span: self.create_span(function_token.span, self.current().span),
                             message: "A function name cannot start with a number".to_string(),
                         }
                         .into(),
@@ -869,6 +879,7 @@ impl<'a> Parser<'a> {
         self.advance_position();
 
         let value = if !self.matches(&[TokenKind::Semicolon]) {
+            let left_expr_span = self.current().span;
             if self.matches(&[TokenKind::EOF]) {
                 return Err(ExpectedExpression {
                     src: self.source.to_string(),
@@ -878,7 +889,7 @@ impl<'a> Parser<'a> {
             }
             Some(Typed::new(
                 self.expression()?,
-                self.create_span(left_return_span, self.current().span),
+                self.create_span(left_expr_span, self.previous().span),
             ))
         } else {
             None
@@ -887,7 +898,7 @@ impl<'a> Parser<'a> {
         self.expect_semicolon();
         Ok(Return(Typed::new(
             ReturnStmt { expr: value },
-            self.create_span(left_return_span, self.current().span),
+            self.create_span(left_return_span, self.previous().span),
         )))
     }
 
@@ -951,7 +962,7 @@ impl<'a> Parser<'a> {
     fn logic_or(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
         let mut expr = self.logic_and()?;
-        let expr_right_span = self.current().span;
+        let expr_right_span = self.previous().span;
 
         while self.consume(&[TokenKind::Or]) {
             let operator = self.previous();
@@ -962,11 +973,12 @@ impl<'a> Parser<'a> {
             };
 
             let operator_span = operator.span;
-            let result = self.logic_and();
-
             let right_left_span = self.current().span;
-            let right = self.expect_expr(result, "right", operator_span)?;
+
+            let result = self.logic_and();
             let right_right_span = self.current().span;
+
+            let right = self.expect_expr(result, "right", operator_span)?;
 
             expr = Expr::Logical(LogicalExpr {
                 left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
@@ -980,7 +992,7 @@ impl<'a> Parser<'a> {
     fn logic_and(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
         let mut expr = self.equality()?;
-        let expr_right_span = self.current().span;
+        let expr_right_span = self.previous().span;
 
         while self.consume(&[TokenKind::And]) {
             let operator = self.previous();
@@ -991,11 +1003,12 @@ impl<'a> Parser<'a> {
             };
 
             let operator_span = operator.span;
-            let result = self.equality();
-
             let right_left_span = self.current().span;
-            let right = self.expect_expr(result, "right", operator_span)?;
+
+            let result = self.equality();
             let right_right_span = self.current().span;
+
+            let right = self.expect_expr(result, "right", operator_span)?;
 
             expr = Expr::Logical(LogicalExpr {
                 left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
@@ -1009,7 +1022,7 @@ impl<'a> Parser<'a> {
     fn equality(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
         let mut expr = self.comparison()?;
-        let expr_right_span = self.current().span;
+        let expr_right_span = self.previous().span;
 
         while self.consume(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
             let operator = self.previous();
@@ -1020,11 +1033,12 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
             let operator_span = operator.span;
-            let result = self.comparison();
 
             let right_left_span = self.current().span;
+            let result = self.comparison();
+            let right_right_span = self.previous().span;
+
             let right = self.expect_expr(result, "right", operator_span)?;
-            let right_right_span = self.current().span;
 
             expr = Expr::Binary(BinaryExpr {
                 left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
@@ -1038,7 +1052,7 @@ impl<'a> Parser<'a> {
     fn comparison(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
         let mut expr = self.term()?;
-        let expr_right_span = self.current().span;
+        let expr_right_span = self.previous().span;
 
         while self.consume(&[TokenKind::Less, TokenKind::LessEqual, TokenKind::Greater, TokenKind::GreaterEqual]) {
             let operator = self.previous();
@@ -1052,11 +1066,12 @@ impl<'a> Parser<'a> {
             };
 
             let operator_span = operator.span;
-            let result = self.term();
 
             let right_left_span = self.current().span;
+            let result = self.term();
+            let right_right_span = self.previous().span;
+
             let right = self.expect_expr(result, "right", operator_span)?;
-            let right_right_span = self.current().span;
 
             expr = Expr::Binary(BinaryExpr {
                 left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
@@ -1070,7 +1085,7 @@ impl<'a> Parser<'a> {
     fn term(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
         let mut expr = self.factor()?;
-        let expr_right_span = self.current().span;
+        let expr_right_span = self.previous().span;
 
         while self.consume(&[TokenKind::Plus, TokenKind::Minus]) {
             let operator = self.previous();
@@ -1082,11 +1097,11 @@ impl<'a> Parser<'a> {
             };
 
             let operator_span = operator.span;
-            let result = self.factor();
 
             let right_left_span = self.current().span;
+            let result = self.factor();
+            let right_right_span = self.previous().span;
             let right = self.expect_expr(result, "right", operator_span)?;
-            let right_right_span = self.current().span;
 
             expr = Expr::Binary(BinaryExpr {
                 left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
@@ -1100,7 +1115,8 @@ impl<'a> Parser<'a> {
     fn factor(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
         let mut expr = self.unary()?;
-        let expr_right_span = self.current().span;
+        let expr_right_span = self.previous().span;
+
         while self.consume(&[TokenKind::Slash, TokenKind::Star]) {
             let operator = self.previous();
 
@@ -1111,11 +1127,13 @@ impl<'a> Parser<'a> {
             };
 
             let operator_span = operator.span;
-            let result = self.unary();
 
             let right_left_span = self.current().span;
+            let result = self.unary();
+            let right_right_span = self.previous().span;
+
             let right = self.expect_expr(result, "right", operator_span)?;
-            let right_right_span = self.current().span;
+
             expr = Expr::Binary(BinaryExpr {
                 left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
                 op: Typed::new(op, operator_span),
@@ -1136,10 +1154,12 @@ impl<'a> Parser<'a> {
             };
 
             let operator_span = operator.span;
-            let result = self.unary();
+
             let expr_left_span = self.current().span;
+            let result = self.unary();
+            let expr_right_span = self.previous().span;
+
             let expr = self.expect_expr(result, "right", operator_span)?;
-            let expr_right_span = self.current().span;
 
             Ok(Unary(UnaryExpr {
                 op: Typed::new(op, operator_span),
@@ -1228,7 +1248,7 @@ impl<'a> Parser<'a> {
                 let opening_paren_span = self.current().span;
                 self.open_delimiter(self.current().token_kind.clone())?;
 
-                let expr = if self.peek().token_kind == TokenKind::RightParen {
+                let expr = if self.next_is(TokenKind::RightParen) {
                     Err(ExpectedExpression {
                         src: self.source.to_string(),
                         span: self.create_span(opening_paren_span, self.peek().span),
@@ -1249,7 +1269,7 @@ impl<'a> Parser<'a> {
                 let span = self.current().span;
                 self.advance_position();
 
-                if matches!(self.current().token_kind, TokenKind::Ident(_)) {
+                if self.current_is(TokenKind::Ident(String::new())) {
                     return Err(InvalidVariableName {
                         src: self.source.to_string(),
                         span,

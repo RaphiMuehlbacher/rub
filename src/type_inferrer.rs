@@ -1,6 +1,6 @@
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr, LogicalExpr,
-    LogicalOp, Program, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, UnaryOp, VarDeclStmt,
+    WhileStmt,
 };
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::TypeMismatch;
@@ -258,13 +258,13 @@ impl<'a> TypeInferrer<'a> {
         Ok(())
     }
 
-    fn infer_return_stmt(&mut self, return_stmt: &Typed<Option<Expr>>) -> Result<(), TypeInferrerError> {
-        if let Some(ret_expr) = &return_stmt.node {
+    fn infer_return_stmt(&mut self, return_stmt: &Typed<ReturnStmt>) -> Result<(), TypeInferrerError> {
+        if let Some(ret_expr) = &return_stmt.node.expr {
             let ret_id = self.infer_expr(ret_expr)?;
             let ret_ty = self.lookup_type(&ret_id);
 
             if let Some(expected_ty) = &self.current_function_return_ty {
-                self.unify(expected_ty.clone(), ret_ty, ret_expr.span())?;
+                self.unify(expected_ty.clone(), ret_ty, ret_expr.span)?;
             }
         } else {
             let ret_ty = Type::Nil;
@@ -278,186 +278,161 @@ impl<'a> TypeInferrer<'a> {
 
     fn infer_expr(&mut self, expr: &Typed<Expr>) -> Result<Type, TypeInferrerError> {
         match &expr.node {
-            Expr::Literal(literal_expr) => {}
-            Expr::Unary(unary_expr) => self.infer_unary_expr(unary_expr),
-            Expr::Binary(binary_expr) => self.infer_binary_expr(binary_expr),
-            Expr::Grouping(grouping) => self.infer_grouping_expr(grouping),
-            Expr::Variable(variable_expr) => self.infer_variable_expr(variable_expr),
-            Expr::Assign(assign) => self.infer_assign_expr(assign),
-            Expr::Logical(logical_expr) => self.infer_logical_expr(logical_expr),
-            Expr::Call(call) => self.infer_call_expr(call),
-            Expr::Lambda(lambda) => self.lambda_expr(lambda),
-        }
-    }
+            Expr::Literal(literal_expr) => {
+                let ty = match literal_expr {
+                    LiteralExpr::Number(_) => Type::Float,
+                    LiteralExpr::String(_) => Type::String,
+                    LiteralExpr::Bool(_) => Type::Bool,
+                    LiteralExpr::Nil => Type::Nil,
+                };
 
-    fn infer_literal_expr(&mut self, literal_expr: &Typed<LiteralExpr>) -> Result<Type, TypeInferrerError> {
-        let ty = match literal_expr.node {
-            LiteralExpr::Number(_) => Type::Float,
-            LiteralExpr::String(_) => Type::String,
-            LiteralExpr::Bool(_) => Type::Bool,
-            LiteralExpr::Nil => Type::Nil,
-        };
+                self.type_env.insert(expr.type_id, ty);
+                Ok(TypeVar(expr.type_id))
+            }
+            Expr::Unary(unary_expr) => {
+                let right_ty = self.infer_expr(unary_expr.expr.deref())?;
+                let result_ty = match unary_expr.op.node {
+                    UnaryOp::Bang => self.unify(right_ty, Type::Bool, unary_expr.expr.span)?,
+                    UnaryOp::Minus => self.unify(right_ty, Type::Float, unary_expr.expr.span)?,
+                };
 
-        self.type_env.insert(literal_expr.type_id, ty);
-        Ok(TypeVar(literal_expr.type_id))
-    }
+                self.type_env.insert(unary_expr.expr.type_id, result_ty.clone());
+                Ok(TypeVar(unary_expr.expr.type_id))
+            }
+            Expr::Binary(binary_expr) => {
+                let left = self.infer_expr(binary_expr.left.deref())?;
+                let right = self.infer_expr(binary_expr.right.deref())?;
 
-    fn infer_unary_expr(&mut self, unary_expr: &Typed<UnaryExpr>) -> Result<Type, TypeInferrerError> {
-        let right_ty = self.infer_expr(unary_expr.node.expr.deref())?;
-        let result_ty = match unary_expr.node.op {
-            UnaryOp::Bang => self.unify(right_ty, Type::Bool, unary_expr.node.expr.span())?,
-            UnaryOp::Minus => self.unify(right_ty, Type::Float, unary_expr.node.expr.span())?,
-        };
-
-        self.type_env.insert(unary_expr.type_id, result_ty.clone());
-        Ok(TypeVar(unary_expr.type_id))
-    }
-
-    fn infer_binary_expr(&mut self, binary_expr: &Typed<BinaryExpr>) -> Result<Type, TypeInferrerError> {
-        let left = self.infer_expr(binary_expr.node.left.deref())?;
-        let right = self.infer_expr(binary_expr.node.right.deref())?;
-
-        let result_ty = match binary_expr.node.op {
-            BinaryOp::Plus => {
-                let left_ty = self.lookup_type(&left);
-                let right_ty = self.lookup_type(&right);
-                match (left_ty.clone(), right_ty.clone()) {
-                    (Type::Float, Type::Float) => Type::Float,
-                    (Type::String, Type::String) => Type::String,
-                    _ => {
-                        return Err(TypeMismatch {
-                            src: self.source.clone(),
-                            span: binary_expr.node.right.span(),
-                            expected: left_ty,
-                            found: right_ty,
-                        });
+                let result_ty = match binary_expr.op.node {
+                    BinaryOp::Plus => {
+                        let left_ty = self.lookup_type(&left);
+                        let right_ty = self.lookup_type(&right);
+                        match (left_ty.clone(), right_ty.clone()) {
+                            (Type::Float, Type::Float) => Type::Float,
+                            (Type::String, Type::String) => Type::String,
+                            _ => {
+                                return Err(TypeMismatch {
+                                    src: self.source.clone(),
+                                    span: binary_expr.right.span,
+                                    expected: left_ty,
+                                    found: right_ty,
+                                });
+                            }
+                        }
                     }
-                }
+                    BinaryOp::Star | BinaryOp::Minus | BinaryOp::Slash => {
+                        self.unify(left, Type::Float, binary_expr.left.span)?;
+                        self.unify(right, Type::Float, binary_expr.right.span)?;
+                        Type::Float
+                    }
+                    BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => {
+                        self.unify(left, Type::Float, binary_expr.left.span)?;
+                        self.unify(right, Type::Float, binary_expr.right.span)?;
+                        Type::Bool
+                    }
+                    BinaryOp::EqualEqual | BinaryOp::BangEqual => {
+                        self.unify(left, right, binary_expr.right.span)?;
+                        Type::Bool
+                    }
+                };
+
+                self.type_env.insert(expr.type_id, result_ty);
+                Ok(TypeVar(expr.type_id))
             }
-            BinaryOp::Star | BinaryOp::Minus | BinaryOp::Slash => {
-                self.unify(left, Type::Float, binary_expr.node.left.span())?;
-                self.unify(right, Type::Float, binary_expr.node.right.span())?;
-                Type::Float
+            Expr::Grouping(grouping) => self.infer_expr(grouping.deref()),
+            Expr::Variable(variable_expr) => {
+                let var_id = self.lookup_var(variable_expr.node.as_str()).unwrap();
+                Ok(TypeVar(var_id.clone()))
             }
-            BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => {
-                self.unify(left, Type::Float, binary_expr.node.left.span())?;
-                self.unify(right, Type::Float, binary_expr.node.right.span())?;
-                Type::Bool
+            Expr::Assign(assign_expr) => {
+                let right_ty = self.infer_expr(assign_expr.value.deref())?;
+                let left_var = self.lookup_var(assign_expr.target.node.as_str()).unwrap();
+
+                self.unify(TypeVar(left_var.clone()), right_ty.clone(), assign_expr.value.deref().span)?;
+
+                self.type_env.insert(expr.type_id, right_ty);
+                Ok(TypeVar(expr.type_id))
             }
-            BinaryOp::EqualEqual | BinaryOp::BangEqual => {
-                self.unify(left, right, binary_expr.node.right.span())?;
-                Type::Bool
+            Expr::Logical(logical_expr) => {
+                let left = self.infer_expr(logical_expr.left.deref())?;
+                let right = self.infer_expr(logical_expr.right.deref())?;
+
+                let result_ty = match logical_expr.op.node {
+                    LogicalOp::And | LogicalOp::Or => {
+                        self.unify(left, Type::Bool, logical_expr.left.span)?;
+                        self.unify(right, Type::Bool, logical_expr.right.span)?
+                    }
+                };
+
+                self.type_env.insert(expr.type_id, result_ty.clone());
+                Ok(TypeVar(expr.type_id))
             }
-        };
+            Expr::Call(call_expr) => {
+                let callee_ty = self.infer_expr(call_expr.callee.deref())?;
+                let callee_ty = self.lookup_type(&callee_ty);
 
-        self.type_env.insert(binary_expr.type_id, result_ty);
-        Ok(TypeVar(binary_expr.type_id))
-    }
+                match callee_ty {
+                    Type::Function { params, return_ty } => {
+                        if params.len() != call_expr.arguments.len() {
+                            return Err(TypeMismatch {
+                                src: self.source.clone(),
+                                span: expr.span,
+                                expected: Type::Function {
+                                    params: params.clone(),
+                                    return_ty: return_ty.clone(),
+                                },
+                                found: Type::Function {
+                                    params: call_expr.arguments.iter().map(|_| Box::new(TypeVar(0))).collect(),
+                                    return_ty: Box::new(TypeVar(0)),
+                                },
+                            });
+                        }
+                        for (arg, param_ty) in call_expr.arguments.iter().zip(params.iter()) {
+                            let arg_ty = self.infer_expr(arg)?;
+                            self.unify(*param_ty.clone(), arg_ty, arg.span)?;
+                        }
 
-    fn infer_grouping_expr(&mut self, grouping_expr: &Typed<Box<Expr>>) -> Result<Type, TypeInferrerError> {
-        self.infer_expr(grouping_expr.node.deref())
-    }
-
-    fn infer_variable_expr(&mut self, variable_expr: &Ident) -> Result<Type, TypeInferrerError> {
-        let var_id = self.lookup_var(variable_expr.node.as_str()).unwrap();
-        Ok(TypeVar(var_id.clone()))
-    }
-
-    fn infer_assign_expr(&mut self, assign_expr: &Typed<AssignExpr>) -> Result<Type, TypeInferrerError> {
-        let right_ty = self.infer_expr(assign_expr.node.value.deref())?;
-        let left_var = self.lookup_var(assign_expr.node.target.node.as_str()).unwrap();
-
-        self.unify(TypeVar(left_var.clone()), right_ty.clone(), assign_expr.node.value.deref().span())?;
-
-        self.type_env.insert(assign_expr.type_id, right_ty);
-        Ok(TypeVar(assign_expr.type_id))
-    }
-
-    fn infer_logical_expr(&mut self, logical_expr: &Typed<LogicalExpr>) -> Result<Type, TypeInferrerError> {
-        let left = self.infer_expr(logical_expr.node.left.deref())?;
-        let right = self.infer_expr(logical_expr.node.right.deref())?;
-
-        let result_ty = match logical_expr.node.op {
-            LogicalOp::And | LogicalOp::Or => {
-                self.unify(left, Type::Bool, logical_expr.node.left.span())?;
-                self.unify(right, Type::Bool, logical_expr.node.right.span())?
-            }
-        };
-
-        self.type_env.insert(logical_expr.type_id, result_ty.clone());
-        Ok(TypeVar(logical_expr.type_id))
-    }
-
-    fn infer_call_expr(&mut self, call_expr: &Typed<CallExpr>) -> Result<Type, TypeInferrerError> {
-        let callee_ty = self.infer_expr(call_expr.node.callee.deref())?;
-        let callee_ty = self.lookup_type(&callee_ty);
-
-        match callee_ty {
-            Type::Function { params, return_ty } => {
-                if params.len() != call_expr.node.arguments.len() {
-                    return Err(TypeMismatch {
+                        self.type_env.insert(expr.type_id, *return_ty.clone());
+                        Ok(TypeVar(expr.type_id))
+                    }
+                    found => Err(TypeMismatch {
                         src: self.source.clone(),
-                        span: call_expr.span,
+                        span: call_expr.callee.span,
                         expected: Type::Function {
-                            params: params.clone(),
-                            return_ty: return_ty.clone(),
-                        },
-                        found: Type::Function {
-                            params: call_expr.node.arguments.iter().map(|_| Box::new(TypeVar(0))).collect(),
+                            params: vec![],
                             return_ty: Box::new(TypeVar(0)),
                         },
-                    });
+                        found,
+                    }),
                 }
-                for (arg, param_ty) in call_expr.node.arguments.iter().zip(params.iter()) {
-                    let arg_ty = self.infer_expr(arg)?;
-                    self.unify(*param_ty.clone(), arg_ty, arg.span())?;
-                }
-
-                self.type_env.insert(call_expr.type_id, *return_ty.clone());
-                Ok(TypeVar(call_expr.type_id))
             }
-            found => Err(TypeMismatch {
-                src: self.source.clone(),
-                span: call_expr.node.callee.span(),
-                expected: Type::Function {
-                    params: vec![],
-                    return_ty: Box::new(TypeVar(0)),
-                },
-                found,
-            }),
+            Expr::Lambda(lambda) => {
+                self.var_env.push(HashMap::new());
+
+                let fn_type = Type::Function {
+                    params: lambda.parameters.iter().map(|p| Box::new(p.node.type_annotation.clone())).collect(),
+                    return_ty: Box::new(lambda.return_type.clone()),
+                };
+
+                self.type_env.insert(expr.type_id, fn_type.clone());
+
+                for param in &lambda.parameters {
+                    let param_id = param.node.name.type_id;
+                    self.type_env.insert(param_id, param.node.type_annotation.clone());
+                    self.insert_var(param.node.name.node.clone(), param_id);
+                }
+
+                let old_ret_ty = self.current_function_return_ty.clone();
+                self.current_function_return_ty = Some(lambda.return_type.clone());
+
+                for stmt in &lambda.body.node.statements {
+                    self.infer_stmt(stmt)?;
+                }
+
+                self.current_function_return_ty = old_ret_ty;
+                self.var_env.pop();
+                Ok(TypeVar(expr.type_id))
+            }
         }
-    }
-
-    fn lambda_expr(&mut self, lambda: &Typed<LambdaExpr>) -> Result<Type, TypeInferrerError> {
-        self.var_env.push(HashMap::new());
-
-        let fn_type = Type::Function {
-            params: lambda
-                .node
-                .parameters
-                .iter()
-                .map(|p| Box::new(p.node.type_annotation.clone()))
-                .collect(),
-            return_ty: Box::new(lambda.node.return_type.clone()),
-        };
-
-        self.type_env.insert(lambda.type_id, fn_type.clone());
-
-        for param in &lambda.node.parameters {
-            let param_id = param.node.name.type_id;
-            self.type_env.insert(param_id, param.node.type_annotation.clone());
-            self.insert_var(param.node.name.node.clone(), param_id);
-        }
-
-        let old_ret_ty = self.current_function_return_ty.clone();
-        self.current_function_return_ty = Some(lambda.node.return_type.clone());
-
-        for stmt in &lambda.node.body.node.statements {
-            self.infer_stmt(stmt)?;
-        }
-
-        self.current_function_return_ty = old_ret_ty;
-        self.var_env.pop();
-        Ok(TypeVar(lambda.type_id))
     }
 }

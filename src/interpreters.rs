@@ -1,9 +1,8 @@
 use crate::ast::{
-    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, IfStmt, LambdaExpr, LiteralExpr, LogicalExpr, Program, Stmt, Typed,
-    UnaryExpr, VarDeclStmt, WhileStmt,
+    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, IfStmt, LambdaExpr, LiteralExpr, LogicalExpr, Program, ReturnStmt,
+    Stmt, Typed, UnaryExpr, VarDeclStmt, WhileStmt,
 };
 use miette::Report;
-use std::ops::Deref;
 
 pub enum Value {
     Number(f64),
@@ -70,63 +69,27 @@ impl<'a> Interpreter<'a> {
         todo!()
     }
 
-    fn return_stmt(&mut self, return_stmt: &Typed<Option<Expr>>) {
+    fn return_stmt(&mut self, return_stmt: &Typed<ReturnStmt>) {
         todo!()
     }
 
     fn interpret_expr(&mut self, expr: &Typed<Expr>) -> Value {
-        match &expr {
-            Expr::Literal(lit) => self.literal(lit),
-            Expr::Unary(unary) => self.unary(unary),
-            Expr::Binary(binary) => self.binary(binary),
-            Expr::Grouping(grouping) => self.grouping(grouping),
-            Expr::Variable(variable) => self.variable(variable),
-            Expr::Assign(assign) => self.assign(assign),
-            Expr::Logical(logical) => self.logical(logical),
-            Expr::Call(call) => self.call_stmt(call),
-            Expr::Lambda(lambda) => self.lambda(lambda),
-        }
-    }
-
-    fn literal(&mut self, lit: &Typed<LiteralExpr>) -> Value {
-        match &lit.node {
-            LiteralExpr::Number(num) => Value::Number(*num),
-            LiteralExpr::String(str) => Value::String(str.clone()),
-            LiteralExpr::Bool(bool) => Value::Bool(*bool),
-            LiteralExpr::Nil => Value::Nil,
-        }
-    }
-
-    fn unary(&mut self, unary: &Typed<UnaryExpr>) -> Value {
         todo!()
-    }
-
-    fn binary(&mut self, binary: &Typed<BinaryExpr>) -> Value {
-        let left = self.interpret_expr(&binary.node.left);
-        todo!()
-    }
-
-    fn grouping(&mut self, grouping: &Typed<Box<Expr>>) -> Value {
-        todo!()
-    }
-
-    fn variable(&mut self, variable: &Typed<String>) -> Value {
-        todo!()
-    }
-
-    fn assign(&mut self, assign: &Typed<AssignExpr>) -> Value {
-        todo!()
-    }
-
-    fn logical(&mut self, logical: &Typed<LogicalExpr>) -> Value {
-        todo!()
-    }
-
-    fn call_stmt(&mut self, call: &Typed<CallExpr>) -> Value {
-        todo!()
-    }
-
-    fn lambda(&mut self, lambda: &Typed<LambdaExpr>) -> Value {
-        todo!()
+        //     match &expr.node {
+        //         Expr::Literal(lit) => match &lit {
+        //             LiteralExpr::Number(num) => Value::Number(*num),
+        //             LiteralExpr::String(str) => Value::String(str.clone()),
+        //             LiteralExpr::Bool(bool) => Value::Bool(*bool),
+        //             LiteralExpr::Nil => Value::Nil,
+        //         },
+        //         Expr::Unary(unary) => {}
+        //         Expr::Binary(binary) => {}
+        //         Expr::Grouping(grouping) => {}
+        //         Expr::Variable(variable) => {}
+        //         Expr::Assign(assign) => {}
+        //         Expr::Logical(logical) => {}
+        //         Expr::Call(call) => {}
+        //         Expr::Lambda(lambda) => {}
+        //     }
     }
 }

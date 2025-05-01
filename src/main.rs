@@ -11,7 +11,7 @@ fn main() {
 
     if !lex_result.errors.is_empty() {
         for err in lex_result.errors {
-            println!("Lexing error: {:?}", err);
+            println!("{:?}", err);
         }
         return;
     }
@@ -23,6 +23,7 @@ fn main() {
         for error in parse_result.errors {
             println!("{:?}", error);
         }
+        return;
     }
 
     let mut resolver = Resolver::new(&parse_result.ast, source.clone());
@@ -32,6 +33,7 @@ fn main() {
         for error in resolving_errors {
             println!("{:?}", error);
         }
+        return;
     }
 
     let mut type_inferrer = TypeInferrer::new(&parse_result.ast, source.clone());
@@ -41,5 +43,6 @@ fn main() {
         for error in type_inference_result.errors {
             println!("{:?}", error);
         }
+        return;
     }
 }
