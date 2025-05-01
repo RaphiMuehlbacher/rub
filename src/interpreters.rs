@@ -1,14 +1,52 @@
 use crate::ast::{
-    AssignExpr, BinaryExpr, BlockStmt, CallExpr, Expr, FunDeclStmt, IfStmt, LambdaExpr, LiteralExpr, LogicalExpr, Program, ReturnStmt,
-    Stmt, Typed, UnaryExpr, VarDeclStmt, WhileStmt,
+    BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, Program, ReturnStmt, Stmt, Typed, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use miette::Report;
+use std::cmp::PartialEq;
+use std::fmt;
 
+#[derive(Debug, PartialEq)]
 pub enum Value {
     Number(f64),
     String(String),
     Bool(bool),
     Nil,
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Number(num) => write!(f, "{num}"),
+            Value::String(str) => write!(f, "{str}"),
+            Value::Bool(bool) => write!(f, "{bool}"),
+            Value::Nil => write!(f, "nil"),
+        }
+    }
+}
+
+impl Value {
+    fn to_number(self) -> f64 {
+        match self {
+            Value::Number(num) => num,
+            _ => panic!(),
+        }
+    }
+    fn to_string(self) -> String {
+        match self {
+            Value::String(str) => str,
+            _ => panic!(),
+        }
+    }
+    fn to_bool(self) -> bool {
+        match self {
+            Value::Bool(bool) => bool,
+            _ => panic!(),
+        }
+    }
+}
+
+pub struct InterpreterResult<'a> {
+    pub errors: &'a Vec<Report>,
 }
 
 pub struct Interpreter<'a> {
@@ -18,12 +56,19 @@ pub struct Interpreter<'a> {
 }
 
 impl<'a> Interpreter<'a> {
-    pub fn new(source: String, program: &'a Program) -> Self {
+    pub fn new(program: &'a Program, source: String) -> Self {
         Self {
             source,
             program,
             errors: vec![],
         }
+    }
+
+    pub fn interpret(&mut self) -> InterpreterResult {
+        for stmt in &self.program.statements {
+            self.interpret_stmt(stmt);
+        }
+        InterpreterResult { errors: &self.errors }
     }
 
     fn interpret_stmt(&mut self, stmt: &Stmt) {
@@ -44,7 +89,8 @@ impl<'a> Interpreter<'a> {
     }
 
     fn print_stmt(&mut self, print: &Typed<Expr>) {
-        self.interpret_expr(&print);
+        let value = self.interpret_expr(&print);
+        println!("{value}");
     }
 
     fn var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) {
@@ -74,22 +120,57 @@ impl<'a> Interpreter<'a> {
     }
 
     fn interpret_expr(&mut self, expr: &Typed<Expr>) -> Value {
-        todo!()
-        //     match &expr.node {
-        //         Expr::Literal(lit) => match &lit {
-        //             LiteralExpr::Number(num) => Value::Number(*num),
-        //             LiteralExpr::String(str) => Value::String(str.clone()),
-        //             LiteralExpr::Bool(bool) => Value::Bool(*bool),
-        //             LiteralExpr::Nil => Value::Nil,
-        //         },
-        //         Expr::Unary(unary) => {}
-        //         Expr::Binary(binary) => {}
-        //         Expr::Grouping(grouping) => {}
-        //         Expr::Variable(variable) => {}
-        //         Expr::Assign(assign) => {}
-        //         Expr::Logical(logical) => {}
-        //         Expr::Call(call) => {}
-        //         Expr::Lambda(lambda) => {}
-        //     }
+        match &expr.node {
+            Expr::Literal(lit) => match &lit {
+                LiteralExpr::Number(num) => Value::Number(*num),
+                LiteralExpr::String(str) => Value::String(str.clone()),
+                LiteralExpr::Bool(bool) => Value::Bool(*bool),
+                LiteralExpr::Nil => Value::Nil,
+            },
+            Expr::Unary(unary) => {
+                let right = self.interpret_expr(&unary.expr);
+
+                match unary.op.node {
+                    UnaryOp::Bang => Value::Bool(!right.to_bool()),
+
+                    UnaryOp::Minus => Value::Number(-right.to_number()),
+                }
+            }
+            Expr::Binary(binary) => {
+                let left = self.interpret_expr(&binary.left);
+                let right = self.interpret_expr(&binary.right);
+
+                match binary.op.node {
+                    BinaryOp::Plus => Value::Number(left.to_number() + right.to_number()),
+                    BinaryOp::Minus => Value::Number(left.to_number() - right.to_number()),
+                    BinaryOp::Star => Value::Number(left.to_number() + right.to_number()),
+                    BinaryOp::Slash => Value::Number(left.to_number() / right.to_number()),
+                    BinaryOp::Greater => Value::Bool(left.to_number() > right.to_number()),
+                    BinaryOp::GreaterEqual => Value::Bool(left.to_number() >= right.to_number()),
+                    BinaryOp::Less => Value::Bool(left.to_number() < right.to_number()),
+                    BinaryOp::LessEqual => Value::Bool(left.to_number() <= right.to_number()),
+                    BinaryOp::EqualEqual => Value::Bool(left == right),
+                    BinaryOp::BangEqual => Value::Bool(left != right),
+                }
+            }
+            Expr::Grouping(grouping) => {
+                todo!()
+            }
+            Expr::Variable(variable) => {
+                todo!()
+            }
+            Expr::Assign(assign) => {
+                todo!()
+            }
+            Expr::Logical(logical) => {
+                todo!()
+            }
+            Expr::Call(call) => {
+                todo!()
+            }
+            Expr::Lambda(lambda) => {
+                todo!()
+            }
+        }
     }
 }

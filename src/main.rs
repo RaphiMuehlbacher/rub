@@ -1,3 +1,4 @@
+use rslox::interpreters::Interpreter;
 use rslox::{Lexer, Parser, Resolver, TypeInferrer};
 use std::fs;
 
@@ -45,4 +46,7 @@ fn main() {
         }
         return;
     }
+
+    let mut interpreter = Interpreter::new(&parse_result.ast, source.clone());
+    interpreter.interpret();
 }
