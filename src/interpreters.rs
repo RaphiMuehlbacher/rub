@@ -1,8 +1,11 @@
 use crate::ast::{
     BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, Program, ReturnStmt, Stmt, Typed, UnaryOp, VarDeclStmt, WhileStmt,
 };
+use crate::type_inferrer::{Type, TypeVarId};
 use miette::Report;
+use std::any::Any;
 use std::cmp::PartialEq;
+use std::collections::HashMap;
 use std::fmt;
 
 #[derive(Debug, PartialEq)]
@@ -52,14 +55,16 @@ pub struct InterpreterResult<'a> {
 pub struct Interpreter<'a> {
     source: String,
     program: &'a Program,
+    type_env: &'a HashMap<TypeVarId, Type>,
     errors: Vec<Report>,
 }
 
 impl<'a> Interpreter<'a> {
-    pub fn new(program: &'a Program, source: String) -> Self {
+    pub fn new(program: &'a Program, type_env: &'a HashMap<TypeVarId, Type>, source: String) -> Self {
         Self {
             source,
             program,
+            type_env,
             errors: vec![],
         }
     }
@@ -127,21 +132,28 @@ impl<'a> Interpreter<'a> {
                 LiteralExpr::Bool(bool) => Value::Bool(*bool),
                 LiteralExpr::Nil => Value::Nil,
             },
+
             Expr::Unary(unary) => {
                 let right = self.interpret_expr(&unary.expr);
 
                 match unary.op.node {
                     UnaryOp::Bang => Value::Bool(!right.to_bool()),
-
                     UnaryOp::Minus => Value::Number(-right.to_number()),
                 }
             }
+
             Expr::Binary(binary) => {
                 let left = self.interpret_expr(&binary.left);
                 let right = self.interpret_expr(&binary.right);
 
+                let left_type = self.type_env.get(&binary.left.type_id).unwrap();
+
                 match binary.op.node {
-                    BinaryOp::Plus => Value::Number(left.to_number() + right.to_number()),
+                    BinaryOp::Plus => match left_type {
+                        Type::Float => Value::Number(left.to_number() + right.to_number()),
+                        Type::String => Value::String(left.to_string() + right.to_string().as_str()),
+                        _ => panic!(),
+                    },
                     BinaryOp::Minus => Value::Number(left.to_number() - right.to_number()),
                     BinaryOp::Star => Value::Number(left.to_number() + right.to_number()),
                     BinaryOp::Slash => Value::Number(left.to_number() / right.to_number()),
@@ -153,6 +165,7 @@ impl<'a> Interpreter<'a> {
                     BinaryOp::BangEqual => Value::Bool(left != right),
                 }
             }
+
             Expr::Grouping(grouping) => {
                 todo!()
             }

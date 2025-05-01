@@ -47,6 +47,6 @@ fn main() {
         return;
     }
 
-    let mut interpreter = Interpreter::new(&parse_result.ast, source.clone());
+    let mut interpreter = Interpreter::new(&parse_result.ast, type_inference_result.type_env, source.clone());
     interpreter.interpret();
 }
