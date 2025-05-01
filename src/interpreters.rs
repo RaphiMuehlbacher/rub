@@ -56,6 +56,7 @@ pub struct Interpreter<'a> {
     source: String,
     program: &'a Program,
     type_env: &'a HashMap<TypeVarId, Type>,
+    var_env: HashMap<String, Value>,
     errors: Vec<Report>,
 }
 
@@ -65,6 +66,7 @@ impl<'a> Interpreter<'a> {
             source,
             program,
             type_env,
+            var_env: HashMap::new(),
             errors: vec![],
         }
     }
@@ -99,7 +101,12 @@ impl<'a> Interpreter<'a> {
     }
 
     fn var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) {
-        todo!()
+        if let Some(init) = &var_decl.node.initializer {
+            let value = self.interpret_expr(&init);
+            self.var_env.insert(var_decl.node.ident.node.clone(), value);
+        } else {
+            self.var_env.insert(var_decl.node.ident.node.clone(), Value::Nil);
+        }
     }
 
     fn fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) {
@@ -170,9 +177,11 @@ impl<'a> Interpreter<'a> {
             Expr::Variable(variable) => {
                 todo!()
             }
+
             Expr::Assign(assign) => {
                 todo!()
             }
+
             Expr::Logical(logical) => {
                 let left = self.interpret_expr(&logical.left);
                 let right = self.interpret_expr(&logical.right);
