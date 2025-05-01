@@ -342,6 +342,7 @@ impl<'a> TypeInferrer<'a> {
             Expr::Grouping(grouping) => self.infer_expr(grouping.deref()),
             Expr::Variable(variable_expr) => {
                 let var_id = self.lookup_var(variable_expr.node.as_str()).unwrap();
+
                 Ok(TypeVar(var_id.clone()))
             }
             Expr::Assign(assign_expr) => {

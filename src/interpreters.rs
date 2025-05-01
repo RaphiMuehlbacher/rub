@@ -6,7 +6,7 @@ use crate::type_inferrer::{Type, TypeVarId};
 use miette::Report;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
-use std::fmt;
+use std::{fmt, vec};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -56,7 +56,7 @@ pub struct Interpreter<'a> {
     source: String,
     program: &'a Program,
     type_env: &'a HashMap<TypeVarId, Type>,
-    var_env: HashMap<String, Value>,
+    var_env: Vec<HashMap<String, Value>>,
     errors: Vec<Report>,
 }
 
@@ -66,9 +66,22 @@ impl<'a> Interpreter<'a> {
             source,
             program,
             type_env,
-            var_env: HashMap::new(),
+            var_env: vec![HashMap::new()],
             errors: vec![],
         }
+    }
+
+    fn insert_var(&mut self, name: String, value: Value) {
+        self.var_env.last_mut().unwrap().insert(name, value);
+    }
+
+    fn get_var(&mut self, name: &str) -> Value {
+        for env in self.var_env.iter().rev() {
+            if let Some(val) = env.get(name) {
+                return val.clone();
+            }
+        }
+        panic!()
     }
 
     pub fn interpret(&mut self) -> InterpreterResult {
@@ -103,9 +116,9 @@ impl<'a> Interpreter<'a> {
     fn var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) {
         if let Some(init) = &var_decl.node.initializer {
             let value = self.interpret_expr(&init);
-            self.var_env.insert(var_decl.node.ident.node.clone(), value);
+            self.insert_var(var_decl.node.ident.node.clone(), value);
         } else {
-            self.var_env.insert(var_decl.node.ident.node.clone(), Value::Nil);
+            self.insert_var(var_decl.node.ident.node.clone(), Value::Nil);
         }
     }
 
@@ -130,7 +143,11 @@ impl<'a> Interpreter<'a> {
     }
 
     fn while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) {
-        todo!()
+        let mut cond_value = self.interpret_expr(&while_stmt.node.condition).to_bool();
+        while cond_value {
+            self.block(&while_stmt.node.body);
+            cond_value = self.interpret_expr(&while_stmt.node.condition).to_bool();
+        }
     }
 
     fn return_stmt(&mut self, return_stmt: &Typed<ReturnStmt>) {
@@ -159,7 +176,7 @@ impl<'a> Interpreter<'a> {
                 let left = self.interpret_expr(&binary.left);
                 let right = self.interpret_expr(&binary.right);
 
-                let left_type = self.type_env.get(&binary.left.type_id).unwrap();
+                let left_type = self.type_env.get(&expr.type_id).unwrap();
 
                 match binary.op.node {
                     BinaryOp::Plus => match left_type {
@@ -180,11 +197,11 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Grouping(grouping) => self.interpret_expr(grouping),
-            Expr::Variable(variable) => self.var_env.get(&variable.node).unwrap().clone(),
+            Expr::Variable(variable) => self.get_var(&variable.node).clone(),
 
             Expr::Assign(assign) => {
                 let value = self.interpret_expr(&assign.value);
-                self.var_env.insert(assign.target.node.clone(), value.clone());
+                self.insert_var(assign.target.node.clone(), value.clone());
                 value
             }
 

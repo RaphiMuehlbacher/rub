@@ -1,5 +1,7 @@
-if 0 > 1 {
-    print 3;
-} else {
-    print 4;
+for let i = 0; i < 5; i = i + 1 {
+    if i == 3 {
+        print "fizz";
+    } else {
+        print i;
+    }
 }
