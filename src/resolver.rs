@@ -187,13 +187,23 @@ impl<'a> Resolver<'a> {
                 _ => {}
             },
             Expr::Assign(assign) => {
-                if let None = self.lookup_symbol(assign.target.node.as_str()) {
-                    self.report(UndefinedVariable {
+                match self.lookup_symbol(assign.target.node.as_str()) {
+                    None => self.report(UndefinedVariable {
                         src: self.source.clone(),
                         span: assign.target.span,
                         name: assign.target.node.clone(),
-                    })
+                    }),
+                    Some(_) => {
+                        for scope in self.scopes.iter_mut().rev() {
+                            if let Some(symbol) = scope.get_mut(&assign.target.node) {
+                                *symbol = Symbol::Variable { initialized: true };
+                                break;
+                            }
+                        }
+                    }
                 }
+
+                self.resolve_expr(&assign.value);
             }
             Expr::Logical(logical_expr) => {
                 self.resolve_expr(logical_expr.left.deref());

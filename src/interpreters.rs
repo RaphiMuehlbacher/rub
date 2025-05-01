@@ -8,7 +8,7 @@ use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Number(f64),
     String(String),
@@ -120,7 +120,13 @@ impl<'a> Interpreter<'a> {
     }
 
     fn if_stmt(&mut self, if_stmt: &Typed<IfStmt>) {
-        todo!()
+        let cond_value = self.interpret_expr(&if_stmt.node.condition);
+
+        if cond_value.to_bool() {
+            self.block(&if_stmt.node.then_branch);
+        } else if let Some(else_branch) = &if_stmt.node.else_branch {
+            self.block(else_branch)
+        }
     }
 
     fn while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) {
@@ -174,12 +180,12 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Grouping(grouping) => self.interpret_expr(grouping),
-            Expr::Variable(variable) => {
-                todo!()
-            }
+            Expr::Variable(variable) => self.var_env.get(&variable.node).unwrap().clone(),
 
             Expr::Assign(assign) => {
-                todo!()
+                let value = self.interpret_expr(&assign.value);
+                self.var_env.insert(assign.target.node.clone(), value.clone());
+                value
             }
 
             Expr::Logical(logical) => {
