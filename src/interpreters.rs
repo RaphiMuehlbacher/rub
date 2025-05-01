@@ -1,9 +1,9 @@
 use crate::ast::{
-    BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, Program, ReturnStmt, Stmt, Typed, UnaryOp, VarDeclStmt, WhileStmt,
+    BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, UnaryOp, VarDeclStmt,
+    WhileStmt,
 };
 use crate::type_inferrer::{Type, TypeVarId};
 use miette::Report;
-use std::any::Any;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt;
@@ -166,9 +166,7 @@ impl<'a> Interpreter<'a> {
                 }
             }
 
-            Expr::Grouping(grouping) => {
-                todo!()
-            }
+            Expr::Grouping(grouping) => self.interpret_expr(grouping),
             Expr::Variable(variable) => {
                 todo!()
             }
@@ -176,8 +174,15 @@ impl<'a> Interpreter<'a> {
                 todo!()
             }
             Expr::Logical(logical) => {
-                todo!()
+                let left = self.interpret_expr(&logical.left);
+                let right = self.interpret_expr(&logical.right);
+
+                match logical.op.node {
+                    LogicalOp::And => Value::Bool(left.to_bool() && right.to_bool()),
+                    LogicalOp::Or => Value::Bool(left.to_bool() || right.to_bool()),
+                }
             }
+
             Expr::Call(call) => {
                 todo!()
             }

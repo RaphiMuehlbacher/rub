@@ -1,1 +1,1 @@
-print true + false;
+print true and 32;
