@@ -30,7 +30,6 @@ pub enum TokenKind {
     Number(f64),
 
     And,
-    Class,
     Else,
     False,
     For,
@@ -40,8 +39,6 @@ pub enum TokenKind {
     Or,
     Print,
     Return,
-    Super,
-    This,
     True,
     Let,
     While,
@@ -181,7 +178,6 @@ impl<'a> Lexer<'a> {
 
                     let kind = match literal {
                         "and" => TokenKind::And,
-                        "class" => TokenKind::Class,
                         "else" => TokenKind::Else,
                         "false" => TokenKind::False,
                         "for" => TokenKind::For,
@@ -191,8 +187,6 @@ impl<'a> Lexer<'a> {
                         "or" => TokenKind::Or,
                         "print" => TokenKind::Print,
                         "return" => TokenKind::Return,
-                        "super" => TokenKind::Super,
-                        "this" => TokenKind::This,
                         "true" => TokenKind::True,
                         "let" => TokenKind::Let,
                         "while" => TokenKind::While,

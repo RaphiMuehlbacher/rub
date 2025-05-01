@@ -230,7 +230,7 @@ impl<'a> Interpreter<'a> {
                         _ => panic!(),
                     },
                     BinaryOp::Minus => Value::Number(left.to_number() - right.to_number()),
-                    BinaryOp::Star => Value::Number(left.to_number() + right.to_number()),
+                    BinaryOp::Star => Value::Number(left.to_number() * right.to_number()),
                     BinaryOp::Slash => Value::Number(left.to_number() / right.to_number()),
                     BinaryOp::Greater => Value::Bool(left.to_number() > right.to_number()),
                     BinaryOp::GreaterEqual => Value::Bool(left.to_number() >= right.to_number()),
@@ -280,9 +280,10 @@ impl<'a> Interpreter<'a> {
                 return_val
             }
 
-            Expr::Lambda(lambda) => {
-                todo!()
-            }
+            Expr::Lambda(lambda) => Value::Function {
+                params: lambda.parameters.clone(),
+                body: lambda.body.clone(),
+            },
         }
     }
 }
