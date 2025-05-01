@@ -6,8 +6,8 @@ use crate::type_inferrer::{Type, TypeVarId};
 use miette::Report;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::Deref;
-use std::{fmt, vec};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -65,6 +65,11 @@ pub struct InterpreterResult<'a> {
     pub errors: &'a Vec<Report>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ControlFlow {
+    Return(Value),
+}
+
 pub struct Interpreter<'a> {
     source: String,
     program: &'a Program,
@@ -99,12 +104,17 @@ impl<'a> Interpreter<'a> {
 
     pub fn interpret(&mut self) -> InterpreterResult {
         for stmt in &self.program.statements {
-            self.interpret_stmt(stmt);
+            match self.interpret_stmt(stmt) {
+                Ok(_) => {}
+                Err(ControlFlow::Return(..)) => {
+                    panic!()
+                }
+            }
         }
         InterpreterResult { errors: &self.errors }
     }
 
-    fn interpret_stmt(&mut self, stmt: &Stmt) {
+    fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<(), ControlFlow> {
         match stmt {
             Stmt::ExprStmt(expr) => self.expr_stmt(expr),
             Stmt::PrintStmt(print) => self.print_stmt(print),
@@ -113,29 +123,33 @@ impl<'a> Interpreter<'a> {
             Stmt::Block(block) => self.block(block),
             Stmt::If(if_stmt) => self.if_stmt(if_stmt),
             Stmt::While(while_stmt) => self.while_stmt(while_stmt),
-            Stmt::Return(return_stmt) => self.return_stmt(return_stmt),
+            Stmt::Return(return_stmt) => Err(self.return_stmt(return_stmt)),
         }
     }
 
-    fn expr_stmt(&mut self, expr: &Typed<Expr>) {
+    fn expr_stmt(&mut self, expr: &Typed<Expr>) -> Result<(), ControlFlow> {
         self.interpret_expr(&expr);
+        Ok(())
     }
 
-    fn print_stmt(&mut self, print: &Typed<Expr>) {
+    fn print_stmt(&mut self, print: &Typed<Expr>) -> Result<(), ControlFlow> {
         let value = self.interpret_expr(&print);
         println!("{value}");
+        Ok(())
     }
 
-    fn var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) {
+    fn var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) -> Result<(), ControlFlow> {
         if let Some(init) = &var_decl.node.initializer {
             let value = self.interpret_expr(&init);
             self.insert_var(var_decl.node.ident.node.clone(), value);
         } else {
             self.insert_var(var_decl.node.ident.node.clone(), Value::Nil);
         }
+
+        Ok(())
     }
 
-    fn fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) {
+    fn fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) -> Result<(), ControlFlow> {
         self.insert_var(
             fun_decl.node.ident.node.clone(),
             Value::Function {
@@ -143,34 +157,46 @@ impl<'a> Interpreter<'a> {
                 body: fun_decl.node.body.clone(),
             },
         );
+
+        Ok(())
     }
 
-    fn block(&mut self, block: &Typed<BlockStmt>) {
+    fn block(&mut self, block: &Typed<BlockStmt>) -> Result<(), ControlFlow> {
         for stmt in &block.node.statements {
-            self.interpret_stmt(stmt);
+            self.interpret_stmt(stmt)?;
         }
+        Ok(())
     }
 
-    fn if_stmt(&mut self, if_stmt: &Typed<IfStmt>) {
+    fn if_stmt(&mut self, if_stmt: &Typed<IfStmt>) -> Result<(), ControlFlow> {
         let cond_value = self.interpret_expr(&if_stmt.node.condition);
 
         if cond_value.to_bool() {
-            self.block(&if_stmt.node.then_branch);
+            self.block(&if_stmt.node.then_branch)?;
         } else if let Some(else_branch) = &if_stmt.node.else_branch {
-            self.block(else_branch)
+            self.block(else_branch)?;
         }
+
+        Ok(())
     }
 
-    fn while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) {
+    fn while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) -> Result<(), ControlFlow> {
         let mut cond_value = self.interpret_expr(&while_stmt.node.condition).to_bool();
         while cond_value {
-            self.block(&while_stmt.node.body);
+            self.block(&while_stmt.node.body)?;
             cond_value = self.interpret_expr(&while_stmt.node.condition).to_bool();
         }
+
+        Ok(())
     }
 
-    fn return_stmt(&mut self, return_stmt: &Typed<ReturnStmt>) {
-        todo!()
+    fn return_stmt(&mut self, return_stmt: &Typed<ReturnStmt>) -> ControlFlow {
+        let value = if let Some(expr) = &return_stmt.node.expr {
+            self.interpret_expr(expr)
+        } else {
+            Value::Nil
+        };
+        ControlFlow::Return(value)
     }
 
     fn interpret_expr(&mut self, expr: &Typed<Expr>) -> Value {
@@ -244,11 +270,14 @@ impl<'a> Interpreter<'a> {
                     let value = self.interpret_expr(arg);
                     self.insert_var(param.node.name.node.clone(), value);
                 }
-
-                self.block(&func.1);
+                let return_val = if let Err(ControlFlow::Return(val)) = self.block(&func.1) {
+                    val
+                } else {
+                    Value::Nil
+                };
 
                 self.var_env.pop();
-                Value::Nil
+                return_val
             }
 
             Expr::Lambda(lambda) => {

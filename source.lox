@@ -1,11 +1,12 @@
-fn main(a: Float) {
+fn main(a: Float) -> Float {
     for let i = a; i < 5; i = i + 1 {
         if i == 3 {
-            print "fizz";
+            return i;
         } else {
             print i;
         }
     }
 }
 
-main(1);
+let a = main(1);
+print a * 6;
