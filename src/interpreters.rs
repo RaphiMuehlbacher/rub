@@ -1,11 +1,12 @@
 use crate::ast::{
-    BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, UnaryOp, VarDeclStmt,
-    WhileStmt,
+    BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
+    VarDeclStmt, WhileStmt,
 };
 use crate::type_inferrer::{Type, TypeVarId};
 use miette::Report;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::{fmt, vec};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -13,6 +14,10 @@ pub enum Value {
     Number(f64),
     String(String),
     Bool(bool),
+    Function {
+        params: Vec<Typed<Parameter>>,
+        body: Typed<BlockStmt>,
+    },
     Nil,
 }
 
@@ -22,6 +27,7 @@ impl fmt::Display for Value {
             Value::Number(num) => write!(f, "{num}"),
             Value::String(str) => write!(f, "{str}"),
             Value::Bool(bool) => write!(f, "{bool}"),
+            Value::Function { params, body: _ } => write!(f, "fn<({params:?})"),
             Value::Nil => write!(f, "nil"),
         }
     }
@@ -43,6 +49,13 @@ impl Value {
     fn to_bool(self) -> bool {
         match self {
             Value::Bool(bool) => bool,
+            _ => panic!(),
+        }
+    }
+
+    fn to_fn(self) -> (Vec<Typed<Parameter>>, Typed<BlockStmt>) {
+        match self {
+            Value::Function { params, body } => (params, body),
             _ => panic!(),
         }
     }
@@ -123,7 +136,13 @@ impl<'a> Interpreter<'a> {
     }
 
     fn fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) {
-        todo!()
+        self.insert_var(
+            fun_decl.node.ident.node.clone(),
+            Value::Function {
+                params: fun_decl.node.params.clone(),
+                body: fun_decl.node.body.clone(),
+            },
+        );
     }
 
     fn block(&mut self, block: &Typed<BlockStmt>) {
@@ -216,8 +235,22 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Call(call) => {
-                todo!()
+                let callee = self.interpret_expr(call.callee.deref());
+                let func = callee.to_fn();
+
+                self.var_env.push(HashMap::new());
+
+                for (arg, param) in call.arguments.iter().zip(func.0.iter()) {
+                    let value = self.interpret_expr(arg);
+                    self.insert_var(param.node.name.node.clone(), value);
+                }
+
+                self.block(&func.1);
+
+                self.var_env.pop();
+                Value::Nil
             }
+
             Expr::Lambda(lambda) => {
                 todo!()
             }

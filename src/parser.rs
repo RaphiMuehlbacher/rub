@@ -311,7 +311,7 @@ impl<'a> Parser<'a> {
     fn declaration(&mut self) -> ParseResult<Stmt> {
         if self.matches(&[TokenKind::Let]) {
             return self.var_declaration();
-        } else if self.matches(&[TokenKind::Fun]) {
+        } else if self.matches(&[TokenKind::Fn]) {
             return self.fun_declaration();
         }
         self.statement()
@@ -904,7 +904,7 @@ impl<'a> Parser<'a> {
 
     /// starts at first token, ends after the last token of the expression
     fn expression(&mut self) -> ParseResult<Expr> {
-        if self.matches(&[TokenKind::Fun]) {
+        if self.matches(&[TokenKind::Fn]) {
             return self.lambda_expr();
         }
         self.assignment()

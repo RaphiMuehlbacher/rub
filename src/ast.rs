@@ -51,7 +51,7 @@ pub type Ident = Typed<String>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarDeclStmt {
-    pub ident: Typed<String>,
+    pub ident: Ident,
     pub initializer: Option<Typed<Expr>>,
 }
 
@@ -63,7 +63,7 @@ pub struct Parameter {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDeclStmt {
-    pub ident: Typed<String>,
+    pub ident: Ident,
     pub params: Vec<Typed<Parameter>>,
     pub body: Typed<BlockStmt>,
     pub return_type: Type,
@@ -97,7 +97,7 @@ pub enum Expr {
     Unary(UnaryExpr),
     Binary(BinaryExpr),
     Grouping(Box<Typed<Expr>>),
-    Variable(Typed<String>),
+    Variable(Ident),
     Assign(AssignExpr),
     Logical(LogicalExpr),
     Call(CallExpr),
@@ -126,7 +126,7 @@ pub struct LogicalExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignExpr {
-    pub target: Typed<String>,
+    pub target: Ident,
     pub value: Box<Typed<Expr>>,
 }
 

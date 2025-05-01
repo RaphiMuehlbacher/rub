@@ -1,7 +1,11 @@
-for let i = 0; i < 5; i = i + 1 {
-    if i == 3 {
-        print "fizz";
-    } else {
-        print i;
+fn main(a: Float) {
+    for let i = a; i < 5; i = i + 1 {
+        if i == 3 {
+            print "fizz";
+        } else {
+            print i;
+        }
     }
 }
+
+main(1);
