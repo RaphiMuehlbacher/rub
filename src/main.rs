@@ -1,14 +1,22 @@
 use rslox::interpreters::Interpreter;
 use rslox::{Lexer, Parser, Resolver, TypeInferrer};
 use std::fs;
+use std::time::Instant;
 
-fn main() {
-    let mut path = "source.lox".to_string();
-    let source = fs::read_to_string(&mut path).expect(format!("Error reading file {}", path).as_str());
-    let source = format!("{} ", source);
+macro_rules! time_log {
+    ($start:expr, $phase:expr) => {
+        #[cfg(feature = "timing")]
+        println!("{} took {:?}", $phase, $start.elapsed());
+    };
+}
 
-    let mut lexer = Lexer::new(&source);
+fn interpret(code: &str) {
+    #[cfg(feature = "timing")]
+    let start = Instant::now();
+
+    let mut lexer = Lexer::new(&code);
     let lex_result = lexer.lex();
+    time_log!(start, "Lexing");
 
     if !lex_result.errors.is_empty() {
         for err in lex_result.errors {
@@ -17,8 +25,9 @@ fn main() {
         return;
     }
 
-    let mut parser = Parser::new(lex_result.tokens, source.as_str());
+    let mut parser = Parser::new(lex_result.tokens, code);
     let parse_result = parser.parse();
+    time_log!(start, "Parsing");
 
     if !parse_result.errors.is_empty() {
         for error in parse_result.errors {
@@ -27,8 +36,9 @@ fn main() {
         return;
     }
 
-    let mut resolver = Resolver::new(&parse_result.ast, source.clone());
+    let mut resolver = Resolver::new(&parse_result.ast, code.to_string());
     let resolving_errors = resolver.resolve();
+    time_log!(start, "Resolving");
 
     if !resolving_errors.is_empty() {
         for error in resolving_errors {
@@ -37,8 +47,9 @@ fn main() {
         return;
     }
 
-    let mut type_inferrer = TypeInferrer::new(&parse_result.ast, source.clone());
+    let mut type_inferrer = TypeInferrer::new(&parse_result.ast, code.to_string());
     let type_inference_result = type_inferrer.infer();
+    time_log!(start, "Type Inference");
 
     if !type_inference_result.errors.is_empty() {
         for error in type_inference_result.errors {
@@ -47,7 +58,14 @@ fn main() {
         return;
     }
 
-    // println!("{:?}", parse_result.ast);
-    let mut interpreter = Interpreter::new(&parse_result.ast, type_inference_result.type_env, source.clone());
+    let mut interpreter = Interpreter::new(&parse_result.ast, type_inference_result.type_env, code.to_string());
     interpreter.interpret();
+    time_log!(start, "Interpreting");
+}
+
+fn main() {
+    let mut path = "source.lox".to_string();
+    let source = fs::read_to_string(&mut path).expect(format!("Error reading file {}", path).as_str());
+    let source = format!("{} ", source);
+    interpret(&source);
 }
