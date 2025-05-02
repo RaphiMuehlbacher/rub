@@ -10,13 +10,14 @@ use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Deref;
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Number(f64),
-    String(String),
+    String(Rc<str>),
     Bool(bool),
-    Function(Function),
+    Function(Rc<Function>),
     Nil,
 }
 
@@ -24,8 +25,8 @@ pub enum Value {
 pub enum Function {
     NativeFunction(fn(Vec<Value>) -> Result<Value, String>),
     UserFunction {
-        params: Vec<Typed<Parameter>>,
-        body: Typed<BlockStmt>,
+        params: Rc<Vec<Typed<Parameter>>>,
+        body: Rc<Typed<BlockStmt>>,
     },
 }
 
@@ -35,7 +36,7 @@ impl fmt::Display for Value {
             Value::Number(num) => write!(f, "{num}"),
             Value::String(str) => write!(f, "{str}"),
             Value::Bool(bool) => write!(f, "{bool}"),
-            Value::Function(function) => match function {
+            Value::Function(function) => match function.as_ref() {
                 NativeFunction(native_fun) => write!(f, "nativeFn<{:?}", native_fun),
                 UserFunction { params, body: _ } => write!(f, "Fn<({params:?})"),
             },
@@ -45,26 +46,28 @@ impl fmt::Display for Value {
 }
 
 impl Value {
-    fn to_number(self) -> f64 {
+    fn to_number(&self) -> f64 {
         match self {
-            Value::Number(num) => num,
+            Value::Number(num) => *num,
             _ => panic!(),
         }
     }
-    fn to_string(self) -> String {
+
+    fn to_string(&self) -> &str {
         match self {
             Value::String(str) => str,
             _ => panic!(),
         }
     }
-    fn to_bool(self) -> bool {
+
+    fn to_bool(&self) -> bool {
         match self {
-            Value::Bool(bool) => bool,
+            Value::Bool(bool) => *bool,
             _ => panic!(),
         }
     }
 
-    fn to_fn(self) -> Function {
+    fn to_fn(&self) -> &Function {
         match self {
             Value::Function(func) => func,
             _ => panic!(),
@@ -92,7 +95,7 @@ pub struct Interpreter<'a> {
 impl<'a> Interpreter<'a> {
     pub fn new(program: &'a Program, type_env: &'a HashMap<TypeVarId, Type>, source: String) -> Self {
         let mut var_env = HashMap::new();
-        var_env.insert("clock".to_string(), Value::Function(NativeFunction(clock_native)));
+        var_env.insert("clock".to_string(), Value::Function(Rc::new(NativeFunction(clock_native))));
 
         Self {
             source,
@@ -107,10 +110,10 @@ impl<'a> Interpreter<'a> {
         self.var_env.last_mut().unwrap().insert(name, value);
     }
 
-    fn get_var(&mut self, name: &str) -> Value {
+    fn get_var(&mut self, name: &str) -> &Value {
         for env in self.var_env.iter().rev() {
             if let Some(val) = env.get(name) {
-                return val.clone();
+                return val;
             }
         }
         panic!()
@@ -134,10 +137,10 @@ impl<'a> Interpreter<'a> {
     fn declare_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::FunDecl(fun_decl) => {
-                let value = Value::Function(UserFunction {
-                    params: fun_decl.node.params.clone(),
-                    body: fun_decl.node.body.clone(),
-                });
+                let value = Value::Function(Rc::new(UserFunction {
+                    params: Rc::new(fun_decl.node.params.clone()),
+                    body: Rc::new(fun_decl.node.body.clone()),
+                }));
                 self.insert_var(fun_decl.node.ident.node.clone(), value);
             }
             _ => {}
@@ -182,10 +185,10 @@ impl<'a> Interpreter<'a> {
     fn fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) -> Result<(), ControlFlow> {
         self.insert_var(
             fun_decl.node.ident.node.clone(),
-            Value::Function(UserFunction {
-                params: fun_decl.node.params.clone(),
-                body: fun_decl.node.body.clone(),
-            }),
+            Value::Function(Rc::new(UserFunction {
+                params: Rc::new(fun_decl.node.params.clone()),
+                body: Rc::new(fun_decl.node.body.clone()),
+            })),
         );
 
         Ok(())
@@ -233,7 +236,7 @@ impl<'a> Interpreter<'a> {
         match &expr.node {
             Expr::Literal(lit) => match &lit {
                 LiteralExpr::Number(num) => Value::Number(*num),
-                LiteralExpr::String(str) => Value::String(str.clone()),
+                LiteralExpr::String(str) => Value::String(Rc::from(str.as_str())),
                 LiteralExpr::Bool(bool) => Value::Bool(*bool),
                 LiteralExpr::Nil => Value::Nil,
             },
@@ -256,7 +259,15 @@ impl<'a> Interpreter<'a> {
                 match binary.op.node {
                     BinaryOp::Plus => match left_type {
                         Type::Float => Value::Number(left.to_number() + right.to_number()),
-                        Type::String => Value::String(left.to_string() + right.to_string().as_str()),
+                        Type::String => {
+                            let left_string = left.to_string();
+                            let right_string = right.to_string();
+                            let mut buffer = String::with_capacity(left_string.len() + right_string.len());
+                            buffer.push_str(left_string);
+                            buffer.push_str(right_string);
+
+                            Value::String(buffer.into())
+                        }
                         _ => panic!(),
                     },
                     BinaryOp::Minus => Value::Number(left.to_number() - right.to_number()),
@@ -299,7 +310,7 @@ impl<'a> Interpreter<'a> {
                     NativeFunction(native_fun) => native_fun(vec![]).expect("error handling for native functions not yet implemented"),
                     UserFunction { params, body } => {
                         self.var_env.push(HashMap::new());
-                        for (arg, param) in call.arguments.iter().zip(params) {
+                        for (arg, param) in call.arguments.iter().zip(params.as_ref()) {
                             let value = self.interpret_expr(arg);
                             self.insert_var(param.node.name.node.clone(), value);
                         }
@@ -315,10 +326,10 @@ impl<'a> Interpreter<'a> {
                 }
             }
 
-            Expr::Lambda(lambda) => Value::Function(UserFunction {
-                params: lambda.parameters.clone(),
-                body: lambda.body.clone(),
-            }),
+            Expr::Lambda(lambda) => Value::Function(Rc::new(UserFunction {
+                params: Rc::new(lambda.parameters.clone()),
+                body: Rc::new(lambda.body.clone()),
+            })),
         }
     }
 }
