@@ -104,6 +104,9 @@ impl<'a> Interpreter<'a> {
 
     pub fn interpret(&mut self) -> InterpreterResult {
         for stmt in &self.program.statements {
+            self.declare_stmt(stmt);
+        }
+        for stmt in &self.program.statements {
             match self.interpret_stmt(stmt) {
                 Ok(_) => {}
                 Err(ControlFlow::Return(..)) => {
@@ -112,6 +115,19 @@ impl<'a> Interpreter<'a> {
             }
         }
         InterpreterResult { errors: &self.errors }
+    }
+
+    fn declare_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::FunDecl(fun_decl) => {
+                let value = Value::Function {
+                    params: fun_decl.node.params.clone(),
+                    body: fun_decl.node.body.clone(),
+                };
+                self.insert_var(fun_decl.node.ident.node.clone(), value);
+            }
+            _ => {}
+        }
     }
 
     fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<(), ControlFlow> {
