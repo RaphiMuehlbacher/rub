@@ -22,11 +22,14 @@ pub struct Resolver<'a> {
 
 impl<'a> Resolver<'a> {
     pub fn new(ast: &'a Program, source: String) -> Self {
+        let mut var_env = HashMap::new();
+        var_env.insert("clock".to_string(), Symbol::Function { params: vec![] });
+
         Self {
             source,
             program: ast,
             errors: vec![],
-            scopes: vec![HashMap::new()],
+            scopes: vec![var_env],
         }
     }
 

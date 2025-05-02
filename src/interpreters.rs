@@ -2,6 +2,8 @@ use crate::ast::{
     BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
     VarDeclStmt, WhileStmt,
 };
+use crate::builtins::clock_native;
+use crate::interpreters::Function::{NativeFunction, UserFunction};
 use crate::type_inferrer::{Type, TypeVarId};
 use miette::Report;
 use std::cmp::PartialEq;
@@ -14,11 +16,17 @@ pub enum Value {
     Number(f64),
     String(String),
     Bool(bool),
-    Function {
+    Function(Function),
+    Nil,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Function {
+    NativeFunction(fn(Vec<Value>) -> Result<Value, String>),
+    UserFunction {
         params: Vec<Typed<Parameter>>,
         body: Typed<BlockStmt>,
     },
-    Nil,
 }
 
 impl fmt::Display for Value {
@@ -27,7 +35,10 @@ impl fmt::Display for Value {
             Value::Number(num) => write!(f, "{num}"),
             Value::String(str) => write!(f, "{str}"),
             Value::Bool(bool) => write!(f, "{bool}"),
-            Value::Function { params, body: _ } => write!(f, "fn<({params:?})"),
+            Value::Function(function) => match function {
+                NativeFunction(native_fun) => write!(f, "nativeFn<{:?}", native_fun),
+                UserFunction { params, body: _ } => write!(f, "Fn<({params:?})"),
+            },
             Value::Nil => write!(f, "nil"),
         }
     }
@@ -53,9 +64,9 @@ impl Value {
         }
     }
 
-    fn to_fn(self) -> (Vec<Typed<Parameter>>, Typed<BlockStmt>) {
+    fn to_fn(self) -> Function {
         match self {
-            Value::Function { params, body } => (params, body),
+            Value::Function(func) => func,
             _ => panic!(),
         }
     }
@@ -80,11 +91,14 @@ pub struct Interpreter<'a> {
 
 impl<'a> Interpreter<'a> {
     pub fn new(program: &'a Program, type_env: &'a HashMap<TypeVarId, Type>, source: String) -> Self {
+        let mut var_env = HashMap::new();
+        var_env.insert("clock".to_string(), Value::Function(NativeFunction(clock_native)));
+
         Self {
             source,
             program,
             type_env,
-            var_env: vec![HashMap::new()],
+            var_env: vec![var_env],
             errors: vec![],
         }
     }
@@ -120,10 +134,10 @@ impl<'a> Interpreter<'a> {
     fn declare_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::FunDecl(fun_decl) => {
-                let value = Value::Function {
+                let value = Value::Function(UserFunction {
                     params: fun_decl.node.params.clone(),
                     body: fun_decl.node.body.clone(),
-                };
+                });
                 self.insert_var(fun_decl.node.ident.node.clone(), value);
             }
             _ => {}
@@ -168,10 +182,10 @@ impl<'a> Interpreter<'a> {
     fn fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) -> Result<(), ControlFlow> {
         self.insert_var(
             fun_decl.node.ident.node.clone(),
-            Value::Function {
+            Value::Function(UserFunction {
                 params: fun_decl.node.params.clone(),
                 body: fun_decl.node.body.clone(),
-            },
+            }),
         );
 
         Ok(())
@@ -278,28 +292,33 @@ impl<'a> Interpreter<'a> {
 
             Expr::Call(call) => {
                 let callee = self.interpret_expr(call.callee.deref());
+
                 let func = callee.to_fn();
 
-                self.var_env.push(HashMap::new());
+                match func {
+                    NativeFunction(native_fun) => native_fun(vec![]).expect("error handling for native functions not yet implemented"),
+                    UserFunction { params, body } => {
+                        self.var_env.push(HashMap::new());
+                        for (arg, param) in call.arguments.iter().zip(params) {
+                            let value = self.interpret_expr(arg);
+                            self.insert_var(param.node.name.node.clone(), value);
+                        }
+                        let return_val = if let Err(ControlFlow::Return(val)) = self.block(&body) {
+                            val
+                        } else {
+                            Value::Nil
+                        };
 
-                for (arg, param) in call.arguments.iter().zip(func.0.iter()) {
-                    let value = self.interpret_expr(arg);
-                    self.insert_var(param.node.name.node.clone(), value);
+                        self.var_env.pop();
+                        return_val
+                    }
                 }
-                let return_val = if let Err(ControlFlow::Return(val)) = self.block(&func.1) {
-                    val
-                } else {
-                    Value::Nil
-                };
-
-                self.var_env.pop();
-                return_val
             }
 
-            Expr::Lambda(lambda) => Value::Function {
+            Expr::Lambda(lambda) => Value::Function(UserFunction {
                 params: lambda.parameters.clone(),
                 body: lambda.body.clone(),
-            },
+            }),
         }
     }
 }

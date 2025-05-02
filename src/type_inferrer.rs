@@ -5,7 +5,7 @@ use crate::ast::{
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::TypeMismatch;
 use crate::type_inferrer::Type::TypeVar;
-use miette::{Report, SourceSpan};
+use miette::{Report, SourceOffset, SourceSpan};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::vec;
@@ -38,13 +38,16 @@ pub struct TypeInferenceResult<'a> {
 
 impl<'a> TypeInferrer<'a> {
     pub fn new(ast: &'a Program, source: String) -> Self {
+        let type_env = HashMap::new();
+        let var_env = HashMap::new();
+
         Self {
             program: ast,
             source,
             errors: vec![],
             current_function_return_ty: None,
-            type_env: HashMap::new(),
-            var_env: vec![HashMap::new()],
+            type_env,
+            var_env: vec![var_env],
         }
     }
 
@@ -123,6 +126,8 @@ impl<'a> TypeInferrer<'a> {
     }
 
     pub fn infer(&mut self) -> TypeInferenceResult {
+        self.declare_native_functions();
+
         for stmt in &self.program.statements {
             self.declare_stmt(stmt);
         }
@@ -136,6 +141,24 @@ impl<'a> TypeInferrer<'a> {
             errors: &self.errors,
             type_env: &self.type_env,
         }
+    }
+
+    fn fresh_type_var(&mut self) -> TypeVarId {
+        let typed = Typed::new(
+            LiteralExpr::String("if you see this something is wrong".to_string()),
+            SourceSpan::new(SourceOffset::from(0), 0),
+        );
+        typed.type_id
+    }
+
+    fn declare_native_functions(&mut self) {
+        let clock_type = Type::Function {
+            params: vec![],
+            return_ty: Box::new(Type::Float),
+        };
+        let clock_id = self.fresh_type_var();
+        self.insert_var("clock".to_string(), clock_id);
+        self.type_env.insert(clock_id, clock_type);
     }
 
     fn declare_stmt(&mut self, stmt: &Stmt) {
