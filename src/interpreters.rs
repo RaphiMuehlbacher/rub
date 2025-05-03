@@ -1,9 +1,9 @@
 use crate::ast::{
-    BinaryOp, BlockStmt, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, PrintStmt, Program, ReturnStmt, Stmt,
-    Typed, UnaryOp, VarDeclStmt, WhileStmt,
+    BinaryOp, BlockStmt, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
+    VarDeclStmt, WhileStmt,
 };
-use crate::builtins::clock_native;
-use crate::error::{InterpreterError, RuntimeError};
+use crate::builtins::{clock_native, print_native};
+use crate::error::InterpreterError;
 use crate::interpreters::Function::{NativeFunction, UserFunction};
 use crate::type_inferrer::{Type, TypeVarId};
 use miette::Report;
@@ -31,7 +31,7 @@ pub enum Function {
 }
 
 impl Value {
-    fn to_printable_value(&self) -> Result<String, ()> {
+    pub fn to_printable_value(&self) -> Result<String, ()> {
         match self {
             Value::Number(num) => Ok(format!("{num}")),
             Value::String(str) => Ok(format!("{str}")),
@@ -90,6 +90,7 @@ impl<'a> Interpreter<'a> {
     pub fn new(program: &'a Program, type_env: &'a HashMap<TypeVarId, Type>, source: String) -> Self {
         let mut var_env = HashMap::new();
         var_env.insert("clock".to_string(), Value::Function(Rc::new(NativeFunction(clock_native))));
+        var_env.insert("print".to_string(), Value::Function(Rc::new(NativeFunction(print_native))));
 
         Self {
             source,
@@ -147,7 +148,6 @@ impl<'a> Interpreter<'a> {
     fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<(), InterpreterError> {
         match stmt {
             Stmt::ExprStmtNode(expr) => self.expr_stmt(expr),
-            Stmt::Print(print) => self.print_stmt(print),
             Stmt::VarDecl(var_decl) => self.var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.fun_decl(fun_decl),
             Stmt::Block(block) => self.block(block),
@@ -160,21 +160,6 @@ impl<'a> Interpreter<'a> {
     fn expr_stmt(&mut self, expr: &Typed<ExprStmt>) -> Result<(), InterpreterError> {
         self.interpret_expr(&expr.node.expr)?;
         Ok(())
-    }
-
-    fn print_stmt(&mut self, print: &Typed<PrintStmt>) -> Result<(), InterpreterError> {
-        let value = self.interpret_expr(&print.node.expr)?;
-        match value.to_printable_value() {
-            Ok(string) => {
-                println!("{string}");
-                Ok(())
-            }
-            Err(_) => Err(InterpreterError::RuntimeError(RuntimeError::UnprintableValue {
-                src: self.source.clone(),
-                span: print.node.expr.span,
-                type_name: "function".to_string(),
-            })),
-        }
     }
 
     fn var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) -> Result<(), InterpreterError> {
@@ -313,7 +298,14 @@ impl<'a> Interpreter<'a> {
                 let func = callee.to_fn();
 
                 match func {
-                    NativeFunction(native_fun) => Ok(native_fun(vec![]).expect("error handling for native functions not yet implemented")),
+                    NativeFunction(native_fun) => {
+                        let mut arguments = Vec::new();
+                        for arg in call.arguments.iter() {
+                            let value = self.interpret_expr(arg)?;
+                            arguments.push(value);
+                        }
+                        Ok(native_fun(arguments).expect("error handling for native functions not yet implemented"))
+                    }
                     UserFunction { params, body } => {
                         self.var_env.push(HashMap::new());
                         for (arg, param) in call.arguments.iter().zip(params.as_ref()) {

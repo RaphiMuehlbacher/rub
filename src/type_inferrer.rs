@@ -1,5 +1,5 @@
 use crate::ast::{
-    BinaryOp, BlockStmt, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, PrintStmt, Program, ReturnStmt, Stmt, Typed, UnaryOp,
+    BinaryOp, BlockStmt, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, UnaryOp,
     VarDeclStmt, WhileStmt,
 };
 use crate::error::TypeInferrerError;
@@ -156,9 +156,18 @@ impl<'a> TypeInferrer<'a> {
             params: vec![],
             return_ty: Box::new(Type::Float),
         };
+
         let clock_id = self.fresh_type_var();
         self.insert_var("clock".to_string(), clock_id);
         self.type_env.insert(clock_id, clock_type);
+
+        let print_type = Type::Function {
+            params: vec![Box::new(Type::String)],
+            return_ty: Box::new(Type::Nil),
+        };
+        let print_id = self.fresh_type_var();
+        self.insert_var("print".to_string(), print_id);
+        self.type_env.insert(print_id, print_type);
     }
 
     fn declare_stmt(&mut self, stmt: &Stmt) {
@@ -185,7 +194,6 @@ impl<'a> TypeInferrer<'a> {
     fn infer_stmt(&mut self, stmt: &Stmt) -> Result<(), TypeInferrerError> {
         match stmt {
             Stmt::ExprStmtNode(expr_stmt) => self.infer_expr_stmt(expr_stmt),
-            Stmt::Print(print_stmt) => self.infer_print_stmt(print_stmt),
             Stmt::VarDecl(var_decl) => self.infer_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.infer_fun_decl(fun_decl),
             Stmt::Block(block) => self.infer_block(block),
@@ -197,11 +205,6 @@ impl<'a> TypeInferrer<'a> {
 
     fn infer_expr_stmt(&mut self, expr_stmt: &Typed<ExprStmt>) -> Result<(), TypeInferrerError> {
         self.infer_expr(&expr_stmt.node.expr)?;
-        Ok(())
-    }
-
-    fn infer_print_stmt(&mut self, print_stmt: &Typed<PrintStmt>) -> Result<(), TypeInferrerError> {
-        self.infer_expr(&print_stmt.node.expr)?;
         Ok(())
     }
 

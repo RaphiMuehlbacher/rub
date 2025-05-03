@@ -1,8 +1,8 @@
 use crate::ast::Expr::{Call, Grouping, Lambda, Literal, Unary, Variable};
-use crate::ast::Stmt::{Block, ExprStmtNode, Print, Return, While};
+use crate::ast::Stmt::{Block, ExprStmtNode, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr,
-    LogicalExpr, LogicalOp, Parameter, PrintStmt, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    LogicalExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock, MissingOperand, MissingSemicolon,
@@ -680,9 +680,7 @@ impl<'a> Parser<'a> {
 
     /// current is the start of the statement
     fn statement(&mut self) -> ParseResult<Stmt> {
-        if self.matches(&[TokenKind::Print]) {
-            return self.print_stmt();
-        } else if self.matches(&[TokenKind::LeftBrace]) {
+        if self.matches(&[TokenKind::LeftBrace]) {
             return Ok(Block(self.block()?));
         } else if self.matches(&[TokenKind::If]) {
             return self.if_stmt();
@@ -708,25 +706,6 @@ impl<'a> Parser<'a> {
 
         Ok(ExprStmtNode(Typed::new(
             ExprStmt {
-                expr: Typed::new(value, self.create_span(expr_left_span, expr_right_span)),
-            },
-            self.create_span(left_span, self.previous().span),
-        )))
-    }
-
-    /// current is 'print', end is next statement
-    fn print_stmt(&mut self) -> ParseResult<Stmt> {
-        let left_span = self.current().span;
-        self.advance_position();
-
-        let expr_left_span = self.current().span;
-        let value = self.expression()?;
-        let expr_right_span = self.previous().span;
-
-        self.expect_semicolon();
-
-        Ok(Print(Typed::new(
-            PrintStmt {
                 expr: Typed::new(value, self.create_span(expr_left_span, expr_right_span)),
             },
             self.create_span(left_span, self.previous().span),
