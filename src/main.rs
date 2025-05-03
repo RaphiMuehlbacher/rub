@@ -59,7 +59,10 @@ fn interpret(code: &str) {
     }
 
     let mut interpreter = Interpreter::new(&parse_result.ast, type_inference_result.type_env, code.to_string());
-    interpreter.interpret();
+    let error = interpreter.interpret().error;
+    if let Some(err) = error {
+        println!("{:?}", err);
+    }
     time_log!(start, "Interpreting");
 }
 

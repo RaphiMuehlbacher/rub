@@ -18,6 +18,11 @@ fn fib_iterative(n: Float) -> Float {
 
 
 fn main() {
+  print 3;
+  print "hallo";
+  print true;
+  print fib_recursive;
+
   for let i = 0; i < 25; i = i + 1 {
     print fib_recursive(i);
     print fib_iterative(i);
@@ -28,6 +33,7 @@ fn main() {
     base = base + "moin leude, trymacs hier. ";
 
   }
+
 }
 
 main();
