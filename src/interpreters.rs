@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, PrintStmt, Program, ReturnStmt, Stmt, Typed,
-    UnaryOp, VarDeclStmt, WhileStmt,
+    BinaryOp, BlockStmt, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, PrintStmt, Program, ReturnStmt, Stmt,
+    Typed, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::builtins::clock_native;
 use crate::error::{InterpreterError, RuntimeError};
@@ -146,7 +146,7 @@ impl<'a> Interpreter<'a> {
 
     fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<(), InterpreterError> {
         match stmt {
-            Stmt::ExprStmt(expr) => self.expr_stmt(expr),
+            Stmt::ExprStmtNode(expr) => self.expr_stmt(expr),
             Stmt::Print(print) => self.print_stmt(print),
             Stmt::VarDecl(var_decl) => self.var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.fun_decl(fun_decl),
@@ -157,8 +157,8 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn expr_stmt(&mut self, expr: &Typed<Expr>) -> Result<(), InterpreterError> {
-        self.interpret_expr(&expr)?;
+    fn expr_stmt(&mut self, expr: &Typed<ExprStmt>) -> Result<(), InterpreterError> {
+        self.interpret_expr(&expr.node.expr)?;
         Ok(())
     }
 

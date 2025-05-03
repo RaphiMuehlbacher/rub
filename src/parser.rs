@@ -1,7 +1,7 @@
 use crate::ast::Expr::{Call, Grouping, Lambda, Literal, Unary, Variable};
-use crate::ast::Stmt::{Block, ExprStmt, Print, Return, While};
+use crate::ast::Stmt::{Block, ExprStmtNode, Print, Return, While};
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr,
+    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr,
     LogicalExpr, LogicalOp, Parameter, PrintStmt, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
@@ -699,11 +699,19 @@ impl<'a> Parser<'a> {
     /// current is start of the statement, end is next statement
     fn expression_stmt(&mut self) -> ParseResult<Stmt> {
         let left_span = self.current().span;
+
+        let expr_left_span = self.current().span;
         let value = self.expression()?;
+        let expr_right_span = self.previous().span;
 
         self.expect_semicolon();
 
-        Ok(ExprStmt(Typed::new(value, self.create_span(left_span, self.previous().span))))
+        Ok(ExprStmtNode(Typed::new(
+            ExprStmt {
+                expr: Typed::new(value, self.create_span(expr_left_span, expr_right_span)),
+            },
+            self.create_span(left_span, self.previous().span),
+        )))
     }
 
     /// current is 'print', end is next statement
@@ -840,11 +848,13 @@ impl<'a> Parser<'a> {
             self.report(error.into());
         }
 
+        let inc_left_span = self.current().span;
         let increment = if !self.matches(&[TokenKind::LeftBrace]) {
             Some(self.expression()?)
         } else {
             None
         };
+        let inc_right_span = self.previous().span;
 
         let body = self.block()?;
         let mut statements = vec![];
@@ -857,7 +867,12 @@ impl<'a> Parser<'a> {
         while_body_statements.extend(body.node.statements);
 
         if let Some(inc) = increment {
-            while_body_statements.push(ExprStmt(Typed::new(inc, self.create_span(for_span, self.previous().span))));
+            while_body_statements.push(ExprStmtNode(Typed::new(
+                ExprStmt {
+                    expr: Typed::new(inc, self.create_span(inc_left_span, inc_right_span)),
+                },
+                self.create_span(for_span, self.previous().span),
+            )));
         }
 
         let while_stmt = While(Typed::new(
