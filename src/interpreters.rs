@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
-    VarDeclStmt, WhileStmt,
+    BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, PrintStmt, Program, ReturnStmt, Stmt, Typed,
+    UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::builtins::clock_native;
 use crate::error::{InterpreterError, RuntimeError};
@@ -147,7 +147,7 @@ impl<'a> Interpreter<'a> {
     fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<(), InterpreterError> {
         match stmt {
             Stmt::ExprStmt(expr) => self.expr_stmt(expr),
-            Stmt::PrintStmt(print) => self.print_stmt(print),
+            Stmt::Print(print) => self.print_stmt(print),
             Stmt::VarDecl(var_decl) => self.var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.fun_decl(fun_decl),
             Stmt::Block(block) => self.block(block),
@@ -162,8 +162,8 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn print_stmt(&mut self, print: &Typed<Expr>) -> Result<(), InterpreterError> {
-        let value = self.interpret_expr(&print)?;
+    fn print_stmt(&mut self, print: &Typed<PrintStmt>) -> Result<(), InterpreterError> {
+        let value = self.interpret_expr(&print.node.expr)?;
         match value.to_printable_value() {
             Ok(string) => {
                 println!("{string}");
@@ -171,7 +171,7 @@ impl<'a> Interpreter<'a> {
             }
             Err(_) => Err(InterpreterError::RuntimeError(RuntimeError::UnprintableValue {
                 src: self.source.clone(),
-                span: print.span,
+                span: print.node.expr.span,
                 type_name: "function".to_string(),
             })),
         }

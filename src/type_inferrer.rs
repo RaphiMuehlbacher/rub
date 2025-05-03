@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, UnaryOp, VarDeclStmt,
-    WhileStmt,
+    BinaryOp, BlockStmt, Expr, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, PrintStmt, Program, ReturnStmt, Stmt, Typed, UnaryOp,
+    VarDeclStmt, WhileStmt,
 };
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::TypeMismatch;
@@ -185,7 +185,7 @@ impl<'a> TypeInferrer<'a> {
     fn infer_stmt(&mut self, stmt: &Stmt) -> Result<(), TypeInferrerError> {
         match stmt {
             Stmt::ExprStmt(expr_stmt) => self.infer_expr_stmt(expr_stmt),
-            Stmt::PrintStmt(print_stmt) => self.infer_print_stmt(print_stmt),
+            Stmt::Print(print_stmt) => self.infer_print_stmt(print_stmt),
             Stmt::VarDecl(var_decl) => self.infer_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.infer_fun_decl(fun_decl),
             Stmt::Block(block) => self.infer_block(block),
@@ -200,8 +200,8 @@ impl<'a> TypeInferrer<'a> {
         Ok(())
     }
 
-    fn infer_print_stmt(&mut self, print_stmt: &Typed<Expr>) -> Result<(), TypeInferrerError> {
-        self.infer_expr(&print_stmt)?;
+    fn infer_print_stmt(&mut self, print_stmt: &Typed<PrintStmt>) -> Result<(), TypeInferrerError> {
+        self.infer_expr(&print_stmt.node.expr)?;
         Ok(())
     }
 

@@ -1,8 +1,8 @@
 use crate::ast::Expr::{Call, Grouping, Lambda, Literal, Unary, Variable};
-use crate::ast::Stmt::{Block, ExprStmt, PrintStmt, Return, While};
+use crate::ast::Stmt::{Block, ExprStmt, Print, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr,
-    LogicalExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    LogicalExpr, LogicalOp, Parameter, PrintStmt, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock, MissingOperand, MissingSemicolon,
@@ -711,11 +711,18 @@ impl<'a> Parser<'a> {
         let left_span = self.current().span;
         self.advance_position();
 
+        let expr_left_span = self.current().span;
         let value = self.expression()?;
+        let expr_right_span = self.previous().span;
 
         self.expect_semicolon();
 
-        Ok(PrintStmt(Typed::new(value, self.create_span(left_span, self.previous().span))))
+        Ok(Print(Typed::new(
+            PrintStmt {
+                expr: Typed::new(value, self.create_span(expr_left_span, expr_right_span)),
+            },
+            self.create_span(left_span, self.previous().span),
+        )))
     }
 
     /// current is '{' and ends after '}'

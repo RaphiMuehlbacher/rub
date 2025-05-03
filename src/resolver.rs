@@ -1,4 +1,4 @@
-use crate::ast::{BlockStmt, Expr, FunDeclStmt, IfStmt, Parameter, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt};
+use crate::ast::{BlockStmt, Expr, FunDeclStmt, IfStmt, Parameter, PrintStmt, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt};
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
     DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable,
@@ -79,7 +79,7 @@ impl<'a> Resolver<'a> {
     fn resolve_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::ExprStmt(expr_stmt) => self.resolve_expr_stmt(expr_stmt),
-            Stmt::PrintStmt(print_stmt) => self.resolve_print_stmt(print_stmt),
+            Stmt::Print(print_stmt) => self.resolve_print_stmt(print_stmt),
             Stmt::VarDecl(var_decl) => self.resolve_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.resolve_fun_decl(fun_decl),
             Stmt::Block(block) => self.resolve_block(block),
@@ -92,8 +92,8 @@ impl<'a> Resolver<'a> {
         self.resolve_expr(&expr_stmt);
     }
 
-    fn resolve_print_stmt(&mut self, print_stmt: &Typed<Expr>) {
-        self.resolve_expr(&print_stmt);
+    fn resolve_print_stmt(&mut self, print_stmt: &Typed<PrintStmt>) {
+        self.resolve_expr(&print_stmt.node.expr);
     }
 
     fn resolve_var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) {

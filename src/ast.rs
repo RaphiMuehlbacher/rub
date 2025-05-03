@@ -38,7 +38,7 @@ pub struct Program {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     ExprStmt(Typed<Expr>),
-    PrintStmt(Typed<Expr>),
+    Print(Typed<PrintStmt>),
     VarDecl(Typed<VarDeclStmt>),
     FunDecl(Typed<FunDeclStmt>),
     Block(Typed<BlockStmt>),
@@ -48,6 +48,11 @@ pub enum Stmt {
 }
 
 pub type Ident = Typed<String>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrintStmt {
+    pub expr: Typed<Expr>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarDeclStmt {
