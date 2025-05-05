@@ -1,5 +1,5 @@
-use rslox::interpreters::Interpreter;
-use rslox::{Lexer, Parser, Resolver, TypeInferrer};
+use rub::interpreters::Interpreter;
+use rub::{Lexer, Parser, Resolver, TypeInferrer};
 use std::fs;
 use std::time::Instant;
 
@@ -67,7 +67,7 @@ fn interpret(code: &str) {
 }
 
 fn main() {
-    let mut path = "source.lox".to_string();
+    let mut path = "source.rub".to_string();
     let source = fs::read_to_string(&mut path).expect(format!("Error reading file {}", path).as_str());
     let source = format!("{} ", source);
     interpret(&source);
