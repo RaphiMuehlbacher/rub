@@ -1,16 +1,24 @@
-use crate::ast::{BlockStmt, Expr, ExprStmt, FunDeclStmt, IfStmt, Parameter, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt};
+use crate::ast::{
+    BlockStmt, Expr, ExprStmt, FunDeclStmt, Ident, IfStmt, Parameter, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt,
+};
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
     DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable,
 };
+use crate::type_inferrer::Type;
 use miette::Report;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Symbol {
-    Variable { initialized: bool },
-    Function { params: Vec<Typed<Parameter>> },
+    Variable {
+        initialized: bool,
+    },
+    Function {
+        params: Vec<Typed<Parameter>>,
+        generics: Vec<Ident>,
+    },
 }
 
 pub struct Resolver<'a> {
@@ -23,8 +31,20 @@ pub struct Resolver<'a> {
 impl<'a> Resolver<'a> {
     pub fn new(ast: &'a Program, source: String) -> Self {
         let mut var_env = HashMap::new();
-        var_env.insert("clock".to_string(), Symbol::Function { params: vec![] });
-        var_env.insert("print".to_string(), Symbol::Function { params: vec![] });
+        var_env.insert(
+            "clock".to_string(),
+            Symbol::Function {
+                params: vec![],
+                generics: vec![],
+            },
+        );
+        var_env.insert(
+            "print".to_string(),
+            Symbol::Function {
+                params: vec![],
+                generics: vec![],
+            },
+        );
 
         Self {
             source,
@@ -70,6 +90,7 @@ impl<'a> Resolver<'a> {
                     name.clone(),
                     Symbol::Function {
                         params: fun_decl.node.params.clone(),
+                        generics: fun_decl.node.generics.clone(),
                     },
                 );
             }
@@ -109,18 +130,35 @@ impl<'a> Resolver<'a> {
             fun_decl.node.ident.node.clone(),
             Symbol::Function {
                 params: fun_decl.node.params.clone(),
+                generics: fun_decl.node.generics.clone(),
             },
         );
 
         self.scopes.push(HashMap::new());
+
+        let generic_params: HashSet<String> = fun_decl.node.generics.iter().map(|g| g.node.clone()).collect();
+        let mut seen_params = HashSet::new();
+
         for param in &fun_decl.node.params {
-            if self.curr_scope().get(param.node.name.node.as_str()).is_some() {
+            let param_name = &param.node.name.node;
+            if !seen_params.insert(param_name.clone()) {
                 self.report(DuplicateParameter {
                     src: self.source.to_string(),
                     span: param.span,
                     function_name: fun_decl.node.ident.node.clone(),
-                })
-            } else {
+                });
+                continue;
+            }
+
+            if let Type::Generic(name) = &param.node.type_annotation {
+                if !generic_params.contains(name) {
+                    self.report(UndefinedVariable {
+                        src: self.source.to_string(),
+                        span: param.span,
+                        name: name.clone(),
+                    });
+                    continue;
+                }
                 self.curr_scope()
                     .insert(param.node.name.node.clone(), Symbol::Variable { initialized: true });
             }

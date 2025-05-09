@@ -630,6 +630,11 @@ impl<'a> Parser<'a> {
                     self.advance_position();
                     Ok(Type::Nil)
                 }
+                TokenKind::Ident(ref name) => {
+                    let name = name.clone();
+                    self.advance_position();
+                    Ok(Type::Generic(name))
+                }
                 _ => Err(UnexpectedToken {
                     src: self.source.to_string(),
                     span: self.current().span,
