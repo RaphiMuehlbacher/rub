@@ -69,6 +69,7 @@ pub struct Parameter {
 pub struct FunDeclStmt {
     pub ident: Ident,
     pub params: Vec<Typed<Parameter>>,
+    pub generics: Vec<Ident>,
     pub body: Typed<BlockStmt>,
     pub return_type: Type,
 }

@@ -416,6 +416,7 @@ impl<'a> Parser<'a> {
         self.advance_position();
 
         let function_name = self.parse_function_name()?;
+        let generics = self.parse_function_generics()?;
 
         let parameters = self.parse_function_parameters()?;
         let return_type = self.parse_return_type()?;
@@ -426,6 +427,7 @@ impl<'a> Parser<'a> {
             FunDeclStmt {
                 ident: function_name,
                 params: parameters,
+                generics,
                 body,
                 return_type,
             },
@@ -510,6 +512,59 @@ impl<'a> Parser<'a> {
             }
         };
         Ok(function_name)
+    }
+
+    /// current is potential `<` ends after `>`
+    fn parse_function_generics(&mut self) -> ParseResult<Vec<Ident>> {
+        if !self.consume(&[TokenKind::Less]) {
+            return Ok(vec![]);
+        }
+
+        let mut generics = vec![];
+
+        loop {
+            match &self.current().token_kind {
+                TokenKind::Ident(name) => {
+                    let span = self.current().span;
+                    generics.push(Typed::new(name.clone(), span));
+                    self.advance_position();
+
+                    if self.consume(&[TokenKind::Greater]) {
+                        break;
+                    }
+                    if !self.consume(&[TokenKind::Comma]) {
+                        return Err(UnexpectedToken {
+                            src: self.source.to_string(),
+                            span: self.current().span,
+                            found: self.current().token_kind.clone(),
+                            expected: "',' or '>'".to_string(),
+                        }
+                        .into());
+                    }
+                }
+                TokenKind::Greater => {
+                    if generics.is_empty() {
+                        return Err(ExpectedIdentifier {
+                            src: self.source.to_string(),
+                            span: self.current().span,
+                            context: "generic type parameter".to_string(),
+                        }
+                        .into());
+                    }
+                    self.advance_position();
+                    break;
+                }
+                _ => {
+                    return Err(ExpectedIdentifier {
+                        src: self.source.to_string(),
+                        span: self.current().span,
+                        context: "generic type parameter".to_string(),
+                    }
+                    .into());
+                }
+            }
+        }
+        Ok(generics)
     }
 
     /// current is `:` end is after type

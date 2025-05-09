@@ -20,6 +20,7 @@ pub enum Type {
     Nil,
     Function { params: Vec<Box<Type>>, return_ty: Box<Type> },
     TypeVar(TypeVarId),
+    Generic(TypeVarId),
 }
 
 pub struct TypeInferrer<'a> {
