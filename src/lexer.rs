@@ -113,6 +113,28 @@ impl<'a> Lexer<'a> {
                             }
                         }
                         continue;
+                    } else if self.match_char('*') {
+                        let mut nesting = 1;
+                        while nesting > 0 && self.position < self.source.len() {
+                            if let Some(c) = self.peek() {
+                                self.position += c.len_utf8();
+                                match c {
+                                    '/' if self.match_char('*') => nesting += 1,
+                                    '*' if self.match_char('/') => nesting -= 1,
+                                    _ => {}
+                                }
+                            }
+                        }
+                        if nesting > 0 {
+                            self.errors.push(
+                                LexError::UnterminatedComment {
+                                    span: (self.start..self.position).into(),
+                                    src: self.source.to_string(),
+                                }
+                                .into(),
+                            )
+                        }
+                        continue;
                     } else {
                         self.create_token(TokenKind::Slash)
                     }

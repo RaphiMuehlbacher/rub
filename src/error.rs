@@ -310,6 +310,14 @@ pub enum ParseError {
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum LexError {
+    #[error("Unterminated multiline comment")]
+    #[diagnostic(code(lex::unterminated_comment))]
+    UnterminatedComment {
+        #[source_code]
+        src: String,
+        #[label("Comment started here but was never closed")]
+        span: SourceSpan,
+    },
     #[error("Unexpected character: {character}")]
     #[diagnostic(help("This character isn't recognized by the lexer."), code(lexer::unexpected_char))]
     UnexpectedCharacter {
