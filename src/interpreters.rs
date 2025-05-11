@@ -259,7 +259,7 @@ impl<'a> Interpreter<'a> {
 
                             Ok(Value::String(Rc::from(buffer)))
                         }
-                        _ => panic!(),
+                        _ => panic!("{:?}", left_type),
                     },
                     BinaryOp::Minus => Ok(Value::Number(left.to_number() - right.to_number())),
                     BinaryOp::Star => Ok(Value::Number(left.to_number() * right.to_number())),

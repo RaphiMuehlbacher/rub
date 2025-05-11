@@ -159,9 +159,9 @@ impl<'a> Resolver<'a> {
                     });
                     continue;
                 }
-                self.curr_scope()
-                    .insert(param.node.name.node.clone(), Symbol::Variable { initialized: true });
             }
+            self.curr_scope()
+                .insert(param.node.name.node.clone(), Symbol::Variable { initialized: true });
         }
 
         for stmt in &fun_decl.node.body.node.statements {

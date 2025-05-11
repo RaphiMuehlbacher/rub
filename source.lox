@@ -1,3 +1,21 @@
-fn test<T, B>(a: B, b: T) {
-
+// Generic identity function
+fn id<T>(x: T) -> T {
+    return x;
 }
+
+// Generic pair creation
+fn pair<A, B>(a: A, b: B) -> A {
+    return a;
+}
+
+// Function that works with numbers
+fn double<T>(x: T) -> T {
+    print(x);
+    return x * "hallo";
+}
+
+// Test basic generic function
+let x1 = id("hallo");
+print(x1);
+let x2 = x1 + 1;
+print(x1);

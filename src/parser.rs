@@ -440,31 +440,7 @@ impl<'a> Parser<'a> {
             return Ok(Type::Nil);
         }
 
-        match self.current().token_kind {
-            TokenKind::TypeFloat => {
-                self.advance_position();
-                Ok(Type::Float)
-            }
-            TokenKind::TypeString => {
-                self.advance_position();
-                Ok(Type::String)
-            }
-            TokenKind::TypeBool => {
-                self.advance_position();
-                Ok(Type::Bool)
-            }
-            TokenKind::TypeNil => {
-                self.advance_position();
-                Ok(Type::Nil)
-            }
-            _ => Err(UnexpectedToken {
-                src: self.source.to_string(),
-                span: self.current().span,
-                expected: "type".to_string(),
-                found: self.current().token_kind.clone(),
-            }
-            .into()),
-        }
+        self.parse_type()
     }
 
     /// current is function name, ends at '('
