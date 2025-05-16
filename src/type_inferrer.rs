@@ -1,7 +1,8 @@
 use crate::ast::{
-    BinaryOp, BlockStmt, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, UnaryOp,
+    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, UnaryOp,
     VarDeclStmt, WhileStmt,
 };
+use crate::builtins::print_native;
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::TypeMismatch;
 use crate::type_inferrer::Type::TypeVar;
@@ -196,7 +197,6 @@ impl<'a> TypeInferrer<'a> {
             Stmt::ExprStmtNode(expr_stmt) => self.infer_expr_stmt(expr_stmt),
             Stmt::VarDecl(var_decl) => self.infer_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.infer_fun_decl(fun_decl),
-            Stmt::Block(block) => self.infer_block(block),
             Stmt::If(if_stmt) => self.infer_if_stmt(if_stmt),
             Stmt::While(while_stmt) => self.infer_while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.infer_return_stmt(return_stmt),
@@ -256,30 +256,32 @@ impl<'a> TypeInferrer<'a> {
         Ok(())
     }
 
-    fn infer_block(&mut self, block: &Typed<BlockStmt>) -> Result<(), TypeInferrerError> {
+    // TODO: if, while, ... should also return something. applies to parser, resolver, typechecker, interpreter
+    fn infer_stmts(&mut self, stmts: &Vec<Stmt>) -> Result<(), TypeInferrerError> {
         self.var_env.push(HashMap::new());
 
-        for stmt in &block.node.statements {
+        for stmt in stmts {
             self.infer_stmt(stmt)?;
         }
 
         self.var_env.pop();
+
         Ok(())
     }
 
     fn infer_if_stmt(&mut self, if_stmt: &Typed<IfStmt>) -> Result<(), TypeInferrerError> {
         self.infer_expr(&if_stmt.node.condition)?;
-        self.infer_block(&if_stmt.node.then_branch)?;
+        self.infer_stmts(&if_stmt.node.then_branch.node.statements)?;
 
         if let Some(else_branch) = &if_stmt.node.else_branch {
-            self.infer_block(else_branch)?;
+            self.infer_stmts(&else_branch.node.statements)?;
         }
         Ok(())
     }
 
     fn infer_while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) -> Result<(), TypeInferrerError> {
         self.infer_expr(&while_stmt.node.condition)?;
-        self.infer_block(&while_stmt.node.body)?;
+        self.infer_stmts(&while_stmt.node.body.node.statements)?;
 
         Ok(())
     }
@@ -314,6 +316,23 @@ impl<'a> TypeInferrer<'a> {
 
                 self.type_env.insert(expr.type_id, ty);
                 Ok(TypeVar(expr.type_id))
+            }
+
+            Expr::Block(block) => {
+                self.var_env.push(HashMap::new());
+
+                for stmt in &block.statements {
+                    self.infer_stmt(stmt)?;
+                }
+
+                let return_ty = if let Some(expr) = &block.expr {
+                    Ok(self.infer_expr(expr)?)
+                } else {
+                    Ok(Type::Nil)
+                };
+
+                self.var_env.pop();
+                return_ty
             }
             Expr::Unary(unary_expr) => {
                 let right_ty = self.infer_expr(unary_expr.expr.deref())?;

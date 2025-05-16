@@ -1,7 +1,7 @@
-use crate::ast::Expr::{Call, Grouping, Lambda, Literal, Unary, Variable};
-use crate::ast::Stmt::{Block, ExprStmtNode, Return, While};
+use crate::ast::Expr::{Block, Call, Grouping, Lambda, Literal, Unary, Variable};
+use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockStmt, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr,
+    AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr,
     LogicalExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
@@ -420,13 +420,24 @@ impl<'a> Parser<'a> {
         let parameters = self.parse_function_parameters()?;
         let return_type = self.parse_return_type()?;
 
-        let body = self.block()?;
+        let body_left_span = self.current().span;
+        let body = match self.block()? {
+            Block(block) => block,
+            _ => {
+                return Err(MissingBlock {
+                    src: self.source.to_string(),
+                    span: self.create_span(body_left_span, self.previous().span),
+                }
+                .into());
+            }
+        };
+        let body_right_span = self.previous().span;
 
         Ok(Stmt::FunDecl(Typed::new(
             FunDeclStmt {
                 ident: function_name,
                 params: parameters,
-                body,
+                body: Typed::new(body, self.create_span(body_left_span, body_right_span)),
                 return_type,
             },
             self.create_span(fun_keyword_span, self.previous().span),
@@ -680,9 +691,7 @@ impl<'a> Parser<'a> {
 
     /// current is the start of the statement
     fn statement(&mut self) -> ParseResult<Stmt> {
-        if self.matches(&[TokenKind::LeftBrace]) {
-            return Ok(Block(self.block()?));
-        } else if self.matches(&[TokenKind::If]) {
+        if self.matches(&[TokenKind::If]) {
             return self.if_stmt();
         } else if self.matches(&[TokenKind::While]) {
             return self.while_stmt();
@@ -713,14 +722,26 @@ impl<'a> Parser<'a> {
     }
 
     /// current is '{' and ends after '}'
-    fn block(&mut self) -> ParseResult<Typed<BlockStmt>> {
+    fn block(&mut self) -> ParseResult<Expr> {
         let opening_brace_span = self.current().span;
         self.open_delimiter(self.current().token_kind.clone())?;
 
         let mut statements = vec![];
+        let mut expression = None;
+
         while !self.matches(&[TokenKind::RightBrace]) && !self.at_eof() {
-            let statement = self.declaration();
-            match statement {
+            let saved_pos = self.position;
+
+            if let Ok(expr) = self.expression() {
+                if self.current_is(TokenKind::RightBrace) {
+                    let span = self.create_span(self.previous().span, self.current().span);
+                    expression = Some(Box::new(Typed::new(expr, span)));
+                    break;
+                }
+            }
+
+            self.position = saved_pos;
+            match self.declaration() {
                 Ok(stmt) => statements.push(stmt),
                 Err(err) => {
                     self.report(err);
@@ -728,12 +749,13 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+
         self.close_delimiter(self.current().token_kind.clone())?;
 
-        Ok(Typed::new(
-            BlockStmt { statements },
-            self.create_span(opening_brace_span, self.previous().span),
-        ))
+        Ok(Block(BlockExpr {
+            statements,
+            expr: expression,
+        }))
     }
 
     /// start is `if`, end is next statement
@@ -743,17 +765,38 @@ impl<'a> Parser<'a> {
         let condition_span = self.current().span;
         let condition = self.parse_condition()?;
 
-        let then_branch = self.block()?;
+        let then_branch_left_span = self.current().span;
+        let then_branch = match self.block()? {
+            Block(block) => block,
+            _ => {
+                return Err(MissingBlock {
+                    src: self.source.to_string(),
+                    span: self.create_span(then_branch_left_span, self.previous().span),
+                }
+                .into());
+            }
+        };
+        let then_branch_right_span = self.previous().span;
 
+        let else_branch_left_span = self.current().span;
         let mut else_branch = None;
         if self.consume(&[TokenKind::Else]) {
-            else_branch = Some(self.block()?);
+            else_branch = match self.block()? {
+                Block(block) => Some(Typed::new(block, self.create_span(else_branch_left_span, self.previous().span))),
+                _ => {
+                    return Err(MissingBlock {
+                        src: self.source.to_string(),
+                        span: self.create_span(then_branch_left_span, self.previous().span),
+                    }
+                    .into());
+                }
+            };
         }
 
         Ok(Stmt::If(Typed::new(
             IfStmt {
                 condition: Typed::new(condition, condition_span),
-                then_branch,
+                then_branch: Typed::new(then_branch, self.create_span(then_branch_left_span, then_branch_right_span)),
                 else_branch,
             },
             self.create_span(if_span, self.previous().span),
@@ -790,10 +833,25 @@ impl<'a> Parser<'a> {
         let condition_span = self.current().span;
         let condition = Typed::new(self.parse_condition()?, condition_span);
 
-        let block = self.block()?;
+        let block_left_span = self.current().span;
+        let block = match self.block()? {
+            Block(block) => block,
+            _ => {
+                return Err(MissingBlock {
+                    src: self.source.to_string(),
+                    span: self.create_span(block_left_span, self.previous().span),
+                }
+                .into());
+            }
+        };
+
+        let block_right_span = self.previous().span;
 
         Ok(While(Typed::new(
-            WhileStmt { condition, body: block },
+            WhileStmt {
+                condition,
+                body: Typed::new(block, self.create_span(block_left_span, block_right_span)),
+            },
             self.create_span(while_span, self.previous().span),
         )))
     }
@@ -829,13 +887,27 @@ impl<'a> Parser<'a> {
 
         let inc_left_span = self.current().span;
         let increment = if !self.matches(&[TokenKind::LeftBrace]) {
-            Some(self.expression()?)
+            Some(Typed::new(
+                self.expression()?,
+                self.create_span(inc_left_span, self.previous().span),
+            ))
         } else {
             None
         };
-        let inc_right_span = self.previous().span;
 
-        let body = self.block()?;
+        let body_left_span = self.current().span;
+        let body = match self.block()? {
+            Block(block) => block,
+            _ => {
+                return Err(MissingBlock {
+                    src: self.source.to_string(),
+                    span: self.create_span(body_left_span, self.previous().span),
+                }
+                .into());
+            }
+        };
+        let body_right_span = self.previous().span;
+
         let mut statements = vec![];
 
         if let Some(init) = initializer {
@@ -843,13 +915,9 @@ impl<'a> Parser<'a> {
         }
 
         let mut while_body_statements = Vec::new();
-        while_body_statements.extend(body.node.statements);
-
         if let Some(inc) = increment {
             while_body_statements.push(ExprStmtNode(Typed::new(
-                ExprStmt {
-                    expr: Typed::new(inc, self.create_span(inc_left_span, inc_right_span)),
-                },
+                ExprStmt { expr: inc },
                 self.create_span(for_span, self.previous().span),
             )));
         }
@@ -858,18 +926,26 @@ impl<'a> Parser<'a> {
             WhileStmt {
                 condition,
                 body: Typed::new(
-                    BlockStmt {
+                    BlockExpr {
                         statements: while_body_statements,
+                        expr: body.expr,
                     },
-                    body.span,
+                    self.create_span(body_left_span, body_right_span),
                 ),
             },
             self.create_span(for_span, self.previous().span),
         ));
         statements.push(while_stmt);
 
-        Ok(Block(Typed::new(
-            BlockStmt { statements },
+        Ok(Stmt::If(Typed::new(
+            IfStmt {
+                condition: Typed::new(Literal(LiteralExpr::Bool(true)), self.create_span(for_span, for_span)),
+                then_branch: Typed::new(
+                    BlockExpr { statements, expr: None },
+                    self.create_span(for_span, self.previous().span),
+                ),
+                else_branch: None,
+            },
             self.create_span(for_span, self.previous().span),
         )))
     }
@@ -907,8 +983,18 @@ impl<'a> Parser<'a> {
     fn expression(&mut self) -> ParseResult<Expr> {
         if self.matches(&[TokenKind::Fn]) {
             return self.lambda_expr();
+        } else if self.matches(&[TokenKind::LeftBrace]) {
+            return self.block();
         }
         self.assignment()
+    }
+
+    fn parse_binary_operand(&mut self, parse_fn: fn(&mut Self) -> ParseResult<Expr>) -> ParseResult<Expr> {
+        if self.matches(&[TokenKind::LeftBrace]) {
+            self.block()
+        } else {
+            parse_fn(self)
+        }
     }
 
     fn lambda_expr(&mut self) -> ParseResult<Expr> {
@@ -916,11 +1002,23 @@ impl<'a> Parser<'a> {
 
         let parameters = self.parse_function_parameters()?;
         let return_type = self.parse_return_type()?;
-        let block = self.block()?;
+
+        let body_left_span = self.current().span;
+        let body = match self.block()? {
+            Block(block) => block,
+            _ => {
+                return Err(MissingBlock {
+                    src: self.source.to_string(),
+                    span: self.create_span(body_left_span, self.previous().span),
+                }
+                .into());
+            }
+        };
+        let body_right_span = self.previous().span;
 
         Ok(Lambda(LambdaExpr {
             parameters,
-            body: block,
+            body: Box::new(Typed::new(body, self.create_span(body_left_span, body_right_span))),
             return_type,
         }))
     }
@@ -962,7 +1060,7 @@ impl<'a> Parser<'a> {
 
     fn logic_or(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
-        let mut expr = self.logic_and()?;
+        let mut expr = self.parse_binary_operand(Self::logic_and)?;
         let expr_right_span = self.previous().span;
 
         while self.consume(&[TokenKind::Or]) {
@@ -976,7 +1074,7 @@ impl<'a> Parser<'a> {
             let operator_span = operator.span;
             let right_left_span = self.current().span;
 
-            let result = self.logic_and();
+            let result = self.parse_binary_operand(Self::logic_and);
             let right_right_span = self.current().span;
 
             let right = self.expect_expr(result, "right", operator_span)?;
@@ -992,7 +1090,7 @@ impl<'a> Parser<'a> {
 
     fn logic_and(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
-        let mut expr = self.equality()?;
+        let mut expr = self.parse_binary_operand(Self::equality)?;
         let expr_right_span = self.previous().span;
 
         while self.consume(&[TokenKind::And]) {
@@ -1006,7 +1104,7 @@ impl<'a> Parser<'a> {
             let operator_span = operator.span;
             let right_left_span = self.current().span;
 
-            let result = self.equality();
+            let result = self.parse_binary_operand(Self::equality);
             let right_right_span = self.current().span;
 
             let right = self.expect_expr(result, "right", operator_span)?;
@@ -1022,7 +1120,7 @@ impl<'a> Parser<'a> {
 
     fn equality(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
-        let mut expr = self.comparison()?;
+        let mut expr = self.parse_binary_operand(Self::comparison)?;
         let expr_right_span = self.previous().span;
 
         while self.consume(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
@@ -1036,7 +1134,7 @@ impl<'a> Parser<'a> {
             let operator_span = operator.span;
 
             let right_left_span = self.current().span;
-            let result = self.comparison();
+            let result = self.parse_binary_operand(Self::comparison);
             let right_right_span = self.previous().span;
 
             let right = self.expect_expr(result, "right", operator_span)?;
@@ -1052,7 +1150,7 @@ impl<'a> Parser<'a> {
 
     fn comparison(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
-        let mut expr = self.term()?;
+        let mut expr = self.parse_binary_operand(Self::term)?;
         let expr_right_span = self.previous().span;
 
         while self.consume(&[TokenKind::Less, TokenKind::LessEqual, TokenKind::Greater, TokenKind::GreaterEqual]) {
@@ -1069,7 +1167,7 @@ impl<'a> Parser<'a> {
             let operator_span = operator.span;
 
             let right_left_span = self.current().span;
-            let result = self.term();
+            let result = self.parse_binary_operand(Self::term);
             let right_right_span = self.previous().span;
 
             let right = self.expect_expr(result, "right", operator_span)?;
@@ -1085,7 +1183,7 @@ impl<'a> Parser<'a> {
 
     fn term(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
-        let mut expr = self.factor()?;
+        let mut expr = self.parse_binary_operand(Self::factor)?;
         let expr_right_span = self.previous().span;
 
         while self.consume(&[TokenKind::Plus, TokenKind::Minus]) {
@@ -1100,7 +1198,7 @@ impl<'a> Parser<'a> {
             let operator_span = operator.span;
 
             let right_left_span = self.current().span;
-            let result = self.factor();
+            let result = self.parse_binary_operand(Self::factor);
             let right_right_span = self.previous().span;
             let right = self.expect_expr(result, "right", operator_span)?;
 
@@ -1115,7 +1213,7 @@ impl<'a> Parser<'a> {
 
     fn factor(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
-        let mut expr = self.unary()?;
+        let mut expr = self.parse_binary_operand(Self::unary)?;
         let expr_right_span = self.previous().span;
 
         while self.consume(&[TokenKind::Slash, TokenKind::Star]) {
@@ -1130,7 +1228,7 @@ impl<'a> Parser<'a> {
             let operator_span = operator.span;
 
             let right_left_span = self.current().span;
-            let result = self.unary();
+            let result = self.parse_binary_operand(Self::unary);
             let right_right_span = self.previous().span;
 
             let right = self.expect_expr(result, "right", operator_span)?;

@@ -1,5 +1,5 @@
 use crate::ast::{
-    BinaryOp, BlockStmt, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
+    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
     VarDeclStmt, WhileStmt,
 };
 use crate::builtins::{clock_native, print_native};
@@ -26,7 +26,7 @@ pub enum Function {
     NativeFunction(fn(Vec<Value>) -> Result<Value, String>),
     UserFunction {
         params: Rc<Vec<Typed<Parameter>>>,
-        body: Rc<Typed<BlockStmt>>,
+        body: Rc<Typed<BlockExpr>>,
     },
 }
 
@@ -150,11 +150,17 @@ impl<'a> Interpreter<'a> {
             Stmt::ExprStmtNode(expr) => self.expr_stmt(expr),
             Stmt::VarDecl(var_decl) => self.var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.fun_decl(fun_decl),
-            Stmt::Block(block) => self.block(block),
             Stmt::If(if_stmt) => self.if_stmt(if_stmt),
             Stmt::While(while_stmt) => self.while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.return_stmt(return_stmt),
         }
+    }
+
+    fn interpret_stmts(&mut self, stmts: &Vec<Stmt>) -> Result<(), InterpreterError> {
+        for stmt in stmts {
+            self.interpret_stmt(stmt)?;
+        }
+        Ok(())
     }
 
     fn expr_stmt(&mut self, expr: &Typed<ExprStmt>) -> Result<(), InterpreterError> {
@@ -185,20 +191,13 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn block(&mut self, block: &Typed<BlockStmt>) -> Result<(), InterpreterError> {
-        for stmt in &block.node.statements {
-            self.interpret_stmt(stmt)?;
-        }
-        Ok(())
-    }
-
     fn if_stmt(&mut self, if_stmt: &Typed<IfStmt>) -> Result<(), InterpreterError> {
         let cond_value = self.interpret_expr(&if_stmt.node.condition)?;
 
         if cond_value.to_bool() {
-            self.block(&if_stmt.node.then_branch)?;
+            self.interpret_stmts(&if_stmt.node.then_branch.node.statements)?;
         } else if let Some(else_branch) = &if_stmt.node.else_branch {
-            self.block(else_branch)?;
+            self.interpret_stmts(&else_branch.node.statements)?;
         }
 
         Ok(())
@@ -207,7 +206,7 @@ impl<'a> Interpreter<'a> {
     fn while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) -> Result<(), InterpreterError> {
         let mut cond_value = self.interpret_expr(&while_stmt.node.condition)?.to_bool();
         while cond_value {
-            self.block(&while_stmt.node.body)?;
+            self.interpret_stmts(&while_stmt.node.body.node.statements)?;
             cond_value = self.interpret_expr(&while_stmt.node.condition)?.to_bool();
         }
 
@@ -225,6 +224,15 @@ impl<'a> Interpreter<'a> {
 
     fn interpret_expr(&mut self, expr: &Typed<Expr>) -> Result<Value, InterpreterError> {
         match &expr.node {
+            Expr::Block(block) => {
+                self.interpret_stmts(&block.statements)?;
+
+                if let Some(expr) = &block.expr {
+                    Ok(self.interpret_expr(expr.deref())?)
+                } else {
+                    Ok(Value::Nil)
+                }
+            }
             Expr::Literal(lit) => match &lit {
                 LiteralExpr::Number(num) => Ok(Value::Number(*num)),
                 LiteralExpr::String(str) => Ok(Value::String(Rc::from(str.as_str()))),
@@ -312,7 +320,7 @@ impl<'a> Interpreter<'a> {
                             let value = self.interpret_expr(arg)?;
                             self.insert_var(param.node.name.node.clone(), value);
                         }
-                        let return_val = match self.block(&body) {
+                        let return_val = match self.interpret_stmts(&body.node.statements) {
                             Ok(_) => Value::Nil,
                             Err(InterpreterError::RuntimeError(err)) => return Err(InterpreterError::RuntimeError(err)),
                             Err(InterpreterError::ControlFlowError(ControlFlow::Return(val))) => val,
@@ -326,7 +334,7 @@ impl<'a> Interpreter<'a> {
 
             Expr::Lambda(lambda) => Ok(Value::Function(Rc::new(UserFunction {
                 params: Rc::new(lambda.parameters.clone()),
-                body: Rc::new(lambda.body.clone()),
+                body: Rc::new(lambda.body.deref().clone()),
             }))),
         }
     }

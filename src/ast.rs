@@ -40,7 +40,6 @@ pub enum Stmt {
     ExprStmtNode(Typed<ExprStmt>),
     VarDecl(Typed<VarDeclStmt>),
     FunDecl(Typed<FunDeclStmt>),
-    Block(Typed<BlockStmt>),
     If(Typed<IfStmt>),
     While(Typed<WhileStmt>),
     Return(Typed<ReturnStmt>),
@@ -69,26 +68,21 @@ pub struct Parameter {
 pub struct FunDeclStmt {
     pub ident: Ident,
     pub params: Vec<Typed<Parameter>>,
-    pub body: Typed<BlockStmt>,
+    pub body: Typed<BlockExpr>,
     pub return_type: Type,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct BlockStmt {
-    pub statements: Vec<Stmt>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfStmt {
     pub condition: Typed<Expr>,
-    pub then_branch: Typed<BlockStmt>,
-    pub else_branch: Option<Typed<BlockStmt>>,
+    pub then_branch: Typed<BlockExpr>,
+    pub else_branch: Option<Typed<BlockExpr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileStmt {
     pub condition: Typed<Expr>,
-    pub body: Typed<BlockStmt>,
+    pub body: Typed<BlockExpr>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReturnStmt {
@@ -106,6 +100,7 @@ pub enum Expr {
     Logical(LogicalExpr),
     Call(CallExpr),
     Lambda(LambdaExpr),
+    Block(BlockExpr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -143,8 +138,14 @@ pub struct CallExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
     pub parameters: Vec<Typed<Parameter>>,
-    pub body: Typed<BlockStmt>,
+    pub body: Box<Typed<BlockExpr>>,
     pub return_type: Type,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlockExpr {
+    pub statements: Vec<Stmt>,
+    pub expr: Option<Box<Typed<Expr>>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

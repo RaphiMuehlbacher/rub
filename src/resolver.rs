@@ -1,4 +1,4 @@
-use crate::ast::{BlockStmt, Expr, ExprStmt, FunDeclStmt, IfStmt, Parameter, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt};
+use crate::ast::{BlockExpr, Expr, ExprStmt, FunDeclStmt, IfStmt, Parameter, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt};
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
     DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable,
@@ -82,7 +82,6 @@ impl<'a> Resolver<'a> {
             Stmt::ExprStmtNode(expr_stmt) => self.resolve_expr_stmt(expr_stmt),
             Stmt::VarDecl(var_decl) => self.resolve_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.resolve_fun_decl(fun_decl),
-            Stmt::Block(block) => self.resolve_block(block),
             Stmt::If(if_stmt) => self.resolve_if_stmt(if_stmt),
             Stmt::While(while_stmt) => self.resolve_while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.resolve_return_stmt(return_stmt),
@@ -132,25 +131,24 @@ impl<'a> Resolver<'a> {
         self.scopes.pop();
     }
 
-    fn resolve_block(&mut self, block: &Typed<BlockStmt>) {
+    fn resolve_stmts(&mut self, stmts: &Vec<Stmt>) {
         self.scopes.push(HashMap::new());
-        for stmt in &block.node.statements {
+        for stmt in stmts {
             self.resolve_stmt(stmt);
         }
         self.scopes.pop();
     }
-
     fn resolve_if_stmt(&mut self, if_stmt: &Typed<IfStmt>) {
         self.resolve_expr(&if_stmt.node.condition);
-        self.resolve_block(&if_stmt.node.then_branch);
+        self.resolve_stmts(&if_stmt.node.then_branch.node.statements);
         if let Some(else_branch) = &if_stmt.node.else_branch {
-            self.resolve_block(else_branch);
+            self.resolve_stmts(&else_branch.node.statements);
         }
     }
 
     fn resolve_while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) {
         self.resolve_expr(&while_stmt.node.condition);
-        self.resolve_block(&while_stmt.node.body);
+        self.resolve_stmts(&while_stmt.node.body.node.statements);
     }
 
     fn resolve_return_stmt(&mut self, return_stmt: &Typed<ReturnStmt>) {
@@ -162,6 +160,17 @@ impl<'a> Resolver<'a> {
     fn resolve_expr(&mut self, expr: &Typed<Expr>) {
         match &expr.node {
             Expr::Literal(_) => {}
+            Expr::Block(block) => {
+                self.scopes.push(HashMap::new());
+                for stmt in &block.statements {
+                    self.resolve_stmt(stmt);
+                }
+                if let Some(expr) = &block.expr {
+                    self.resolve_expr(expr)
+                }
+
+                self.scopes.pop();
+            }
             Expr::Unary(unary_expr) => {
                 self.resolve_expr(unary_expr.expr.deref());
             }
