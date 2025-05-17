@@ -1,8 +1,7 @@
 use crate::ast::{
-    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, UnaryOp,
-    VarDeclStmt, WhileStmt,
+    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, UnaryOp, VarDeclStmt,
+    WhileStmt,
 };
-use crate::builtins::print_native;
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::TypeMismatch;
 use crate::type_inferrer::Type::TypeVar;
@@ -197,7 +196,6 @@ impl<'a> TypeInferrer<'a> {
             Stmt::ExprStmtNode(expr_stmt) => self.infer_expr_stmt(expr_stmt),
             Stmt::VarDecl(var_decl) => self.infer_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.infer_fun_decl(fun_decl),
-            Stmt::If(if_stmt) => self.infer_if_stmt(if_stmt),
             Stmt::While(while_stmt) => self.infer_while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.infer_return_stmt(return_stmt),
         }
@@ -272,14 +270,21 @@ impl<'a> TypeInferrer<'a> {
         Ok(())
     }
 
-    fn infer_if_stmt(&mut self, if_stmt: &Typed<IfStmt>) -> Result<(), TypeInferrerError> {
-        self.infer_expr(&if_stmt.node.condition)?;
-        self.infer_stmts(&if_stmt.node.then_branch.node.statements)?;
+    fn infer_block_expr(&mut self, block: &BlockExpr) -> Result<Type, TypeInferrerError> {
+        self.var_env.push(HashMap::new());
 
-        if let Some(else_branch) = &if_stmt.node.else_branch {
-            self.infer_stmts(&else_branch.node.statements)?;
+        for stmt in &block.statements {
+            self.infer_stmt(stmt)?;
         }
-        Ok(())
+
+        let return_ty = if let Some(expr) = &block.expr {
+            Ok(self.infer_expr(expr)?)
+        } else {
+            Ok(Type::Nil)
+        };
+
+        self.var_env.pop();
+        return_ty
     }
 
     fn infer_while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) -> Result<(), TypeInferrerError> {
@@ -321,21 +326,20 @@ impl<'a> TypeInferrer<'a> {
                 Ok(TypeVar(expr.type_id))
             }
 
-            Expr::Block(block) => {
-                self.var_env.push(HashMap::new());
+            Expr::Block(block) => self.infer_block_expr(block),
 
-                for stmt in &block.statements {
-                    self.infer_stmt(stmt)?;
-                }
+            Expr::If(if_expr) => {
+                self.infer_expr(&if_expr.condition)?;
 
-                let return_ty = if let Some(expr) = &block.expr {
-                    Ok(self.infer_expr(expr)?)
+                let then_return_ty = self.infer_block_expr(&if_expr.then_branch.node)?;
+                let else_return_ty = if let Some(else_branch) = &if_expr.else_branch {
+                    self.infer_block_expr(&else_branch.node)?
                 } else {
-                    Ok(Type::Nil)
+                    Type::Nil
                 };
 
-                self.var_env.pop();
-                return_ty
+                let return_ty = self.unify(then_return_ty, else_return_ty, if_expr.then_branch.span)?;
+                Ok(return_ty)
             }
             Expr::Unary(unary_expr) => {
                 let right_ty = self.infer_expr(unary_expr.expr.deref())?;

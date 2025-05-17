@@ -23,6 +23,19 @@ pub enum RuntimeError {
 
         type_name: String,
     },
+
+    #[error("Return statement used outside of a function")]
+    #[diagnostic(
+        help("Return statements can only be used inside functions"),
+        code(runtime::return_outside_function)
+    )]
+    ReturnOutsideFunction {
+        #[source_code]
+        src: String,
+
+        #[label("invalid return statement here")]
+        span: SourceSpan,
+    },
 }
 
 #[derive(Debug, Error, Diagnostic)]

@@ -1,9 +1,9 @@
 use crate::ast::{
-    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
+    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
     VarDeclStmt, WhileStmt,
 };
 use crate::builtins::{clock_native, print_native};
-use crate::error::InterpreterError;
+use crate::error::{InterpreterError, RuntimeError};
 use crate::interpreters::Function::{NativeFunction, UserFunction};
 use crate::type_inferrer::{Type, TypeVarId};
 use miette::Report;
@@ -126,7 +126,17 @@ impl<'a> Interpreter<'a> {
                         error: Some(Report::from(err)),
                     };
                 }
-                _ => panic!(),
+                Err(InterpreterError::ControlFlowError(ControlFlow::Return(_))) => {
+                    return InterpreterResult {
+                        error: Some(
+                            RuntimeError::ReturnOutsideFunction {
+                                src: self.source.to_string(),
+                                span: stmt.span(),
+                            }
+                            .into(),
+                        ),
+                    };
+                }
             }
         }
         InterpreterResult { error: None }
@@ -150,7 +160,6 @@ impl<'a> Interpreter<'a> {
             Stmt::ExprStmtNode(expr) => self.expr_stmt(expr),
             Stmt::VarDecl(var_decl) => self.var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.fun_decl(fun_decl),
-            Stmt::If(if_stmt) => self.if_stmt(if_stmt),
             Stmt::While(while_stmt) => self.while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.return_stmt(return_stmt),
         }
@@ -191,18 +200,6 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn if_stmt(&mut self, if_stmt: &Typed<IfStmt>) -> Result<(), InterpreterError> {
-        let cond_value = self.interpret_expr(&if_stmt.node.condition)?;
-
-        if cond_value.to_bool() {
-            self.interpret_stmts(&if_stmt.node.then_branch.node.statements)?;
-        } else if let Some(else_branch) = &if_stmt.node.else_branch {
-            self.interpret_stmts(&else_branch.node.statements)?;
-        }
-
-        Ok(())
-    }
-
     fn while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) -> Result<(), InterpreterError> {
         let mut cond_value = self.interpret_expr(&while_stmt.node.condition)?.to_bool();
         while cond_value {
@@ -222,16 +219,45 @@ impl<'a> Interpreter<'a> {
         Err(InterpreterError::ControlFlowError(ControlFlow::Return(value)))
     }
 
+    // fn if_stmt(&mut self, if_stmt: &Typed<IfStmt>) -> Result<(), InterpreterError> {
+    //     let cond_value = self.interpret_expr(&if_stmt.node.condition)?;
+    //
+    //     if cond_value.to_bool() {
+    //         self.interpret_stmts(&if_stmt.node.then_branch.node.statements)?;
+    //     } else if let Some(else_branch) = &if_stmt.node.else_branch {
+    //         self.interpret_stmts(&else_branch.node.statements)?;
+    //     }
+    //
+    //     Ok(())
+    // }
+
+    fn interpret_block_expr(&mut self, block: &BlockExpr) -> Result<Value, InterpreterError> {
+        for stmt in &block.statements {
+            self.interpret_stmt(stmt)?;
+        }
+
+        if let Some(expr) = &block.expr {
+            Ok(self.interpret_expr(expr.deref())?)
+        } else {
+            Ok(Value::Nil)
+        }
+    }
+
     fn interpret_expr(&mut self, expr: &Typed<Expr>) -> Result<Value, InterpreterError> {
         match &expr.node {
-            Expr::Block(block) => {
-                self.interpret_stmts(&block.statements)?;
+            Expr::Block(block) => Ok(self.interpret_block_expr(block)?),
+            Expr::If(if_expr) => {
+                let cond_value = self.interpret_expr(&if_expr.condition)?;
 
-                if let Some(expr) = &block.expr {
-                    Ok(self.interpret_expr(expr.deref())?)
+                let return_value = if cond_value.to_bool() {
+                    self.interpret_block_expr(&if_expr.then_branch.node)?
+                } else if let Some(else_branch) = &if_expr.else_branch {
+                    self.interpret_block_expr(&else_branch.node)?
                 } else {
-                    Ok(Value::Nil)
-                }
+                    Value::Nil
+                };
+
+                Ok(return_value)
             }
             Expr::Literal(lit) => match &lit {
                 LiteralExpr::Number(num) => Ok(Value::Number(*num)),

@@ -1,7 +1,7 @@
 use crate::ast::Expr::{Block, Call, Grouping, Lambda, Literal, Unary, Variable};
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfStmt, LambdaExpr, LiteralExpr,
+    AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr,
     LogicalExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
@@ -691,9 +691,7 @@ impl<'a> Parser<'a> {
 
     /// current is the start of the statement
     fn statement(&mut self) -> ParseResult<Stmt> {
-        if self.matches(&[TokenKind::If]) {
-            return self.if_stmt();
-        } else if self.matches(&[TokenKind::While]) {
+        if self.matches(&[TokenKind::While]) {
             return self.while_stmt();
         } else if self.matches(&[TokenKind::For]) {
             return self.for_stmt();
@@ -720,10 +718,53 @@ impl<'a> Parser<'a> {
             self.create_span(left_span, self.previous().span),
         )))
     }
+    /// start is `if`, end is next statement
+    fn if_expr(&mut self) -> ParseResult<Expr> {
+        self.advance_position();
+        let condition_left_span = self.current().span;
+        let condition = self.parse_condition()?;
+        let condition_right_span = self.current().span;
+
+        let then_branch_left_span = self.current().span;
+        let then_branch = match self.block()? {
+            Block(block) => block,
+            _ => {
+                return Err(MissingBlock {
+                    src: self.source.to_string(),
+                    span: self.create_span(then_branch_left_span, self.previous().span),
+                }
+                .into());
+            }
+        };
+        let then_branch_right_span = self.previous().span;
+
+        let else_branch_left_span = self.current().span;
+        let mut else_branch = None;
+        if self.consume(&[TokenKind::Else]) {
+            else_branch = match self.block()? {
+                Block(block) => Some(Box::new(Typed::new(
+                    block,
+                    self.create_span(else_branch_left_span, self.previous().span),
+                ))),
+                _ => {
+                    return Err(MissingBlock {
+                        src: self.source.to_string(),
+                        span: self.create_span(then_branch_left_span, self.previous().span),
+                    }
+                    .into());
+                }
+            };
+        }
+
+        Ok(Expr::If(IfExpr {
+            condition: Box::new(Typed::new(condition, self.create_span(condition_left_span, condition_right_span))),
+            then_branch: Typed::new(then_branch, self.create_span(then_branch_left_span, then_branch_right_span)),
+            else_branch,
+        }))
+    }
 
     /// current is '{' and ends after '}'
     fn block(&mut self) -> ParseResult<Expr> {
-        let opening_brace_span = self.current().span;
         self.open_delimiter(self.current().token_kind.clone())?;
 
         let mut statements = vec![];
@@ -756,51 +797,6 @@ impl<'a> Parser<'a> {
             statements,
             expr: expression,
         }))
-    }
-
-    /// start is `if`, end is next statement
-    fn if_stmt(&mut self) -> ParseResult<Stmt> {
-        let if_span = self.current().span;
-        self.advance_position();
-        let condition_span = self.current().span;
-        let condition = self.parse_condition()?;
-
-        let then_branch_left_span = self.current().span;
-        let then_branch = match self.block()? {
-            Block(block) => block,
-            _ => {
-                return Err(MissingBlock {
-                    src: self.source.to_string(),
-                    span: self.create_span(then_branch_left_span, self.previous().span),
-                }
-                .into());
-            }
-        };
-        let then_branch_right_span = self.previous().span;
-
-        let else_branch_left_span = self.current().span;
-        let mut else_branch = None;
-        if self.consume(&[TokenKind::Else]) {
-            else_branch = match self.block()? {
-                Block(block) => Some(Typed::new(block, self.create_span(else_branch_left_span, self.previous().span))),
-                _ => {
-                    return Err(MissingBlock {
-                        src: self.source.to_string(),
-                        span: self.create_span(then_branch_left_span, self.previous().span),
-                    }
-                    .into());
-                }
-            };
-        }
-
-        Ok(Stmt::If(Typed::new(
-            IfStmt {
-                condition: Typed::new(condition, condition_span),
-                then_branch: Typed::new(then_branch, self.create_span(then_branch_left_span, then_branch_right_span)),
-                else_branch,
-            },
-            self.create_span(if_span, self.previous().span),
-        )))
     }
 
     /// starts at first condition token, ends after the condition
@@ -937,14 +933,12 @@ impl<'a> Parser<'a> {
         ));
         statements.push(while_stmt);
 
-        Ok(Stmt::If(Typed::new(
-            IfStmt {
-                condition: Typed::new(Literal(LiteralExpr::Bool(true)), self.create_span(for_span, for_span)),
-                then_branch: Typed::new(
-                    BlockExpr { statements, expr: None },
+        Ok(ExprStmtNode(Typed::new(
+            ExprStmt {
+                expr: Typed::new(
+                    Block(BlockExpr { statements, expr: None }),
                     self.create_span(for_span, self.previous().span),
                 ),
-                else_branch: None,
             },
             self.create_span(for_span, self.previous().span),
         )))
@@ -983,6 +977,8 @@ impl<'a> Parser<'a> {
     fn expression(&mut self) -> ParseResult<Expr> {
         if self.matches(&[TokenKind::Fn]) {
             return self.lambda_expr();
+        } else if self.matches(&[TokenKind::If]) {
+            return self.if_expr();
         } else if self.matches(&[TokenKind::LeftBrace]) {
             return self.block();
         }

@@ -1,4 +1,4 @@
-use crate::ast::{BlockExpr, Expr, ExprStmt, FunDeclStmt, IfStmt, Parameter, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt};
+use crate::ast::{Expr, ExprStmt, FunDeclStmt, Parameter, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt};
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
     DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable,
@@ -82,7 +82,6 @@ impl<'a> Resolver<'a> {
             Stmt::ExprStmtNode(expr_stmt) => self.resolve_expr_stmt(expr_stmt),
             Stmt::VarDecl(var_decl) => self.resolve_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.resolve_fun_decl(fun_decl),
-            Stmt::If(if_stmt) => self.resolve_if_stmt(if_stmt),
             Stmt::While(while_stmt) => self.resolve_while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.resolve_return_stmt(return_stmt),
         }
@@ -138,13 +137,6 @@ impl<'a> Resolver<'a> {
         }
         self.scopes.pop();
     }
-    fn resolve_if_stmt(&mut self, if_stmt: &Typed<IfStmt>) {
-        self.resolve_expr(&if_stmt.node.condition);
-        self.resolve_stmts(&if_stmt.node.then_branch.node.statements);
-        if let Some(else_branch) = &if_stmt.node.else_branch {
-            self.resolve_stmts(&else_branch.node.statements);
-        }
-    }
 
     fn resolve_while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) {
         self.resolve_expr(&while_stmt.node.condition);
@@ -170,6 +162,13 @@ impl<'a> Resolver<'a> {
                 }
 
                 self.scopes.pop();
+            }
+            Expr::If(if_expr) => {
+                self.resolve_expr(&if_expr.condition);
+                self.resolve_stmts(&if_expr.then_branch.node.statements);
+                if let Some(else_branch) = &if_expr.else_branch {
+                    self.resolve_stmts(&else_branch.node.statements);
+                }
             }
             Expr::Unary(unary_expr) => {
                 self.resolve_expr(unary_expr.expr.deref());

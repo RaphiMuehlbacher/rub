@@ -40,11 +40,21 @@ pub enum Stmt {
     ExprStmtNode(Typed<ExprStmt>),
     VarDecl(Typed<VarDeclStmt>),
     FunDecl(Typed<FunDeclStmt>),
-    If(Typed<IfStmt>),
     While(Typed<WhileStmt>),
     Return(Typed<ReturnStmt>),
 }
 
+impl Stmt {
+    pub fn span(&self) -> SourceSpan {
+        match self {
+            Stmt::ExprStmtNode(stmt) => stmt.span,
+            Stmt::VarDecl(stmt) => stmt.span,
+            Stmt::FunDecl(stmt) => stmt.span,
+            Stmt::While(stmt) => stmt.span,
+            Stmt::Return(stmt) => stmt.span,
+        }
+    }
+}
 pub type Ident = Typed<String>;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -73,13 +83,6 @@ pub struct FunDeclStmt {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct IfStmt {
-    pub condition: Typed<Expr>,
-    pub then_branch: Typed<BlockExpr>,
-    pub else_branch: Option<Typed<BlockExpr>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct WhileStmt {
     pub condition: Typed<Expr>,
     pub body: Typed<BlockExpr>,
@@ -101,6 +104,7 @@ pub enum Expr {
     Call(CallExpr),
     Lambda(LambdaExpr),
     Block(BlockExpr),
+    If(IfExpr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,6 +150,13 @@ pub struct LambdaExpr {
 pub struct BlockExpr {
     pub statements: Vec<Stmt>,
     pub expr: Option<Box<Typed<Expr>>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IfExpr {
+    pub condition: Box<Typed<Expr>>,
+    pub then_branch: Typed<BlockExpr>,
+    pub else_branch: Option<Box<Typed<BlockExpr>>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
