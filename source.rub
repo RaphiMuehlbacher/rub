@@ -1,7 +1,1 @@
-if 3 > 5 {
-    print("first");
-} else if 3 == 2 {
-    print("second");
-} else {
-    print("third");
-};
+let a = [1, 2, 3];

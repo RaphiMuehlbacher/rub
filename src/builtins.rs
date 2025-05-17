@@ -9,10 +9,7 @@ pub fn clock_native(_args: Vec<Value>) -> Result<Value, String> {
 pub fn print_native(args: Vec<Value>) -> Result<Value, String> {
     let mut text = String::new();
     for arg in args {
-        match arg.to_printable_value() {
-            Ok(str) => text.push_str(str.as_str()),
-            Err(_) => return Err("error".to_string()),
-        }
+        text.push_str(arg.to_printable_value().as_str());
     }
 
     println!("{text}");

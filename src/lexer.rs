@@ -7,6 +7,8 @@ pub enum TokenKind {
     RightParen,
     LeftBrace,
     RightBrace,
+    LeftBracket,
+    RightBracket,
     Comma,
     Dot,
     Minus,
@@ -93,6 +95,8 @@ impl<'a> Lexer<'a> {
                 ')' => self.create_token(TokenKind::RightParen),
                 '{' => self.create_token(TokenKind::LeftBrace),
                 '}' => self.create_token(TokenKind::RightBrace),
+                '[' => self.create_token(TokenKind::LeftBracket),
+                ']' => self.create_token(TokenKind::RightBracket),
                 ',' => self.create_token(TokenKind::Comma),
                 '.' => self.create_token(TokenKind::Dot),
                 '-' => {

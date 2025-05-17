@@ -1,4 +1,5 @@
 use crate::ast::Expr::{Block, Call, Grouping, Lambda, Literal, Unary, Variable};
+use crate::ast::LiteralExpr::Array;
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr,
@@ -209,7 +210,7 @@ impl<'a> Parser<'a> {
     fn open_delimiter(&mut self, open_delim: TokenKind) -> ParseResult<()> {
         let current_token = self.current().clone();
         match open_delim {
-            TokenKind::LeftParen | TokenKind::LeftBrace => {
+            TokenKind::LeftParen | TokenKind::LeftBrace | TokenKind::LeftBracket => {
                 self.delimiter_stack.push(Delimiter {
                     delimiter: open_delim,
                     span: current_token.span,
@@ -246,6 +247,7 @@ impl<'a> Parser<'a> {
         let expected_closing = match last_delimiter.delimiter {
             TokenKind::LeftParen => TokenKind::RightParen,
             TokenKind::LeftBrace => TokenKind::RightBrace,
+            TokenKind::LeftBracket => TokenKind::RightBracket,
             _ => unreachable!("Invalid opening delimiter"),
         };
 
@@ -1339,6 +1341,32 @@ impl<'a> Parser<'a> {
                     delimiter: self.current().token_kind.clone(),
                 }
                 .into())
+            }
+            TokenKind::LeftBracket => {
+                self.open_delimiter(self.current().token_kind.clone())?;
+
+                let mut elements = vec![];
+
+                if !self.matches(&[TokenKind::RightBracket]) {
+                    let expr_left_span = self.current().span;
+                    elements.push(Typed::new(
+                        self.expression()?,
+                        self.create_span(expr_left_span, self.previous().span),
+                    ));
+
+                    while self.consume(&[TokenKind::Comma]) {
+                        if self.matches(&[TokenKind::RightBracket]) {
+                            break;
+                        }
+                        let expr_left_span = self.current().span;
+                        elements.push(Typed::new(
+                            self.expression()?,
+                            self.create_span(expr_left_span, self.previous().span),
+                        ));
+                    }
+                }
+                self.close_delimiter(TokenKind::RightBracket)?;
+                Ok(Literal(Array(elements)))
             }
             TokenKind::False => {
                 self.advance_position();

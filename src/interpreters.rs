@@ -18,6 +18,7 @@ pub enum Value {
     String(Rc<str>),
     Bool(bool),
     Function(Rc<Function>),
+    Array(Vec<Value>),
     Nil,
 }
 
@@ -25,19 +26,35 @@ pub enum Value {
 pub enum Function {
     NativeFunction(fn(Vec<Value>) -> Result<Value, String>),
     UserFunction {
+        name: Option<String>,
         params: Rc<Vec<Typed<Parameter>>>,
         body: Rc<Typed<BlockExpr>>,
     },
 }
 
 impl Value {
-    pub fn to_printable_value(&self) -> Result<String, ()> {
+    pub fn to_printable_value(&self) -> String {
         match self {
-            Value::Number(num) => Ok(format!("{num}")),
-            Value::String(str) => Ok(format!("{str}")),
-            Value::Bool(bool) => Ok(format!("{bool}")),
-            Value::Function(_) => Err(()),
-            Value::Nil => Ok("nil".to_string()),
+            Value::Number(num) => format!("{num}"),
+            Value::String(str) => format!("{str}"),
+            Value::Bool(bool) => format!("{bool}"),
+            Value::Array(array) => {
+                let elements: Vec<String> = array.iter().map(|value| value.to_printable_value()).collect();
+                format!("[{}]", elements.join(", "))
+            }
+            Value::Function(function) => match function.as_ref() {
+                NativeFunction(_) => "<native_fn>".to_string(),
+                UserFunction { name, params, body: _ } => {
+                    let param_strings: Vec<String> = params.iter().map(|p| p.node.name.node.clone()).collect();
+                    match name {
+                        None => format!("<fn ({})>", param_strings.join(", ")),
+                        Some(name) => {
+                            format!("<fn {name}({})>", param_strings.join(", "))
+                        }
+                    }
+                }
+            },
+            Value::Nil => "nil".to_string(),
         }
     }
 
@@ -146,6 +163,7 @@ impl<'a> Interpreter<'a> {
         match stmt {
             Stmt::FunDecl(fun_decl) => {
                 let value = Value::Function(Rc::new(UserFunction {
+                    name: Some(fun_decl.node.ident.node.clone()),
                     params: Rc::new(fun_decl.node.params.clone()),
                     body: Rc::new(fun_decl.node.body.clone()),
                 }));
@@ -192,6 +210,7 @@ impl<'a> Interpreter<'a> {
         self.insert_var(
             fun_decl.node.ident.node.clone(),
             Value::Function(Rc::new(UserFunction {
+                name: Some(fun_decl.node.ident.node.clone()),
                 params: Rc::new(fun_decl.node.params.clone()),
                 body: Rc::new(fun_decl.node.body.clone()),
             })),
@@ -252,6 +271,13 @@ impl<'a> Interpreter<'a> {
                 LiteralExpr::String(str) => Ok(Value::String(Rc::from(str.as_str()))),
                 LiteralExpr::Bool(bool) => Ok(Value::Bool(*bool)),
                 LiteralExpr::Nil => Ok(Value::Nil),
+                LiteralExpr::Array(array) => {
+                    let mut values = vec![];
+                    for expr in array {
+                        values.push(self.interpret_expr(expr)?);
+                    }
+                    Ok(Value::Array(values))
+                }
             },
 
             Expr::Unary(unary) => {
@@ -328,7 +354,7 @@ impl<'a> Interpreter<'a> {
                         }
                         Ok(native_fun(arguments).expect("error handling for native functions not yet implemented"))
                     }
-                    UserFunction { params, body } => {
+                    UserFunction { name: _, params, body } => {
                         self.var_env.push(HashMap::new());
                         for (arg, param) in call.arguments.iter().zip(params.as_ref()) {
                             let value = self.interpret_expr(arg)?;
@@ -347,6 +373,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Lambda(lambda) => Ok(Value::Function(Rc::new(UserFunction {
+                name: None,
                 params: Rc::new(lambda.parameters.clone()),
                 body: Rc::new(lambda.body.deref().clone()),
             }))),
