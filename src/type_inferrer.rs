@@ -247,9 +247,14 @@ impl<'a> TypeInferrer<'a> {
         let old_ret_ty = self.current_function_return_ty.clone();
         self.current_function_return_ty = Some(fun_decl.node.return_type.clone());
 
-        for stmt in &fun_decl.node.body.node.statements {
-            self.infer_stmt(stmt)?;
-        }
+        self.infer_stmts(&fun_decl.node.body.node.statements)?;
+        let body_ty = if let Some(expr) = &fun_decl.node.body.node.expr {
+            self.infer_expr(expr)?
+        } else {
+            Type::Nil
+        };
+
+        self.unify(fun_decl.node.return_type.clone(), body_ty, fun_decl.node.ident.span)?;
 
         self.current_function_return_ty = old_ret_ty;
         self.var_env.pop();
