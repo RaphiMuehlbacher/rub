@@ -219,18 +219,6 @@ impl<'a> Interpreter<'a> {
         Err(InterpreterError::ControlFlowError(ControlFlow::Return(value)))
     }
 
-    // fn if_stmt(&mut self, if_stmt: &Typed<IfStmt>) -> Result<(), InterpreterError> {
-    //     let cond_value = self.interpret_expr(&if_stmt.node.condition)?;
-    //
-    //     if cond_value.to_bool() {
-    //         self.interpret_stmts(&if_stmt.node.then_branch.node.statements)?;
-    //     } else if let Some(else_branch) = &if_stmt.node.else_branch {
-    //         self.interpret_stmts(&else_branch.node.statements)?;
-    //     }
-    //
-    //     Ok(())
-    // }
-
     fn interpret_block_expr(&mut self, block: &BlockExpr) -> Result<Value, InterpreterError> {
         for stmt in &block.statements {
             self.interpret_stmt(stmt)?;

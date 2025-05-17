@@ -721,6 +721,7 @@ impl<'a> Parser<'a> {
     /// start is `if`, end is next statement
     fn if_expr(&mut self) -> ParseResult<Expr> {
         self.advance_position();
+
         let condition_left_span = self.current().span;
         let condition = self.parse_condition()?;
         let condition_right_span = self.current().span;
@@ -741,17 +742,31 @@ impl<'a> Parser<'a> {
         let else_branch_left_span = self.current().span;
         let mut else_branch = None;
         if self.consume(&[TokenKind::Else]) {
-            else_branch = match self.block()? {
-                Block(block) => Some(Box::new(Typed::new(
-                    block,
+            else_branch = if self.matches(&[TokenKind::If]) {
+                let if_expr = self.if_expr()?;
+                Some(Box::new(Typed::new(
+                    BlockExpr {
+                        statements: vec![],
+                        expr: Some(Box::new(Typed::new(
+                            if_expr,
+                            self.create_span(else_branch_left_span, self.previous().span),
+                        ))),
+                    },
                     self.create_span(else_branch_left_span, self.previous().span),
-                ))),
-                _ => {
-                    return Err(MissingBlock {
-                        src: self.source.to_string(),
-                        span: self.create_span(then_branch_left_span, self.previous().span),
+                )))
+            } else {
+                match self.block()? {
+                    Block(block) => Some(Box::new(Typed::new(
+                        block,
+                        self.create_span(else_branch_left_span, self.previous().span),
+                    ))),
+                    _ => {
+                        return Err(MissingBlock {
+                            src: self.source.to_string(),
+                            span: self.create_span(then_branch_left_span, self.previous().span),
+                        }
+                        .into());
                     }
-                    .into());
                 }
             };
         }
@@ -802,23 +817,21 @@ impl<'a> Parser<'a> {
     /// starts at first condition token, ends after the condition
     fn parse_condition(&mut self) -> ParseResult<Expr> {
         let expr_left_span = self.current().span;
-        let expr = match self.expression() {
-            Ok(expr) => {
-                if let Grouping(_) = &expr {
-                    self.report(
-                        RedundantParenthesis {
-                            src: self.source.to_string(),
-                            first: expr_left_span,
-                            second: self.previous().span,
-                        }
-                        .into(),
-                    );
+        let expr = self.expression()?;
+
+        if let Grouping(inner) = expr {
+            self.report(
+                RedundantParenthesis {
+                    src: self.source.to_string(),
+                    first: expr_left_span,
+                    second: self.previous().span,
                 }
-                expr
-            }
-            Err(_) => Literal(LiteralExpr::Bool(true)),
-        };
-        Ok(expr)
+                .into(),
+            );
+            Ok(inner.node)
+        } else {
+            Ok(expr)
+        }
     }
 
     /// start is `while`, end is next statement
