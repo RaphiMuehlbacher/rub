@@ -94,6 +94,11 @@ impl<'a> TypeInferrer<'a> {
             (Type::Bool, Type::Bool) => Ok(Type::Bool),
             (Type::Nil, Type::Nil) => Ok(Type::Nil),
 
+            (Type::Array(elem_ty1), Type::Array(elem_ty2)) => {
+                self.unify(*elem_ty1.clone(), *elem_ty2, span)?;
+                Ok(Type::Array(Box::new(self.lookup_type(&elem_ty1))))
+            }
+
             (Type::Function { params: p1, return_ty: r1 }, Type::Function { params: p2, return_ty: r2 }) => {
                 if p1.len() != p2.len() {
                     return Err(TypeMismatch {
@@ -323,7 +328,7 @@ impl<'a> TypeInferrer<'a> {
                     LiteralExpr::Nil => Type::Nil,
                     LiteralExpr::Array(array) => {
                         if array.is_empty() {
-                            let elem_type = TypeVar(self.fresh_type_var());
+                            let elem_type = Type::Nil;
                             let array_type = Type::Array(Box::new(elem_type));
 
                             self.type_env.insert(expr.type_id, array_type);
@@ -331,7 +336,6 @@ impl<'a> TypeInferrer<'a> {
                         }
 
                         let first_elem_ty = self.infer_expr(&array[0])?;
-
                         for elem in array.iter().skip(1) {
                             let elem_ty = self.infer_expr(elem)?;
                             self.unify(first_elem_ty.clone(), elem_ty, elem.span)?;

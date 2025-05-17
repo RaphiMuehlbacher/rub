@@ -5,6 +5,7 @@ use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr,
     LogicalExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
+use crate::builtins::print_native;
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock, MissingOperand, MissingSemicolon,
     RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter, UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken,
@@ -572,6 +573,31 @@ impl<'a> Parser<'a> {
             })
         } else {
             match self.current().token_kind {
+                TokenKind::TypeArray => {
+                    self.advance_position();
+                    if !self.consume(&[TokenKind::Less]) {
+                        return Err(UnexpectedToken {
+                            src: self.source.to_string(),
+                            span: self.current().span,
+                            expected: "'<'".to_string(),
+                            found: self.current().token_kind.clone(),
+                        }
+                        .into());
+                    }
+
+                    let inner_type = Box::new(self.parse_type()?);
+                    if !self.consume(&[TokenKind::Greater]) {
+                        return Err(UnexpectedToken {
+                            src: self.source.to_string(),
+                            span: self.current().span,
+                            expected: "'>'".to_string(),
+                            found: self.current().token_kind.clone(),
+                        }
+                        .into());
+                    }
+
+                    Ok(Type::Array(inner_type))
+                }
                 TokenKind::TypeFloat => {
                     self.advance_position();
                     Ok(Type::Float)
@@ -1356,7 +1382,11 @@ impl<'a> Parser<'a> {
 
                     while self.consume(&[TokenKind::Comma]) {
                         if self.matches(&[TokenKind::RightBracket]) {
-                            break;
+                            return Err(ExpectedExpression {
+                                src: self.source.to_string(),
+                                span: self.current().span,
+                            }
+                            .into());
                         }
                         let expr_left_span = self.current().span;
                         elements.push(Typed::new(
