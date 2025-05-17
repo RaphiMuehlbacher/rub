@@ -1,3 +1,6 @@
-fn a(b: Float) -> Float {
+fn test(b: Float) -> String {
     return b;
 }
+
+test("Hi");
+
