@@ -3,9 +3,8 @@ use crate::ast::LiteralExpr::Array;
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr,
-    LogicalExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    LogicalExpr, LogicalOp, MethodCallExpr, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
-use crate::builtins::print_native;
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock, MissingOperand, MissingSemicolon,
     RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter, UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken,
@@ -452,31 +451,7 @@ impl<'a> Parser<'a> {
             return Ok(Type::Nil);
         }
 
-        match self.current().token_kind {
-            TokenKind::TypeFloat => {
-                self.advance_position();
-                Ok(Type::Float)
-            }
-            TokenKind::TypeString => {
-                self.advance_position();
-                Ok(Type::String)
-            }
-            TokenKind::TypeBool => {
-                self.advance_position();
-                Ok(Type::Bool)
-            }
-            TokenKind::TypeNil => {
-                self.advance_position();
-                Ok(Type::Nil)
-            }
-            _ => Err(UnexpectedToken {
-                src: self.source.to_string(),
-                span: self.current().span,
-                expected: "type".to_string(),
-                found: self.current().token_kind.clone(),
-            }
-            .into()),
-        }
+        self.parse_type()
     }
 
     /// current is function name, ends at '('
@@ -1309,10 +1284,15 @@ impl<'a> Parser<'a> {
     fn call(&mut self) -> ParseResult<Expr> {
         let mut expr = self.primary()?;
 
-        while self.matches(&[TokenKind::LeftParen]) {
-            expr = self.finish_call(expr)?;
+        loop {
+            if self.matches(&[TokenKind::LeftParen]) {
+                expr = self.finish_call(expr)?;
+            } else if self.matches(&[TokenKind::Dot]) {
+                expr = self.finish_method_call(expr)?;
+            } else {
+                break;
+            }
         }
-
         Ok(expr)
     }
 
@@ -1351,6 +1331,50 @@ impl<'a> Parser<'a> {
 
         Ok(Call(CallExpr {
             callee: Box::new(Typed::new(callee, left_paren_span)),
+            arguments,
+        }))
+    }
+
+    fn finish_method_call(&mut self, receiver: Expr) -> ParseResult<Expr> {
+        self.advance_position();
+
+        let method = match self.current().token_kind.clone() {
+            TokenKind::Ident(name) => {
+                let span = self.current().span;
+                self.advance_position();
+                Typed::new(name, span)
+            }
+            _ => {
+                return Err(ExpectedIdentifier {
+                    src: self.source.to_string(),
+                    span: self.current().span,
+                    context: "method name".to_string(),
+                }
+                .into());
+            }
+        };
+        let mut arguments = vec![];
+        self.open_delimiter(TokenKind::LeftParen)?;
+
+        if !self.matches(&[TokenKind::RightParen]) {
+            let expr_left_span = self.current().span;
+            arguments.push(Typed::new(
+                self.expression()?,
+                self.create_span(expr_left_span, self.previous().span),
+            ));
+            while self.consume(&[TokenKind::Comma]) {
+                let expr_left_span = self.current().span;
+                arguments.push(Typed::new(
+                    self.expression()?,
+                    self.create_span(expr_left_span, self.previous().span),
+                ));
+            }
+        }
+
+        self.close_delimiter(TokenKind::RightParen)?;
+        Ok(Expr::MethodCall(MethodCallExpr {
+            receiver: Box::new(Typed::new(receiver, self.previous().span)),
+            method,
             arguments,
         }))
     }

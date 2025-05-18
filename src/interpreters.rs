@@ -266,6 +266,9 @@ impl<'a> Interpreter<'a> {
 
                 Ok(return_value)
             }
+            Expr::MethodCall(method_call) => {
+                todo!()
+            }
             Expr::Literal(lit) => match &lit {
                 LiteralExpr::Number(num) => Ok(Value::Number(*num)),
                 LiteralExpr::String(str) => Ok(Value::String(Rc::from(str.as_str()))),

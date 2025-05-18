@@ -1,1 +1,1 @@
-fn a(b: Array<Array<String>>) {}
+print(3 + 1);

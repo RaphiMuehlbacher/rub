@@ -170,6 +170,9 @@ impl<'a> Resolver<'a> {
                     self.resolve_stmts(&else_branch.node.statements);
                 }
             }
+            Expr::MethodCall(method_call) => {
+                todo!()
+            }
             Expr::Unary(unary_expr) => {
                 self.resolve_expr(unary_expr.expr.deref());
             }

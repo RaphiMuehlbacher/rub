@@ -168,7 +168,7 @@ impl<'a> TypeInferrer<'a> {
         self.type_env.insert(clock_id, clock_type);
 
         let print_type = Type::Function {
-            params: vec![Box::new(Type::String)],
+            params: vec![Box::new(TypeVar(0))],
             return_ty: Box::new(Type::Nil),
         };
         let print_id = self.fresh_type_var();
@@ -363,6 +363,9 @@ impl<'a> TypeInferrer<'a> {
 
                 let return_ty = self.unify(then_return_ty, else_return_ty, if_expr.then_branch.span)?;
                 Ok(return_ty)
+            }
+            Expr::MethodCall(method_call) => {
+                todo!()
             }
             Expr::Unary(unary_expr) => {
                 let right_ty = self.infer_expr(unary_expr.expr.deref())?;

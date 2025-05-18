@@ -105,6 +105,7 @@ pub enum Expr {
     Lambda(LambdaExpr),
     Block(BlockExpr),
     If(IfExpr),
+    MethodCall(MethodCallExpr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -157,6 +158,13 @@ pub struct IfExpr {
     pub condition: Box<Typed<Expr>>,
     pub then_branch: Typed<BlockExpr>,
     pub else_branch: Option<Box<Typed<BlockExpr>>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodCallExpr {
+    pub receiver: Box<Typed<Expr>>,
+    pub method: Ident,
+    pub arguments: Vec<Typed<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
