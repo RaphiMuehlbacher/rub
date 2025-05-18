@@ -171,7 +171,11 @@ impl<'a> Resolver<'a> {
                 }
             }
             Expr::MethodCall(method_call) => {
-                todo!()
+                self.resolve_expr(&method_call.receiver);
+
+                for arg in &method_call.arguments {
+                    self.resolve_expr(arg);
+                }
             }
             Expr::Unary(unary_expr) => {
                 self.resolve_expr(unary_expr.expr.deref());
