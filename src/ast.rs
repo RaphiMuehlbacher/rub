@@ -11,7 +11,7 @@ pub struct Typed<T> {
 
 impl<T> Typed<T> {
     pub fn new(node: T, span: SourceSpan) -> Self {
-        static mut TYPE_ID: usize = 0;
+        static mut TYPE_ID: usize = 1;
 
         let type_id = unsafe {
             let id = TYPE_ID;

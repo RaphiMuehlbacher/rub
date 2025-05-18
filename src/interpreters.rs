@@ -267,7 +267,15 @@ impl<'a> Interpreter<'a> {
                 Ok(return_value)
             }
             Expr::MethodCall(method_call) => {
-                todo!()
+                let receiver = self.interpret_expr(&method_call.receiver)?;
+                let method_name = &method_call.method.node;
+                match receiver {
+                    Value::Array(arr) => match method_name.as_str() {
+                        "len" => Ok(Value::Number(arr.len() as f64)),
+                        _ => unimplemented!(),
+                    },
+                    _ => unimplemented!(),
+                }
             }
             Expr::Literal(lit) => match &lit {
                 LiteralExpr::Number(num) => Ok(Value::Number(*num)),

@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, UnaryOp, VarDeclStmt,
-    WhileStmt,
+    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, Typed, UnaryOp,
+    VarDeclStmt, WhileStmt,
 };
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::TypeMismatch;
@@ -318,6 +318,62 @@ impl<'a> TypeInferrer<'a> {
         Ok(())
     }
 
+    fn get_method_type(&self, receiver_type: &Type, method_name: String) -> Option<Type> {
+        match receiver_type {
+            Type::Array(elem_type) => match method_name.as_str() {
+                "len" => Some(Type::Function {
+                    params: vec![],
+                    return_ty: Box::new(Type::Float),
+                }),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn infer_method_call(&mut self, method_call: &MethodCallExpr) -> Result<Type, TypeInferrerError> {
+        let receiver_ty = self.infer_expr(&method_call.receiver)?;
+        let receiver_ty = self.lookup_type(&receiver_ty);
+
+        if let Some(method_ty) = self.get_method_type(&receiver_ty, method_call.method.node.clone()) {
+            match method_ty {
+                Type::Function { params, return_ty } => {
+                    if params.len() != method_call.arguments.len() {
+                        return Err(TypeMismatch {
+                            src: self.source.clone(),
+                            span: method_call.method.span,
+                            expected: Type::Function {
+                                params: params.clone(),
+                                return_ty: return_ty.clone(),
+                            },
+                            found: Type::Function {
+                                params: method_call.arguments.iter().map(|_| Box::new(TypeVar(0))).collect(),
+                                return_ty: Box::new(TypeVar(0)),
+                            },
+                        });
+                    }
+                    for (arg, param_ty) in method_call.arguments.iter().zip(params.iter()) {
+                        let arg_ty = self.infer_expr(arg)?;
+                        self.unify(*param_ty.clone(), arg_ty, arg.span)?;
+                    }
+
+                    Ok(*return_ty)
+                }
+                _ => unreachable!(),
+            }
+        } else {
+            Err(TypeMismatch {
+                src: self.source.clone(),
+                span: method_call.method.span,
+                expected: Type::Function {
+                    params: vec![],
+                    return_ty: Box::new(TypeVar(0)),
+                },
+                found: receiver_ty,
+            })
+        }
+    }
+
     fn infer_expr(&mut self, expr: &Typed<Expr>) -> Result<Type, TypeInferrerError> {
         match &expr.node {
             Expr::Literal(literal_expr) => {
@@ -365,7 +421,9 @@ impl<'a> TypeInferrer<'a> {
                 Ok(return_ty)
             }
             Expr::MethodCall(method_call) => {
-                todo!()
+                let return_ty = self.infer_method_call(method_call)?;
+                self.type_env.insert(expr.type_id, return_ty);
+                Ok(TypeVar(expr.type_id))
             }
             Expr::Unary(unary_expr) => {
                 let right_ty = self.infer_expr(unary_expr.expr.deref())?;
