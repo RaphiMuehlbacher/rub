@@ -1,3 +1,4 @@
+use crate::MethodRegistry;
 use crate::ast::{
     BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, Typed, UnaryOp,
     VarDeclStmt, WhileStmt,
@@ -12,7 +13,7 @@ use std::vec;
 
 pub type TypeVarId = usize;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum Type {
     Float,
     Bool,
@@ -28,8 +29,9 @@ pub struct TypeInferrer<'a> {
     source: String,
     errors: Vec<Report>,
     current_function_return_ty: Option<Type>,
-    pub type_env: HashMap<TypeVarId, Type>,
-    pub var_env: Vec<HashMap<String, TypeVarId>>,
+    type_env: HashMap<TypeVarId, Type>,
+    var_env: Vec<HashMap<String, TypeVarId>>,
+    method_registry: MethodRegistry,
 }
 
 pub struct TypeInferenceResult<'a> {
@@ -41,6 +43,7 @@ impl<'a> TypeInferrer<'a> {
     pub fn new(ast: &'a Program, source: String) -> Self {
         let type_env = HashMap::new();
         let var_env = HashMap::new();
+        let method_registry = MethodRegistry::new();
 
         Self {
             program: ast,
@@ -49,6 +52,7 @@ impl<'a> TypeInferrer<'a> {
             current_function_return_ty: None,
             type_env,
             var_env: vec![var_env],
+            method_registry,
         }
     }
 
@@ -66,6 +70,10 @@ impl<'a> TypeInferrer<'a> {
                 } else {
                     ty.clone()
                 }
+            }
+            Type::Array(elem_ty) => {
+                let resolved_elem = self.lookup_type(elem_ty);
+                Type::Array(Box::new(resolved_elem))
             }
             _ => ty.clone(),
         }
@@ -318,24 +326,11 @@ impl<'a> TypeInferrer<'a> {
         Ok(())
     }
 
-    fn get_method_type(&self, receiver_type: &Type, method_name: String) -> Option<Type> {
-        match receiver_type {
-            Type::Array(elem_type) => match method_name.as_str() {
-                "len" => Some(Type::Function {
-                    params: vec![],
-                    return_ty: Box::new(Type::Float),
-                }),
-                _ => None,
-            },
-            _ => None,
-        }
-    }
-
     fn infer_method_call(&mut self, method_call: &MethodCallExpr) -> Result<Type, TypeInferrerError> {
         let receiver_ty = self.infer_expr(&method_call.receiver)?;
         let receiver_ty = self.lookup_type(&receiver_ty);
 
-        if let Some(method_ty) = self.get_method_type(&receiver_ty, method_call.method.node.clone()) {
+        if let Some(method_ty) = self.method_registry.lookup_method(&receiver_ty, &method_call.method.node).cloned() {
             match method_ty {
                 Type::Function { params, return_ty } => {
                     if params.len() != method_call.arguments.len() {
@@ -357,7 +352,7 @@ impl<'a> TypeInferrer<'a> {
                         self.unify(*param_ty.clone(), arg_ty, arg.span)?;
                     }
 
-                    Ok(*return_ty)
+                    Ok(return_ty.deref().clone())
                 }
                 _ => unreachable!(),
             }
