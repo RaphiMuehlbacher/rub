@@ -15,3 +15,22 @@ pub fn print_native(args: Vec<Value>) -> Result<Value, String> {
     println!("{text}");
     Ok(Value::Nil)
 }
+
+pub fn vec_len_method(args: Vec<Value>) -> Result<Value, String> {
+    if let Value::Vec(arr) = &args[0] {
+        Ok(Value::Number(arr.len() as f64))
+    } else {
+        Err("Expected vec".to_string())
+    }
+}
+
+pub fn float_vec_sum_method(args: Vec<Value>) -> Result<Value, String> {
+    if let Value::Vec(arr) = &args[0] {
+        let sum = arr
+            .iter()
+            .fold(0.0, |acc, val| if let Value::Number(n) = val { acc + n } else { acc });
+        Ok(Value::Number(sum))
+    } else {
+        Err("Expected float vec".to_string())
+    }
+}

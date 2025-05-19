@@ -20,7 +20,7 @@ pub enum Type {
     String,
     Nil,
     Function { params: Vec<Box<Type>>, return_ty: Box<Type> },
-    Array(Box<Type>),
+    Vec(Box<Type>),
     TypeVar(TypeVarId),
 }
 
@@ -29,8 +29,8 @@ pub struct TypeInferrer<'a> {
     source: String,
     errors: Vec<Report>,
     current_function_return_ty: Option<Type>,
-    type_env: HashMap<TypeVarId, Type>,
-    var_env: Vec<HashMap<String, TypeVarId>>,
+    pub type_env: HashMap<TypeVarId, Type>,
+    pub var_env: Vec<HashMap<String, TypeVarId>>,
     method_registry: MethodRegistry,
 }
 
@@ -71,9 +71,9 @@ impl<'a> TypeInferrer<'a> {
                     ty.clone()
                 }
             }
-            Type::Array(elem_ty) => {
+            Type::Vec(elem_ty) => {
                 let resolved_elem = self.lookup_type(elem_ty);
-                Type::Array(Box::new(resolved_elem))
+                Type::Vec(Box::new(resolved_elem))
             }
             _ => ty.clone(),
         }
@@ -102,9 +102,9 @@ impl<'a> TypeInferrer<'a> {
             (Type::Bool, Type::Bool) => Ok(Type::Bool),
             (Type::Nil, Type::Nil) => Ok(Type::Nil),
 
-            (Type::Array(elem_ty1), Type::Array(elem_ty2)) => {
+            (Type::Vec(elem_ty1), Type::Vec(elem_ty2)) => {
                 self.unify(*elem_ty1.clone(), *elem_ty2, span)?;
-                Ok(Type::Array(Box::new(self.lookup_type(&elem_ty1))))
+                Ok(Type::Vec(Box::new(self.lookup_type(&elem_ty1))))
             }
 
             (Type::Function { params: p1, return_ty: r1 }, Type::Function { params: p2, return_ty: r2 }) => {
@@ -224,7 +224,6 @@ impl<'a> TypeInferrer<'a> {
         self.insert_var(var_decl.node.ident.node.clone(), var_decl.node.ident.type_id);
         if let Some(init) = &var_decl.node.initializer {
             let init_type = self.infer_expr(init)?;
-
             self.unify(TypeVar(var_decl.node.ident.type_id), init_type, var_decl.node.ident.span)?;
         }
 
@@ -329,8 +328,9 @@ impl<'a> TypeInferrer<'a> {
     fn infer_method_call(&mut self, method_call: &MethodCallExpr) -> Result<Type, TypeInferrerError> {
         let receiver_ty = self.infer_expr(&method_call.receiver)?;
         let receiver_ty = self.lookup_type(&receiver_ty);
+        self.type_env.insert(method_call.receiver.type_id, receiver_ty.clone());
 
-        if let Some(method_ty) = self.method_registry.lookup_method(&receiver_ty, &method_call.method.node).cloned() {
+        if let Some((method_ty, _)) = self.method_registry.lookup_method(&receiver_ty, &method_call.method.node).cloned() {
             match method_ty {
                 Type::Function { params, return_ty } => {
                     if params.len() != method_call.arguments.len() {
@@ -377,22 +377,22 @@ impl<'a> TypeInferrer<'a> {
                     LiteralExpr::String(_) => Type::String,
                     LiteralExpr::Bool(_) => Type::Bool,
                     LiteralExpr::Nil => Type::Nil,
-                    LiteralExpr::Array(array) => {
-                        if array.is_empty() {
+                    LiteralExpr::VecLiteral(vec) => {
+                        if vec.is_empty() {
                             let elem_type = Type::Nil;
-                            let array_type = Type::Array(Box::new(elem_type));
+                            let vec_type = Type::Vec(Box::new(elem_type));
 
-                            self.type_env.insert(expr.type_id, array_type);
+                            self.type_env.insert(expr.type_id, vec_type);
                             return Ok(TypeVar(expr.type_id));
                         }
 
-                        let first_elem_ty = self.infer_expr(&array[0])?;
-                        for elem in array.iter().skip(1) {
+                        let first_elem_ty = self.infer_expr(&vec[0])?;
+                        for elem in vec.iter().skip(1) {
                             let elem_ty = self.infer_expr(elem)?;
                             self.unify(first_elem_ty.clone(), elem_ty, elem.span)?;
                         }
 
-                        Type::Array(Box::new(first_elem_ty))
+                        Type::Vec(Box::new(first_elem_ty))
                     }
                 };
 

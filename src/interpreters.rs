@@ -1,3 +1,5 @@
+use crate::MethodRegistry;
+use crate::ast::Expr::MethodCall;
 use crate::ast::{
     BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
     VarDeclStmt, WhileStmt,
@@ -18,7 +20,7 @@ pub enum Value {
     String(Rc<str>),
     Bool(bool),
     Function(Rc<Function>),
-    Array(Vec<Value>),
+    Vec(Vec<Value>),
     Nil,
 }
 
@@ -38,8 +40,8 @@ impl Value {
             Value::Number(num) => format!("{num}"),
             Value::String(str) => format!("{str}"),
             Value::Bool(bool) => format!("{bool}"),
-            Value::Array(array) => {
-                let elements: Vec<String> = array.iter().map(|value| value.to_printable_value()).collect();
+            Value::Vec(vec) => {
+                let elements: Vec<String> = vec.iter().map(|value| value.to_printable_value()).collect();
                 format!("[{}]", elements.join(", "))
             }
             Value::Function(function) => match function.as_ref() {
@@ -101,6 +103,7 @@ pub struct Interpreter<'a> {
     program: &'a Program,
     type_env: &'a HashMap<TypeVarId, Type>,
     var_env: Vec<HashMap<String, Value>>,
+    method_registry: MethodRegistry,
 }
 
 impl<'a> Interpreter<'a> {
@@ -109,11 +112,14 @@ impl<'a> Interpreter<'a> {
         var_env.insert("clock".to_string(), Value::Function(Rc::new(NativeFunction(clock_native))));
         var_env.insert("print".to_string(), Value::Function(Rc::new(NativeFunction(print_native))));
 
+        let method_registry = MethodRegistry::new();
+
         Self {
             source,
             program,
             type_env,
             var_env: vec![var_env],
+            method_registry,
         }
     }
 
@@ -266,28 +272,35 @@ impl<'a> Interpreter<'a> {
 
                 Ok(return_value)
             }
-            Expr::MethodCall(method_call) => {
+            MethodCall(method_call) => {
                 let receiver = self.interpret_expr(&method_call.receiver)?;
                 let method_name = &method_call.method.node;
-                match receiver {
-                    Value::Array(arr) => match method_name.as_str() {
-                        "len" => Ok(Value::Number(arr.len() as f64)),
-                        _ => unimplemented!(),
-                    },
-                    _ => unimplemented!(),
+                let receiver_ty = self.type_env.get(&method_call.receiver.type_id).expect("should work");
+
+                if let Some((_, function)) = self.method_registry.lookup_method(receiver_ty, method_name) {
+                    match function {
+                        NativeFunction(native_fn) => {
+                            let args = vec![receiver];
+                            native_fn(args).map_err(|_e| panic!())
+                        }
+                        _ => panic!(),
+                    }
+                } else {
+                    panic!()
                 }
             }
+
             Expr::Literal(lit) => match &lit {
                 LiteralExpr::Number(num) => Ok(Value::Number(*num)),
                 LiteralExpr::String(str) => Ok(Value::String(Rc::from(str.as_str()))),
                 LiteralExpr::Bool(bool) => Ok(Value::Bool(*bool)),
                 LiteralExpr::Nil => Ok(Value::Nil),
-                LiteralExpr::Array(array) => {
+                LiteralExpr::VecLiteral(vec) => {
                     let mut values = vec![];
-                    for expr in array {
+                    for expr in vec {
                         values.push(self.interpret_expr(expr)?);
                     }
-                    Ok(Value::Array(values))
+                    Ok(Value::Vec(values))
                 }
             },
 

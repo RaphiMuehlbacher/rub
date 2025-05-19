@@ -48,7 +48,7 @@ pub enum TokenKind {
     TypeString,
     TypeBool,
     TypeNil,
-    TypeArray,
+    TypeVec,
 
     EOF,
 }
@@ -219,7 +219,7 @@ impl<'a> Lexer<'a> {
                         "String" => TokenKind::TypeString,
                         "Bool" => TokenKind::TypeBool,
                         "Nil" => TokenKind::TypeNil,
-                        "Array" => TokenKind::TypeArray,
+                        "Vec" => TokenKind::TypeVec,
                         _ => TokenKind::Ident(literal.to_string()),
                     };
 

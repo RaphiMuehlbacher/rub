@@ -1,5 +1,5 @@
 use crate::ast::Expr::{Block, Call, Grouping, Lambda, Literal, Unary, Variable};
-use crate::ast::LiteralExpr::Array;
+use crate::ast::LiteralExpr::VecLiteral;
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr,
@@ -548,7 +548,7 @@ impl<'a> Parser<'a> {
             })
         } else {
             match self.current().token_kind {
-                TokenKind::TypeArray => {
+                TokenKind::TypeVec => {
                     self.advance_position();
                     if !self.consume(&[TokenKind::Less]) {
                         return Err(UnexpectedToken {
@@ -571,7 +571,7 @@ impl<'a> Parser<'a> {
                         .into());
                     }
 
-                    Ok(Type::Array(inner_type))
+                    Ok(Type::Vec(inner_type))
                 }
                 TokenKind::TypeFloat => {
                     self.advance_position();
@@ -1420,7 +1420,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.close_delimiter(TokenKind::RightBracket)?;
-                Ok(Literal(Array(elements)))
+                Ok(Literal(VecLiteral(elements)))
             }
             TokenKind::False => {
                 self.advance_position();

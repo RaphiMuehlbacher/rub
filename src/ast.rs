@@ -173,7 +173,7 @@ pub enum LiteralExpr {
     String(String),
     Bool(bool),
     Nil,
-    Array(Vec<Typed<Expr>>),
+    VecLiteral(Vec<Typed<Expr>>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
