@@ -174,6 +174,7 @@ pub enum LiteralExpr {
     Number(f64),
     String(String),
     Bool(bool),
+    VecLiteral(Vec<Typed<Expr>>),
     Nil,
 }
 

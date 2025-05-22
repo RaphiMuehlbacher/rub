@@ -27,7 +27,7 @@ impl MethodRegistry {
         method: fn(Vec<Value>) -> Result<Value, String>,
     ) {
         let method_type = Type::Function {
-            params: params.into_iter().map(Box::new).collect(),
+            params,
             return_ty: Box::new(return_ty),
         };
 

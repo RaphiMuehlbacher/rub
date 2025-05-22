@@ -1,8 +1,6 @@
-fn main() {
-    fn a() {
-        print("a");
-    }
-    a();
+fn test<T, B>(a: T, b: B) -> T {
+    return a;
 }
 
-main();
+let b = test(3, "hi");
+print(b);

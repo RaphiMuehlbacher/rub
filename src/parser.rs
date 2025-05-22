@@ -578,9 +578,9 @@ impl<'a> Parser<'a> {
             let mut param_types = vec![];
 
             if !self.matches(&[TokenKind::RightParen]) {
-                param_types.push(Box::new(self.parse_type()?));
+                param_types.push(self.parse_type()?);
                 while self.consume(&[TokenKind::Comma]) {
-                    param_types.push(Box::new(self.parse_type()?));
+                    param_types.push(self.parse_type()?);
                 }
             }
 
