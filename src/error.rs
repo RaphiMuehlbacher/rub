@@ -141,6 +141,17 @@ pub enum ResolverError {
 
         function_name: String,
     },
+    #[error("Function '{name}' is already defined")]
+    #[diagnostic(help("A function with this name already exists in this scope"), code(resolver::duplicate_function))]
+    DuplicateFunction {
+        #[source_code]
+        src: String,
+
+        #[label("function already defined")]
+        span: SourceSpan,
+
+        name: String,
+    },
 }
 
 #[derive(Debug, Error, Diagnostic)]

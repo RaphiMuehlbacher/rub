@@ -1,6 +1,7 @@
 use rub::interpreters::Interpreter;
 use rub::{Lexer, Parser, Resolver, TypeInferrer};
 use std::fs;
+use std::time::Instant;
 
 macro_rules! time_log {
     ($start:expr, $phase:expr) => {

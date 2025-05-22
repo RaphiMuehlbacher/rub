@@ -65,6 +65,14 @@ impl<'a> Resolver<'a> {
     fn declare_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::FunDecl(fun_decl) => {
+                if let Some(_) = self.curr_scope().get(&fun_decl.node.ident.node.clone()) {
+                    self.report(ResolverError::DuplicateFunction {
+                        src: self.source.to_string(),
+                        span: fun_decl.node.ident.span,
+                        name: fun_decl.node.ident.node.clone(),
+                    });
+                    return;
+                }
                 let name = &fun_decl.node.ident.node;
                 self.curr_scope().insert(
                     name.clone(),

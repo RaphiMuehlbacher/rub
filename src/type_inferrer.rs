@@ -243,6 +243,8 @@ impl<'a> TypeInferrer<'a> {
 
         if let Some(expected) = self.type_env.get(&fun_decl.node.ident.type_id) {
             self.unify(expected.clone(), fn_type.clone(), fun_decl.node.ident.span)?;
+        } else {
+            self.insert_var(fun_decl.node.ident.node.clone(), fun_decl.node.ident.type_id);
         }
 
         self.type_env.insert(fun_decl.node.ident.type_id, fn_type);
