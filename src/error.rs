@@ -23,6 +23,19 @@ pub enum RuntimeError {
 
         type_name: String,
     },
+
+    #[error("Return statement used outside of a function")]
+    #[diagnostic(
+        help("Return statements can only be used inside functions"),
+        code(runtime::return_outside_function)
+    )]
+    ReturnOutsideFunction {
+        #[source_code]
+        src: String,
+
+        #[label("invalid return statement here")]
+        span: SourceSpan,
+    },
 }
 
 #[derive(Debug, Error, Diagnostic)]
@@ -127,6 +140,17 @@ pub enum ResolverError {
         span: SourceSpan,
 
         function_name: String,
+    },
+    #[error("Function '{name}' is already defined")]
+    #[diagnostic(help("A function with this name already exists in this scope"), code(resolver::duplicate_function))]
+    DuplicateFunction {
+        #[source_code]
+        src: String,
+
+        #[label("function already defined")]
+        span: SourceSpan,
+
+        name: String,
     },
 }
 
@@ -310,6 +334,14 @@ pub enum ParseError {
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum LexError {
+    #[error("Unterminated multiline comment")]
+    #[diagnostic(code(lex::unterminated_comment))]
+    UnterminatedComment {
+        #[source_code]
+        src: String,
+        #[label("Comment started here but was never closed")]
+        span: SourceSpan,
+    },
     #[error("Unexpected character: {character}")]
     #[diagnostic(help("This character isn't recognized by the lexer."), code(lexer::unexpected_char))]
     UnexpectedCharacter {

@@ -7,6 +7,8 @@ pub enum TokenKind {
     RightParen,
     LeftBrace,
     RightBrace,
+    LeftBracket,
+    RightBracket,
     Comma,
     Dot,
     Minus,
@@ -46,6 +48,7 @@ pub enum TokenKind {
     TypeString,
     TypeBool,
     TypeNil,
+    TypeVec,
 
     EOF,
 }
@@ -93,6 +96,8 @@ impl<'a> Lexer<'a> {
                 ')' => self.create_token(TokenKind::RightParen),
                 '{' => self.create_token(TokenKind::LeftBrace),
                 '}' => self.create_token(TokenKind::RightBrace),
+                '[' => self.create_token(TokenKind::LeftBracket),
+                ']' => self.create_token(TokenKind::RightBracket),
                 ',' => self.create_token(TokenKind::Comma),
                 '.' => self.create_token(TokenKind::Dot),
                 '-' => {
@@ -111,6 +116,28 @@ impl<'a> Lexer<'a> {
                             if let Some(c) = self.peek() {
                                 self.position += c.len_utf8();
                             }
+                        }
+                        continue;
+                    } else if self.match_char('*') {
+                        let mut nesting = 1;
+                        while nesting > 0 && self.position < self.source.len() {
+                            if let Some(c) = self.peek() {
+                                self.position += c.len_utf8();
+                                match c {
+                                    '/' if self.match_char('*') => nesting += 1,
+                                    '*' if self.match_char('/') => nesting -= 1,
+                                    _ => {}
+                                }
+                            }
+                        }
+                        if nesting > 0 {
+                            self.errors.push(
+                                LexError::UnterminatedComment {
+                                    span: (self.start..self.position).into(),
+                                    src: self.source.to_string(),
+                                }
+                                .into(),
+                            )
                         }
                         continue;
                     } else {
@@ -192,6 +219,7 @@ impl<'a> Lexer<'a> {
                         "String" => TokenKind::TypeString,
                         "Bool" => TokenKind::TypeBool,
                         "Nil" => TokenKind::TypeNil,
+                        "Vec" => TokenKind::TypeVec,
                         _ => TokenKind::Ident(literal.to_string()),
                     };
 

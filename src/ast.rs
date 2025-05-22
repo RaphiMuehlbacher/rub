@@ -11,7 +11,7 @@ pub struct Typed<T> {
 
 impl<T> Typed<T> {
     pub fn new(node: T, span: SourceSpan) -> Self {
-        static mut TYPE_ID: usize = 0;
+        static mut TYPE_ID: usize = 1;
 
         let type_id = unsafe {
             let id = TYPE_ID;
@@ -40,12 +40,21 @@ pub enum Stmt {
     ExprStmtNode(Typed<ExprStmt>),
     VarDecl(Typed<VarDeclStmt>),
     FunDecl(Typed<FunDeclStmt>),
-    Block(Typed<BlockStmt>),
-    If(Typed<IfStmt>),
     While(Typed<WhileStmt>),
     Return(Typed<ReturnStmt>),
 }
 
+impl Stmt {
+    pub fn span(&self) -> SourceSpan {
+        match self {
+            Stmt::ExprStmtNode(stmt) => stmt.span,
+            Stmt::VarDecl(stmt) => stmt.span,
+            Stmt::FunDecl(stmt) => stmt.span,
+            Stmt::While(stmt) => stmt.span,
+            Stmt::Return(stmt) => stmt.span,
+        }
+    }
+}
 pub type Ident = Typed<String>;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,28 +78,17 @@ pub struct Parameter {
 pub struct FunDeclStmt {
     pub ident: Ident,
     pub params: Vec<Typed<Parameter>>,
+    pub body: Typed<BlockExpr>,
     pub generics: Vec<Ident>,
-    pub body: Typed<BlockStmt>,
     pub return_type: Type,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct BlockStmt {
-    pub statements: Vec<Stmt>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct IfStmt {
-    pub condition: Typed<Expr>,
-    pub then_branch: Typed<BlockStmt>,
-    pub else_branch: Option<Typed<BlockStmt>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileStmt {
     pub condition: Typed<Expr>,
-    pub body: Typed<BlockStmt>,
+    pub body: Typed<BlockExpr>,
 }
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReturnStmt {
     pub expr: Option<Typed<Expr>>,
@@ -107,6 +105,9 @@ pub enum Expr {
     Logical(LogicalExpr),
     Call(CallExpr),
     Lambda(LambdaExpr),
+    Block(BlockExpr),
+    If(IfExpr),
+    MethodCall(MethodCallExpr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -144,8 +145,28 @@ pub struct CallExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
     pub parameters: Vec<Typed<Parameter>>,
-    pub body: Typed<BlockStmt>,
+    pub body: Box<Typed<BlockExpr>>,
     pub return_type: Type,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlockExpr {
+    pub statements: Vec<Stmt>,
+    pub expr: Option<Box<Typed<Expr>>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IfExpr {
+    pub condition: Box<Typed<Expr>>,
+    pub then_branch: Typed<BlockExpr>,
+    pub else_branch: Option<Box<Typed<BlockExpr>>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodCallExpr {
+    pub receiver: Box<Typed<Expr>>,
+    pub method: Ident,
+    pub arguments: Vec<Typed<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

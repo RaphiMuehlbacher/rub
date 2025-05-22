@@ -9,12 +9,28 @@ pub fn clock_native(_args: Vec<Value>) -> Result<Value, String> {
 pub fn print_native(args: Vec<Value>) -> Result<Value, String> {
     let mut text = String::new();
     for arg in args {
-        match arg.to_printable_value() {
-            Ok(str) => text.push_str(str.as_str()),
-            Err(_) => return Err("error".to_string()),
-        }
+        text.push_str(arg.to_printable_value().as_str());
     }
 
     println!("{text}");
     Ok(Value::Nil)
+}
+
+pub fn vec_len_method(args: Vec<Value>) -> Result<Value, String> {
+    if let Value::Vec(arr) = &args[0] {
+        Ok(Value::Number(arr.len() as f64))
+    } else {
+        Err("Expected vec".to_string())
+    }
+}
+
+pub fn float_vec_sum_method(args: Vec<Value>) -> Result<Value, String> {
+    if let Value::Vec(arr) = &args[0] {
+        let sum = arr
+            .iter()
+            .fold(0.0, |acc, val| if let Value::Number(n) = val { acc + n } else { acc });
+        Ok(Value::Number(sum))
+    } else {
+        Err("Expected float vec".to_string())
+    }
 }

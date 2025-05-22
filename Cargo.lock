@@ -167,7 +167,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rslox"
+name = "rub"
 version = "0.1.0"
 dependencies = [
  "miette",

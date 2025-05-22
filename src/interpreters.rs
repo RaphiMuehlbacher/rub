@@ -1,9 +1,11 @@
+use crate::MethodRegistry;
+use crate::ast::Expr::MethodCall;
 use crate::ast::{
-    BinaryOp, BlockStmt, Expr, ExprStmt, FunDeclStmt, IfStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
+    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
     VarDeclStmt, WhileStmt,
 };
 use crate::builtins::{clock_native, print_native};
-use crate::error::InterpreterError;
+use crate::error::{InterpreterError, RuntimeError};
 use crate::interpreters::Function::{NativeFunction, UserFunction};
 use crate::type_inferrer::{Type, TypeVarId};
 use miette::Report;
@@ -18,6 +20,7 @@ pub enum Value {
     String(Rc<str>),
     Bool(bool),
     Function(Rc<Function>),
+    Vec(Vec<Value>),
     Nil,
 }
 
@@ -25,19 +28,35 @@ pub enum Value {
 pub enum Function {
     NativeFunction(fn(Vec<Value>) -> Result<Value, String>),
     UserFunction {
+        name: Option<String>,
         params: Rc<Vec<Typed<Parameter>>>,
-        body: Rc<Typed<BlockStmt>>,
+        body: Rc<Typed<BlockExpr>>,
     },
 }
 
 impl Value {
-    pub fn to_printable_value(&self) -> Result<String, ()> {
+    pub fn to_printable_value(&self) -> String {
         match self {
-            Value::Number(num) => Ok(format!("{num}")),
-            Value::String(str) => Ok(format!("{str}")),
-            Value::Bool(bool) => Ok(format!("{bool}")),
-            Value::Function(_) => Err(()),
-            Value::Nil => Ok("nil".to_string()),
+            Value::Number(num) => format!("{num}"),
+            Value::String(str) => format!("{str}"),
+            Value::Bool(bool) => format!("{bool}"),
+            Value::Vec(vec) => {
+                let elements: Vec<String> = vec.iter().map(|value| value.to_printable_value()).collect();
+                format!("[{}]", elements.join(", "))
+            }
+            Value::Function(function) => match function.as_ref() {
+                NativeFunction(_) => "<native_fn>".to_string(),
+                UserFunction { name, params, body: _ } => {
+                    let param_strings: Vec<String> = params.iter().map(|p| p.node.name.node.clone()).collect();
+                    match name {
+                        None => format!("<fn ({})>", param_strings.join(", ")),
+                        Some(name) => {
+                            format!("<fn {name}({})>", param_strings.join(", "))
+                        }
+                    }
+                }
+            },
+            Value::Nil => "nil".to_string(),
         }
     }
 
@@ -84,6 +103,7 @@ pub struct Interpreter<'a> {
     program: &'a Program,
     type_env: &'a HashMap<TypeVarId, Type>,
     var_env: Vec<HashMap<String, Value>>,
+    method_registry: MethodRegistry,
 }
 
 impl<'a> Interpreter<'a> {
@@ -92,11 +112,14 @@ impl<'a> Interpreter<'a> {
         var_env.insert("clock".to_string(), Value::Function(Rc::new(NativeFunction(clock_native))));
         var_env.insert("print".to_string(), Value::Function(Rc::new(NativeFunction(print_native))));
 
+        let method_registry = MethodRegistry::new();
+
         Self {
             source,
             program,
             type_env,
             var_env: vec![var_env],
+            method_registry,
         }
     }
 
@@ -126,7 +149,17 @@ impl<'a> Interpreter<'a> {
                         error: Some(Report::from(err)),
                     };
                 }
-                _ => panic!(),
+                Err(InterpreterError::ControlFlowError(ControlFlow::Return(_))) => {
+                    return InterpreterResult {
+                        error: Some(
+                            RuntimeError::ReturnOutsideFunction {
+                                src: self.source.to_string(),
+                                span: stmt.span(),
+                            }
+                            .into(),
+                        ),
+                    };
+                }
             }
         }
         InterpreterResult { error: None }
@@ -136,6 +169,7 @@ impl<'a> Interpreter<'a> {
         match stmt {
             Stmt::FunDecl(fun_decl) => {
                 let value = Value::Function(Rc::new(UserFunction {
+                    name: Some(fun_decl.node.ident.node.clone()),
                     params: Rc::new(fun_decl.node.params.clone()),
                     body: Rc::new(fun_decl.node.body.clone()),
                 }));
@@ -150,11 +184,16 @@ impl<'a> Interpreter<'a> {
             Stmt::ExprStmtNode(expr) => self.expr_stmt(expr),
             Stmt::VarDecl(var_decl) => self.var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.fun_decl(fun_decl),
-            Stmt::Block(block) => self.block(block),
-            Stmt::If(if_stmt) => self.if_stmt(if_stmt),
             Stmt::While(while_stmt) => self.while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.return_stmt(return_stmt),
         }
+    }
+
+    fn interpret_stmts(&mut self, stmts: &Vec<Stmt>) -> Result<(), InterpreterError> {
+        for stmt in stmts {
+            self.interpret_stmt(stmt)?;
+        }
+        Ok(())
     }
 
     fn expr_stmt(&mut self, expr: &Typed<ExprStmt>) -> Result<(), InterpreterError> {
@@ -177,6 +216,7 @@ impl<'a> Interpreter<'a> {
         self.insert_var(
             fun_decl.node.ident.node.clone(),
             Value::Function(Rc::new(UserFunction {
+                name: Some(fun_decl.node.ident.node.clone()),
                 params: Rc::new(fun_decl.node.params.clone()),
                 body: Rc::new(fun_decl.node.body.clone()),
             })),
@@ -185,29 +225,10 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn block(&mut self, block: &Typed<BlockStmt>) -> Result<(), InterpreterError> {
-        for stmt in &block.node.statements {
-            self.interpret_stmt(stmt)?;
-        }
-        Ok(())
-    }
-
-    fn if_stmt(&mut self, if_stmt: &Typed<IfStmt>) -> Result<(), InterpreterError> {
-        let cond_value = self.interpret_expr(&if_stmt.node.condition)?;
-
-        if cond_value.to_bool() {
-            self.block(&if_stmt.node.then_branch)?;
-        } else if let Some(else_branch) = &if_stmt.node.else_branch {
-            self.block(else_branch)?;
-        }
-
-        Ok(())
-    }
-
     fn while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) -> Result<(), InterpreterError> {
         let mut cond_value = self.interpret_expr(&while_stmt.node.condition)?.to_bool();
         while cond_value {
-            self.block(&while_stmt.node.body)?;
+            self.interpret_stmts(&while_stmt.node.body.node.statements)?;
             cond_value = self.interpret_expr(&while_stmt.node.condition)?.to_bool();
         }
 
@@ -223,13 +244,64 @@ impl<'a> Interpreter<'a> {
         Err(InterpreterError::ControlFlowError(ControlFlow::Return(value)))
     }
 
+    fn interpret_block_expr(&mut self, block: &BlockExpr) -> Result<Value, InterpreterError> {
+        for stmt in &block.statements {
+            self.interpret_stmt(stmt)?;
+        }
+
+        if let Some(expr) = &block.expr {
+            Ok(self.interpret_expr(expr.deref())?)
+        } else {
+            Ok(Value::Nil)
+        }
+    }
+
     fn interpret_expr(&mut self, expr: &Typed<Expr>) -> Result<Value, InterpreterError> {
         match &expr.node {
+            Expr::Block(block) => Ok(self.interpret_block_expr(block)?),
+            Expr::If(if_expr) => {
+                let cond_value = self.interpret_expr(&if_expr.condition)?;
+
+                let return_value = if cond_value.to_bool() {
+                    self.interpret_block_expr(&if_expr.then_branch.node)?
+                } else if let Some(else_branch) = &if_expr.else_branch {
+                    self.interpret_block_expr(&else_branch.node)?
+                } else {
+                    Value::Nil
+                };
+
+                Ok(return_value)
+            }
+            MethodCall(method_call) => {
+                let receiver = self.interpret_expr(&method_call.receiver)?;
+                let method_name = &method_call.method.node;
+                let receiver_ty = self.type_env.get(&method_call.receiver.type_id).expect("should work");
+
+                if let Some((_, function)) = self.method_registry.lookup_method(receiver_ty, method_name) {
+                    match function {
+                        NativeFunction(native_fn) => {
+                            let args = vec![receiver];
+                            native_fn(args).map_err(|_e| panic!())
+                        }
+                        _ => panic!(),
+                    }
+                } else {
+                    panic!()
+                }
+            }
+
             Expr::Literal(lit) => match &lit {
                 LiteralExpr::Number(num) => Ok(Value::Number(*num)),
                 LiteralExpr::String(str) => Ok(Value::String(Rc::from(str.as_str()))),
                 LiteralExpr::Bool(bool) => Ok(Value::Bool(*bool)),
                 LiteralExpr::Nil => Ok(Value::Nil),
+                LiteralExpr::VecLiteral(vec) => {
+                    let mut values = vec![];
+                    for expr in vec {
+                        values.push(self.interpret_expr(expr)?);
+                    }
+                    Ok(Value::Vec(values))
+                }
             },
 
             Expr::Unary(unary) => {
@@ -306,13 +378,13 @@ impl<'a> Interpreter<'a> {
                         }
                         Ok(native_fun(arguments).expect("error handling for native functions not yet implemented"))
                     }
-                    UserFunction { params, body } => {
+                    UserFunction { name: _, params, body } => {
                         self.var_env.push(HashMap::new());
                         for (arg, param) in call.arguments.iter().zip(params.as_ref()) {
                             let value = self.interpret_expr(arg)?;
                             self.insert_var(param.node.name.node.clone(), value);
                         }
-                        let return_val = match self.block(&body) {
+                        let return_val = match self.interpret_stmts(&body.node.statements) {
                             Ok(_) => Value::Nil,
                             Err(InterpreterError::RuntimeError(err)) => return Err(InterpreterError::RuntimeError(err)),
                             Err(InterpreterError::ControlFlowError(ControlFlow::Return(val))) => val,
@@ -325,8 +397,9 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Lambda(lambda) => Ok(Value::Function(Rc::new(UserFunction {
+                name: None,
                 params: Rc::new(lambda.parameters.clone()),
-                body: Rc::new(lambda.body.clone()),
+                body: Rc::new(lambda.body.deref().clone()),
             }))),
         }
     }
