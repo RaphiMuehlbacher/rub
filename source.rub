@@ -5,3 +5,7 @@ fn test<T>(a: T) -> T {
 
 let a = [3].first();
 print(a);
+
+while 3 {
+
+}

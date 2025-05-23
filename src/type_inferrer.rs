@@ -182,8 +182,8 @@ impl<'a> TypeInferrer<'a> {
             (t1, t2) => Err(TypeMismatch {
                 src: self.source.clone(),
                 span,
-                expected: t1,
-                found: t2,
+                expected: t2,
+                found: t1,
             }),
         }
     }
@@ -320,7 +320,8 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) -> Result<(), TypeInferrerError> {
-        self.infer_expr(&while_stmt.node.condition)?;
+        let condition_ty = self.infer_expr(&while_stmt.node.condition)?;
+        self.unify(condition_ty, Type::Bool, while_stmt.node.condition.span)?;
         self.infer_stmts(&while_stmt.node.body.node.statements)?;
 
         Ok(())
@@ -422,7 +423,8 @@ impl<'a> TypeInferrer<'a> {
             Expr::Block(block) => self.infer_block_expr(block),
 
             Expr::If(if_expr) => {
-                self.infer_expr(&if_expr.condition)?;
+                let condition_ty = self.infer_expr(&if_expr.condition)?;
+                self.unify(condition_ty, Type::Bool, if_expr.condition.span)?;
 
                 let then_return_ty = self.infer_block_expr(&if_expr.then_branch.node)?;
                 let else_return_ty = if let Some(else_branch) = &if_expr.else_branch {

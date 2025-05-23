@@ -772,7 +772,11 @@ impl<'a> Parser<'a> {
         let value = self.expression()?;
         let expr_right_span = self.previous().span;
 
-        self.expect_semicolon();
+        match value {
+            Block(_) => {}
+            Expr::If(_) => {}
+            _ => self.expect_semicolon(),
+        }
 
         Ok(ExprStmtNode(Typed::new(
             ExprStmt {
@@ -787,7 +791,7 @@ impl<'a> Parser<'a> {
 
         let condition_left_span = self.current().span;
         let condition = self.parse_condition()?;
-        let condition_right_span = self.current().span;
+        let condition_right_span = self.previous().span;
 
         let then_branch_left_span = self.current().span;
         let then_branch = match self.block()? {
@@ -1147,7 +1151,7 @@ impl<'a> Parser<'a> {
             let right_left_span = self.current().span;
 
             let result = self.parse_binary_operand(Self::logic_and);
-            let right_right_span = self.current().span;
+            let right_right_span = self.previous().span;
 
             let right = self.expect_expr(result, "right", operator_span)?;
 
@@ -1177,7 +1181,7 @@ impl<'a> Parser<'a> {
             let right_left_span = self.current().span;
 
             let result = self.parse_binary_operand(Self::equality);
-            let right_right_span = self.current().span;
+            let right_right_span = self.previous().span;
 
             let right = self.expect_expr(result, "right", operator_span)?;
 
