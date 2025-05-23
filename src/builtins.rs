@@ -34,3 +34,15 @@ pub fn float_vec_sum_method(args: Vec<Value>) -> Result<Value, String> {
         Err("Expected float vec".to_string())
     }
 }
+
+pub fn vec_first_method(args: Vec<Value>) -> Result<Value, String> {
+    if let Value::Vec(arr) = &args[0] {
+        if let Some(first) = arr.first() {
+            Ok(first.clone())
+        } else {
+            Err("No first".to_string())
+        }
+    } else {
+        Err("Expected vec".to_string())
+    }
+}

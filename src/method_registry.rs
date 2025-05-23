@@ -1,4 +1,4 @@
-use crate::builtins::{float_vec_sum_method, vec_len_method};
+use crate::builtins::{float_vec_sum_method, vec_first_method, vec_len_method};
 use crate::interpreters::{Function, Value};
 use crate::type_inferrer::Type;
 use std::collections::HashMap;
@@ -66,6 +66,7 @@ impl MethodRegistry {
         let vec_generic_ty = Type::Vec(Box::new(Type::Generic("T".to_string())));
 
         self.create_method(&vec_generic_ty, "len", vec![], Type::Float, vec_len_method);
+        self.create_method(&vec_generic_ty, "first", vec![], Type::Generic("T".to_string()), vec_first_method);
         self.create_method(&vec_float_ty, "sum", vec![], Type::Float, float_vec_sum_method);
     }
 

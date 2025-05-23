@@ -3,6 +3,5 @@ fn test<T>(a: T) -> T {
     return a;
 }
 
-
-let a = [[1, 2], [2, 3], [1]];
-print(a.len());
+let a = [3].first();
+print(a);
