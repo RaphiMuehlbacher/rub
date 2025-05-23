@@ -10,13 +10,8 @@ use std::ops::Deref;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Symbol {
-    Variable {
-        initialized: bool,
-    },
-    Function {
-        params: Vec<Typed<Parameter>>,
-        generics: Vec<Ident>,
-    },
+    Variable { initialized: bool },
+    Function { params: Vec<Parameter>, generics: Vec<Ident> },
 }
 
 pub struct Resolver<'a> {
@@ -144,28 +139,38 @@ impl<'a> Resolver<'a> {
         let mut seen_params = HashSet::new();
 
         for param in &fun_decl.node.params {
-            let param_name = &param.node.name.node;
+            let param_name = &param.name.node;
             if !seen_params.insert(param_name.clone()) {
                 self.report(DuplicateParameter {
                     src: self.source.to_string(),
-                    span: param.span,
+                    span: param.name.span,
                     function_name: fun_decl.node.ident.node.clone(),
                 });
                 continue;
             }
 
-            if let Type::Generic(name) = &param.node.type_annotation {
+            if let Type::Generic(name) = &param.type_annotation.node {
                 if !generic_params.contains(name) {
                     self.report(UndefinedVariable {
                         src: self.source.to_string(),
-                        span: param.span,
+                        span: param.type_annotation.span,
                         name: name.clone(),
                     });
                     continue;
                 }
             }
             self.curr_scope()
-                .insert(param.node.name.node.clone(), Symbol::Variable { initialized: true });
+                .insert(param.name.node.clone(), Symbol::Variable { initialized: true });
+        }
+
+        if let Type::Generic(name) = &fun_decl.node.return_type.node {
+            if !generic_params.contains(name) {
+                self.report(UndefinedVariable {
+                    src: self.source.to_string(),
+                    span: fun_decl.node.return_type.span,
+                    name: name.clone(),
+                });
+            }
         }
 
         for stmt in &fun_decl.node.body.node.statements {
@@ -284,14 +289,14 @@ impl<'a> Resolver<'a> {
             Expr::Lambda(lambda) => {
                 self.scopes.push(HashMap::new());
                 for param in &lambda.parameters {
-                    if self.curr_scope().get(param.node.name.node.as_str()).is_some() {
+                    if self.curr_scope().get(param.name.node.as_str()).is_some() {
                         self.report(DuplicateLambdaParameter {
                             src: self.source.to_string(),
-                            span: param.span,
+                            span: param.name.span,
                         })
                     } else {
                         self.curr_scope()
-                            .insert(param.node.name.node.clone(), Symbol::Variable { initialized: true });
+                            .insert(param.name.node.clone(), Symbol::Variable { initialized: true });
                     }
                 }
 

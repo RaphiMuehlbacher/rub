@@ -71,16 +71,16 @@ pub struct VarDeclStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
     pub name: Ident,
-    pub type_annotation: Type,
+    pub type_annotation: Typed<Type>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDeclStmt {
     pub ident: Ident,
-    pub params: Vec<Typed<Parameter>>,
+    pub params: Vec<Parameter>,
     pub body: Typed<BlockExpr>,
     pub generics: Vec<Ident>,
-    pub return_type: Type,
+    pub return_type: Typed<Type>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -144,9 +144,9 @@ pub struct CallExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
-    pub parameters: Vec<Typed<Parameter>>,
+    pub parameters: Vec<Parameter>,
     pub body: Box<Typed<BlockExpr>>,
-    pub return_type: Type,
+    pub return_type: Typed<Type>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

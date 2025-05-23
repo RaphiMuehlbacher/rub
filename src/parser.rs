@@ -421,6 +421,7 @@ impl<'a> Parser<'a> {
         let generics = self.parse_function_generics()?;
 
         let parameters = self.parse_function_parameters()?;
+
         let return_type = self.parse_return_type()?;
 
         let body_left_span = self.current().span;
@@ -448,12 +449,16 @@ impl<'a> Parser<'a> {
         )))
     }
 
-    fn parse_return_type(&mut self) -> ParseResult<Type> {
+    fn parse_return_type(&mut self) -> ParseResult<Typed<Type>> {
         if !self.consume(&[TokenKind::Arrow]) {
-            return Ok(Type::Nil);
+            return Ok(Typed::new(Type::Nil, SourceSpan::from(0)));
         }
 
-        self.parse_type()
+        let return_left_span = self.current().span;
+        let ty = self.parse_type()?;
+        let return_right_span = self.previous().span;
+
+        Ok(Typed::new(ty, self.create_span(return_left_span, return_right_span)))
     }
 
     /// current is function name, ends at '('
@@ -557,7 +562,7 @@ impl<'a> Parser<'a> {
     }
 
     /// current is `:` end is after type
-    fn parse_type_annotation(&mut self) -> ParseResult<Type> {
+    fn parse_type_annotation(&mut self) -> ParseResult<Typed<Type>> {
         if !self.consume(&[TokenKind::Colon]) {
             return Err(UnexpectedToken {
                 src: self.source.to_string(),
@@ -568,7 +573,11 @@ impl<'a> Parser<'a> {
             .into());
         }
 
-        self.parse_type()
+        let annotation_left_span = self.current().span;
+        let ty = self.parse_type()?;
+        let annotation_right_span = self.previous().span;
+
+        Ok(Typed::new(ty, self.create_span(annotation_left_span, annotation_right_span)))
     }
 
     /// current is the type annotation
@@ -660,7 +669,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_parameter(&mut self) -> ParseResult<Typed<Parameter>> {
+    fn parse_parameter(&mut self) -> ParseResult<Parameter> {
         let curr_token = self.current().clone();
 
         match &curr_token.token_kind {
@@ -670,13 +679,10 @@ impl<'a> Parser<'a> {
 
                 let type_annotation = self.parse_type_annotation()?;
 
-                Ok(Typed::new(
-                    Parameter {
-                        name: Typed::new(name.clone(), name_span),
-                        type_annotation,
-                    },
-                    self.create_span(curr_token.span, self.previous().span),
-                ))
+                Ok(Parameter {
+                    name: Typed::new(name.clone(), name_span),
+                    type_annotation: type_annotation,
+                })
             }
             _ => {
                 self.skip_next_block();
@@ -691,7 +697,7 @@ impl<'a> Parser<'a> {
     }
 
     /// current is '(' ends after ')'
-    fn parse_function_parameters(&mut self) -> ParseResult<Vec<Typed<Parameter>>> {
+    fn parse_function_parameters(&mut self) -> ParseResult<Vec<Parameter>> {
         let mut parameters = vec![];
         let opening_paren_span = self.current().span;
 
@@ -1077,6 +1083,7 @@ impl<'a> Parser<'a> {
         self.advance_position();
 
         let parameters = self.parse_function_parameters()?;
+
         let return_type = self.parse_return_type()?;
 
         let body_left_span = self.current().span;

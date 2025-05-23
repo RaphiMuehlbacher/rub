@@ -29,7 +29,7 @@ pub enum Function {
     NativeFunction(fn(Vec<Value>) -> Result<Value, String>),
     UserFunction {
         name: Option<String>,
-        params: Rc<Vec<Typed<Parameter>>>,
+        params: Rc<Vec<Parameter>>,
         body: Rc<Typed<BlockExpr>>,
     },
 }
@@ -47,7 +47,7 @@ impl Value {
             Value::Function(function) => match function.as_ref() {
                 NativeFunction(_) => "<native_fn>".to_string(),
                 UserFunction { name, params, body: _ } => {
-                    let param_strings: Vec<String> = params.iter().map(|p| p.node.name.node.clone()).collect();
+                    let param_strings: Vec<String> = params.iter().map(|p| p.name.node.clone()).collect();
                     match name {
                         None => format!("<fn ({})>", param_strings.join(", ")),
                         Some(name) => {
@@ -382,7 +382,7 @@ impl<'a> Interpreter<'a> {
                         self.var_env.push(HashMap::new());
                         for (arg, param) in call.arguments.iter().zip(params.as_ref()) {
                             let value = self.interpret_expr(arg)?;
-                            self.insert_var(param.node.name.node.clone(), value);
+                            self.insert_var(param.name.node.clone(), value);
                         }
                         let return_val = match self.interpret_stmts(&body.node.statements) {
                             Ok(_) => Value::Nil,

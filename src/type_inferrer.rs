@@ -239,8 +239,8 @@ impl<'a> TypeInferrer<'a> {
                 let name = &fun_decl.node.ident.node;
 
                 let fn_type = Type::Function {
-                    params: fun_decl.node.params.iter().map(|p| p.node.type_annotation.clone()).collect(),
-                    return_ty: Box::new(fun_decl.node.return_type.clone()),
+                    params: fun_decl.node.params.iter().map(|p| p.type_annotation.node.clone()).collect(),
+                    return_ty: Box::new(fun_decl.node.return_type.node.clone()),
                 };
 
                 self.type_env.insert(fun_decl.node.ident.type_id, fn_type);
@@ -281,12 +281,35 @@ impl<'a> TypeInferrer<'a> {
         let name = &fun_decl.node.ident.node;
 
         let fn_type = Type::Function {
-            params: fun_decl.node.params.iter().map(|p| p.node.type_annotation.clone()).collect(),
-            return_ty: Box::new(fun_decl.node.return_type.clone()),
+            params: fun_decl.node.params.iter().map(|p| p.type_annotation.node.clone()).collect(),
+            return_ty: Box::new(fun_decl.node.return_type.node.clone()),
         };
 
         self.type_env.insert(fun_decl.node.ident.type_id, fn_type);
         self.var_env.insert(name.clone(), fun_decl.node.ident.type_id);
+
+        if fun_decl.node.generics.is_empty() {
+            self.var_env.enter_scope();
+
+            for param in &fun_decl.node.params {
+                let param_id = param.name.type_id;
+                self.type_env.insert(param_id, param.type_annotation.node.clone());
+                self.var_env.insert(param.name.node.clone(), param_id);
+            }
+
+            let old_ret_ty = self.current_function_return_ty.clone();
+            self.current_function_return_ty = Some(fun_decl.node.return_type.node.clone());
+
+            self.infer_stmts(&fun_decl.node.body.node.statements)?;
+
+            if let Some(expr) = &fun_decl.node.body.node.expr {
+                let body_ty = self.infer_expr(expr)?;
+                self.unify(fun_decl.node.return_type.node.clone(), body_ty, fun_decl.node.ident.span)?;
+            }
+
+            self.current_function_return_ty = old_ret_ty;
+            self.var_env.exit_scope()
+        }
         Ok(())
     }
 
@@ -579,12 +602,12 @@ impl<'a> TypeInferrer<'a> {
                                     // Insert substituted types for parameters
                                     for (param, param_ty) in fd.node.params.iter().zip(params.iter()) {
                                         let substituted_ty = self.substitute(param_ty, &substitutions);
-                                        self.type_env.insert(param.node.name.type_id, substituted_ty);
-                                        self.var_env.insert(param.node.name.node.clone(), param.node.name.type_id);
+                                        self.type_env.insert(param.name.type_id, substituted_ty);
+                                        self.var_env.insert(param.name.node.clone(), param.name.type_id);
                                     }
 
                                     let old_return_ty = self.current_function_return_ty.clone();
-                                    self.current_function_return_ty = Some(self.substitute(&fd.node.return_type, &substitutions));
+                                    self.current_function_return_ty = Some(self.substitute(&fd.node.return_type.node, &substitutions));
 
                                     self.infer_stmts(&fd.node.body.node.statements)?;
                                     if let Some(expr) = &fd.node.body.node.expr {
@@ -618,28 +641,28 @@ impl<'a> TypeInferrer<'a> {
             Expr::Lambda(lambda) => {
                 self.var_env.enter_scope();
 
-                let param_types: Vec<Type> = lambda.parameters.iter().map(|p| p.node.type_annotation.clone()).collect();
+                let param_types: Vec<Type> = lambda.parameters.iter().map(|p| p.type_annotation.node.clone()).collect();
 
                 let fn_type = Type::Function {
                     params: param_types.clone(),
-                    return_ty: Box::new(lambda.return_type.clone()),
+                    return_ty: Box::new(lambda.return_type.node.clone()),
                 };
 
                 self.type_env.insert(expr.type_id, fn_type.clone());
 
                 for param in &lambda.parameters {
-                    let param_id = param.node.name.type_id;
-                    self.type_env.insert(param_id, param.node.type_annotation.clone());
-                    self.var_env.insert(param.node.name.node.clone(), param_id);
+                    let param_id = param.name.type_id;
+                    self.type_env.insert(param_id, param.type_annotation.node.clone());
+                    self.var_env.insert(param.name.node.clone(), param_id);
                 }
 
                 let old_ret_ty = self.current_function_return_ty.clone();
-                self.current_function_return_ty = Some(lambda.return_type.clone());
+                self.current_function_return_ty = Some(lambda.return_type.node.clone());
 
                 self.infer_stmts(&lambda.body.node.statements)?;
                 if let Some(expr) = &lambda.body.node.expr {
                     let body_ty = self.infer_expr(expr)?;
-                    self.unify(lambda.return_type.clone(), body_ty, lambda.body.span)?;
+                    self.unify(lambda.return_type.node.clone(), body_ty, lambda.body.span)?;
                 }
 
                 self.current_function_return_ty = old_ret_ty;
