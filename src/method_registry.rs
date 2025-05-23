@@ -15,7 +15,31 @@ impl MethodRegistry {
     }
 
     pub fn lookup_method(&self, base_type: &Type, method_name: &str) -> Option<&(Type, Function)> {
-        self.methods.get(base_type)?.get(method_name)
+        if let Some(methods) = self.methods.get(base_type) {
+            if let Some(method) = methods.get(method_name) {
+                return Some(method);
+            }
+        }
+
+        for (type_, methods) in &self.methods {
+            if let Some(method) = methods.get(method_name) {
+                if self.can_monomorphize(type_, base_type) {
+                    return Some(method);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn can_monomorphize(&self, generic_type: &Type, concrete_type: &Type) -> bool {
+        match (generic_type, concrete_type) {
+            (Type::Vec(gen_inner), Type::Vec(_)) => {
+                // Accept any Vec type if the generic method uses Type::Generic
+                matches!(gen_inner.as_ref(), Type::Generic(_))
+            }
+            _ => false,
+        }
     }
 
     fn create_method(
@@ -39,15 +63,9 @@ impl MethodRegistry {
 
     fn register_vec_methods(&mut self) {
         let vec_float_ty = Type::Vec(Box::new(Type::Float));
-        let vec_string_ty = Type::Vec(Box::new(Type::String));
-        let vec_bool_ty = Type::Vec(Box::new(Type::Bool));
-        let vec_nil_ty = Type::Vec(Box::new(Type::Nil));
+        let vec_generic_ty = Type::Vec(Box::new(Type::Generic("T".to_string())));
 
-        self.create_method(&vec_float_ty, "len", vec![], Type::Float, vec_len_method);
-        self.create_method(&vec_string_ty, "len", vec![], Type::Float, vec_len_method);
-        self.create_method(&vec_bool_ty, "len", vec![], Type::Float, vec_len_method);
-        self.create_method(&vec_nil_ty, "len", vec![], Type::Float, vec_len_method);
-
+        self.create_method(&vec_generic_ty, "len", vec![], Type::Float, vec_len_method);
         self.create_method(&vec_float_ty, "sum", vec![], Type::Float, float_vec_sum_method);
     }
 

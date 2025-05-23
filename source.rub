@@ -1,6 +1,8 @@
-fn test<T, B>(a: T, b: B) -> T {
+fn test<T>(a: T) -> T {
+    print(a + 1);
     return a;
 }
 
-let b = test(3, "hi");
-print(b);
+
+let a = [[1, 2], [2, 3], [1]];
+print(a.len());

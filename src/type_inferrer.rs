@@ -225,7 +225,7 @@ impl<'a> TypeInferrer<'a> {
         self.var_env.insert("clock".to_string(), clock_type_id);
 
         let print_type = Type::Function {
-            params: vec![TypeVar(0)],
+            params: vec![Type::Generic("Generic".to_string())],
             return_ty: Box::new(Type::Nil),
         };
         let print_type_id = self.fresh_type_var();
@@ -537,7 +537,6 @@ impl<'a> TypeInferrer<'a> {
 
                         let mut substitutions: HashMap<String, Type> = HashMap::new();
 
-                        // Check argument types and collect generic substitutions
                         for (arg, param_ty) in call_expr.arguments.iter().zip(params.iter()) {
                             let arg_ty = self.infer_expr(arg)?;
                             let arg_ty = self.lookup_type(&arg_ty);
