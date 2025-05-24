@@ -53,7 +53,7 @@ pub enum TypeInferrerError {
         found: Type,
     },
 
-    #[error("Cannot infer type of variable '{name}'")]
+    #[error("Type annotations needed for '{name}'")]
     #[diagnostic(help("Variable needs an initial value or type annotation"), code(type_inferrer::cannot_infer_type))]
     CannotInferType {
         #[source_code]

@@ -333,7 +333,7 @@ impl<'a> Parser<'a> {
                 ident: variable_name,
                 initializer,
             },
-            self.create_span(var_keyword_span, self.current().span),
+            self.create_span(var_keyword_span, self.previous().span),
         )))
     }
 
@@ -397,7 +397,7 @@ impl<'a> Parser<'a> {
             let expr_left_span = self.current().span;
             Some(Typed::new(
                 self.expression()?,
-                self.create_span(expr_left_span, self.current().span),
+                self.create_span(expr_left_span, self.previous().span),
             ))
         } else if self.matches(&[TokenKind::Semicolon]) {
             None
@@ -1128,7 +1128,7 @@ impl<'a> Parser<'a> {
             return match expr {
                 Variable(name) => Ok(Expr::Assign(AssignExpr {
                     target: name,
-                    value: Box::new(Typed::new(value, self.create_span(left_assignment_span, self.current().span))),
+                    value: Box::new(Typed::new(value, self.create_span(left_assignment_span, self.previous().span))),
                 })),
                 _ => Err(ExpectedIdentifier {
                     src: self.source.to_string(),

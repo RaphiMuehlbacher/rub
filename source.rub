@@ -1,5 +1,7 @@
-fn test<T>() -> Float {
- 3 + 1
+fn test(a: Vec<Nil>) {
 }
 
-print(test());
+let a = [];
+test(a);
+
+

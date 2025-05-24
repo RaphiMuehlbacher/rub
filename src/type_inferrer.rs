@@ -486,11 +486,11 @@ impl<'a> TypeInferrer<'a> {
                     LiteralExpr::Nil => Type::Nil,
                     LiteralExpr::VecLiteral(vec) => {
                         if vec.is_empty() {
-                            let elem_type = Type::Nil;
-                            let vec_type = Type::Vec(Box::new(elem_type));
-
-                            self.type_env.insert(expr.type_id, vec_type);
-                            return Ok(TypeVar(expr.type_id));
+                            return Err(TypeInferrerError::CannotInferType {
+                                src: self.source.clone(),
+                                span: expr.span,
+                                name: "Vec".to_string(),
+                            });
                         }
 
                         let first_elem_ty = self.infer_expr(&vec[0])?;
