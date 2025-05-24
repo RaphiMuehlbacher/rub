@@ -385,7 +385,13 @@ impl<'a> Interpreter<'a> {
                             self.insert_var(param.name.node.clone(), value);
                         }
                         let return_val = match self.interpret_stmts(&body.node.statements) {
-                            Ok(_) => Value::Nil,
+                            Ok(_) => {
+                                if let Some(expr) = &body.node.expr {
+                                    self.interpret_expr(expr)?
+                                } else {
+                                    Value::Nil
+                                }
+                            }
                             Err(InterpreterError::RuntimeError(err)) => return Err(InterpreterError::RuntimeError(err)),
                             Err(InterpreterError::ControlFlowError(ControlFlow::Return(val))) => val,
                         };
