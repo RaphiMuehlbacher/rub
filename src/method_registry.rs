@@ -35,7 +35,6 @@ impl MethodRegistry {
     fn can_monomorphize(&self, generic_type: &Type, concrete_type: &Type) -> bool {
         match (generic_type, concrete_type) {
             (Type::Vec(gen_inner), Type::Vec(_)) => {
-                // Accept any Vec type if the generic method uses Type::Generic
                 matches!(gen_inner.as_ref(), Type::Generic(_))
             }
             _ => false,

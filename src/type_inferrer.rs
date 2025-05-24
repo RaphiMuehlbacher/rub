@@ -311,10 +311,18 @@ impl<'a> TypeInferrer<'a> {
 
             self.infer_stmts(&fun_decl.node.body.node.statements)?;
 
-            if let Some(expr) = &fun_decl.node.body.node.expr {
+            let implicit_return = if let Some(expr) = &fun_decl.node.body.node.expr {
                 let body_ty = self.infer_expr(expr)?;
-                self.unify(fun_decl.node.return_type.node.clone(), body_ty, fun_decl.node.ident.span)?;
-            }
+                self.unify(fun_decl.node.return_type.node.clone(), body_ty, fun_decl.node.ident.span)?
+            } else {
+                Type::Nil
+            };
+
+            self.unify(
+                implicit_return,
+                fun_decl.node.return_type.node.clone(),
+                fun_decl.node.return_type.span,
+            )?;
 
             self.current_function_return_ty = old_ret_ty;
             self.var_env.exit_scope()
@@ -654,10 +662,14 @@ impl<'a> TypeInferrer<'a> {
 
                                     self.infer_stmts(&fd.node.body.node.statements)?;
 
-                                    if let Some(expr) = &fd.node.body.node.expr {
+                                    let implicit_return = if let Some(expr) = &fd.node.body.node.expr {
                                         let body_ty = self.infer_expr(expr)?;
-                                        self.unify(substituted_return.clone(), body_ty, expr.span)?;
-                                    }
+                                        self.unify(substituted_return.clone(), body_ty, expr.span)?
+                                    } else {
+                                        Type::Nil
+                                    };
+
+                                    self.unify(implicit_return, fd.node.return_type.node.clone(), fd.node.return_type.span)?;
 
                                     self.current_function_return_ty = old_return_ty;
                                 }
