@@ -117,7 +117,7 @@ impl<'a> TypeInferrer<'a> {
 
         match t {
             Type::Float | Type::Bool | Type::String | Type::Nil => t,
-            Type::Generic(ref name) => substitutions.get(&name.clone()).cloned().unwrap_or(t.clone()),
+            Type::Generic(ref name) => substitutions.get(name).cloned().unwrap_or(t),
             Type::Function { params, return_ty } => {
                 let new_params = params.iter().map(|p| self.substitute(p, substitutions)).collect();
                 let new_return = self.substitute(&return_ty, substitutions);
@@ -129,7 +129,16 @@ impl<'a> TypeInferrer<'a> {
             }
             Type::Vec(elem_ty) => {
                 let new_elem = self.substitute(elem_ty.deref(), substitutions);
-                Type::Vec(Box::new(new_elem))
+                match new_elem {
+                    Type::Generic(ref name) => {
+                        if let Some(concrete_ty) = substitutions.get(name) {
+                            Type::Vec(Box::new(concrete_ty.clone()))
+                        } else {
+                            Type::Vec(Box::new(new_elem))
+                        }
+                    }
+                    _ => Type::Vec(Box::new(new_elem)),
+                }
             }
             Type::TypeVar(id) => {
                 if let Some(resolved) = self.type_env.get(&id).cloned() {
@@ -152,8 +161,8 @@ impl<'a> TypeInferrer<'a> {
             (Type::Nil, Type::Nil) => Ok(Type::Nil),
 
             (Type::Vec(elem_ty1), Type::Vec(elem_ty2)) => {
-                self.unify(*elem_ty1.clone(), *elem_ty2, span)?;
-                Ok(Type::Vec(Box::new(self.lookup_type(&elem_ty1))))
+                let unified_elem = self.unify(*elem_ty1.clone(), *elem_ty2, span)?;
+                Ok(Type::Vec(Box::new(unified_elem)))
             }
 
             (Type::Function { params: p1, return_ty: r1 }, Type::Function { params: p2, return_ty: r2 }) => {
@@ -225,7 +234,7 @@ impl<'a> TypeInferrer<'a> {
         self.var_env.insert("clock".to_string(), clock_type_id);
 
         let print_type = Type::Function {
-            params: vec![Type::Generic("Generic".to_string())],
+            params: vec![Type::Generic("T".to_string())],
             return_ty: Box::new(Type::Nil),
         };
         let print_type_id = self.fresh_type_var();
@@ -390,12 +399,42 @@ impl<'a> TypeInferrer<'a> {
                             },
                         });
                     }
+
+                    let mut substitutions: HashMap<String, Type> = HashMap::new();
+
                     for (arg, param_ty) in method_call.arguments.iter().zip(params.iter()) {
                         let arg_ty = self.infer_expr(arg)?;
-                        self.unify(param_ty.clone(), arg_ty, arg.span)?;
+                        let arg_ty = self.lookup_type(&arg_ty);
+
+                        match param_ty {
+                            Type::Generic(name) => {
+                                if let Some(existing) = substitutions.get(name) {
+                                    self.unify(existing.clone(), arg_ty.clone(), arg.span)?;
+                                } else {
+                                    substitutions.insert(name.clone(), arg_ty);
+                                }
+                            }
+                            _ => {
+                                let substituted = self.substitute(param_ty, &substitutions);
+                                self.unify(substituted, arg_ty, arg.span)?;
+                            }
+                        }
                     }
 
-                    Ok(return_ty.deref().clone())
+                    let return_ty = match return_ty.deref() {
+                        Type::Generic(name) => {
+                            if let Some(concrete_ty) = substitutions.get(name) {
+                                concrete_ty.clone()
+                            } else if let Type::Vec(elem_ty) = &receiver_ty {
+                                *elem_ty.clone()
+                            } else {
+                                *return_ty.clone()
+                            }
+                        }
+                        _ => self.substitute(&return_ty, &substitutions),
+                    };
+
+                    Ok(return_ty)
                 }
                 _ => unreachable!(),
             }
@@ -409,6 +448,23 @@ impl<'a> TypeInferrer<'a> {
                 },
                 found: receiver_ty,
             })
+        }
+    }
+
+    fn collect_substitutions(&self, param_ty: &Type, arg_ty: &Type, substitutions: &mut HashMap<String, Type>) {
+        match (param_ty, arg_ty) {
+            (Type::Vec(param_elem), Type::Vec(arg_elem)) => {
+                self.collect_substitutions(param_elem, arg_elem, substitutions);
+            }
+            (Type::Vec(elem_ty), _) => {
+                if let Type::Generic(name) = elem_ty.deref() {
+                    substitutions.insert(name.clone(), arg_ty.clone());
+                }
+            }
+            (Type::Generic(name), _) => {
+                substitutions.insert(name.clone(), arg_ty.clone());
+            }
+            _ => {}
         }
     }
 
@@ -565,30 +621,17 @@ impl<'a> TypeInferrer<'a> {
                         for (arg, param_ty) in call_expr.arguments.iter().zip(params.iter()) {
                             let arg_ty = self.infer_expr(arg)?;
                             let arg_ty = self.lookup_type(&arg_ty);
+                            self.collect_substitutions(param_ty, &arg_ty, &mut substitutions);
+                        }
 
-                            match param_ty {
-                                Type::Generic(name) => {
-                                    if let Some(existing) = substitutions.get(name) {
-                                        self.unify(existing.clone(), arg_ty.clone(), arg.span)?;
-                                    } else {
-                                        substitutions.insert(name.clone(), arg_ty);
-                                    }
-                                }
-                                _ => {
-                                    let substituted = self.substitute(param_ty, &substitutions);
-                                    self.unify(substituted, arg_ty, arg.span)?;
-                                }
-                            }
+                        for (arg, param_ty) in call_expr.arguments.iter().zip(params.iter()) {
+                            let arg_ty = self.infer_expr(arg)?;
+                            let arg_ty = self.lookup_type(&arg_ty);
+                            let substituted = self.substitute(param_ty, &substitutions);
+                            self.unify(substituted, arg_ty, arg.span)?;
                         }
 
                         self.var_env.enter_scope();
-
-                        // Insert substituted types for arguments
-                        for arg in &call_expr.arguments {
-                            let arg_ty = self.infer_expr(arg)?;
-                            let arg_ty = self.lookup_type(&arg_ty);
-                            self.type_env.insert(arg.type_id, arg_ty);
-                        }
 
                         if let Expr::Variable(var) = &call_expr.callee.node {
                             if let Some(fn_decl) = self.program.statements.iter().find(|stmt| {
@@ -599,21 +642,21 @@ impl<'a> TypeInferrer<'a> {
                                 }
                             }) {
                                 if let Stmt::FunDecl(fd) = fn_decl {
-                                    // Insert substituted types for parameters
                                     for (param, param_ty) in fd.node.params.iter().zip(params.iter()) {
                                         let substituted_ty = self.substitute(param_ty, &substitutions);
                                         self.type_env.insert(param.name.type_id, substituted_ty);
                                         self.var_env.insert(param.name.node.clone(), param.name.type_id);
                                     }
 
+                                    let substituted_return = self.substitute(&fd.node.return_type.node, &substitutions);
                                     let old_return_ty = self.current_function_return_ty.clone();
-                                    self.current_function_return_ty = Some(self.substitute(&fd.node.return_type.node, &substitutions));
+                                    self.current_function_return_ty = Some(substituted_return.clone());
 
                                     self.infer_stmts(&fd.node.body.node.statements)?;
+
                                     if let Some(expr) = &fd.node.body.node.expr {
                                         let body_ty = self.infer_expr(expr)?;
-                                        let expected_ty = self.substitute(&return_ty, &substitutions);
-                                        self.unify(expected_ty.clone(), body_ty, expr.span)?;
+                                        self.unify(substituted_return.clone(), body_ty, expr.span)?;
                                     }
 
                                     self.current_function_return_ty = old_return_ty;

@@ -1,3 +1,43 @@
-fn test(a: Float) -> Float {
-    return true;
+fn sum_lengths<T>(a: Vec<T>, b: Vec<T>) -> Float {
+    return a.len() + b.len();
 }
+
+let result1 = sum_lengths([1, 2, 3], [4, 5]);
+print(result1);
+
+fn first_length<T>(vectors: Vec<Vec<T>>) -> Float {
+    return vectors.first().len();
+}
+
+let nested = first_length([[1, 2], [3, 4, 5]]);
+print(nested);
+
+fn deepest_first<T>(data: Vec<Vec<Vec<T>>>) -> Float {
+    return data.first().first().len();
+}
+
+let deep = deepest_first([[[1, 2], [3]], [[4, 5, 6]]]);
+print(deep);
+
+fn complex_calc<T>(data: Vec<Vec<T>>) -> Float {
+    let first_vec = data.first();
+    let second_len = data.first().len();
+    return first_vec.len() + second_len;
+}
+
+let complex = complex_calc([[1, 2], [3, 4, 5]]);
+print(complex);
+
+fn mixed_types(nums: Vec<Float>, words: Vec<String>) -> Float {
+    return nums.len() + words.len();
+}
+
+let mixed = mixed_types([1, 2, 3], ["hello", "world"]);
+print(mixed);
+
+fn chain_calls<T>(data: Vec<Vec<Vec<T>>>) -> Float {
+    return data.first().first().len();
+}
+
+let chained = chain_calls([[[1, 2], [3]], [[4, 5]]]);
+print(chained);
