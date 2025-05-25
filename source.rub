@@ -1,7 +1,5 @@
-fn test(a: Vec<Nil>) {
+fn test<A>(a: Vec<B>) -> Float {
+    return a.first();
 }
 
-let a = [];
-test(a);
-
-
+let b = test([3]);

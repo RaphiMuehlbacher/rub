@@ -1,10 +1,10 @@
 use crate::ast::{Expr, ExprStmt, FunDeclStmt, Ident, Parameter, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt};
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
-    DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedVariable, UninitializedVariable,
+    DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedGeneric, UndefinedVariable, UninitializedVariable,
 };
 use crate::type_inferrer::Type;
-use miette::Report;
+use miette::{Report, SourceSpan};
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 
@@ -148,35 +148,61 @@ impl<'a> Resolver<'a> {
                 });
                 continue;
             }
-
-            if let Type::Generic(name) = &param.type_annotation.node {
-                if !generic_params.contains(name) {
-                    self.report(UndefinedVariable {
-                        src: self.source.to_string(),
-                        span: param.type_annotation.span,
-                        name: name.clone(),
-                    });
-                    continue;
-                }
-            }
+            self.check_generic_param(&param.type_annotation, &generic_params);
             self.curr_scope()
                 .insert(param.name.node.clone(), Symbol::Variable { initialized: true });
         }
 
-        if let Type::Generic(name) = &fun_decl.node.return_type.node {
-            if !generic_params.contains(name) {
-                self.report(UndefinedVariable {
-                    src: self.source.to_string(),
-                    span: fun_decl.node.return_type.span,
-                    name: name.clone(),
-                });
-            }
-        }
+        self.check_generic_param(&fun_decl.node.return_type, &generic_params);
 
         for stmt in &fun_decl.node.body.node.statements {
             self.resolve_stmt(stmt);
         }
         self.scopes.pop();
+    }
+
+    fn check_generic_param(&mut self, ty: &Typed<Type>, generic_params: &HashSet<String>) {
+        match &ty.node {
+            Type::Function { params, return_ty } => {
+                for param in params {
+                    self.check_generic_type(param, generic_params, ty.span);
+                }
+                self.check_generic_type(return_ty, generic_params, ty.span);
+            }
+            Type::Vec(vec_ty) => self.check_generic_type(vec_ty, generic_params, ty.span),
+            Type::Generic(name) => {
+                if !generic_params.contains(name) {
+                    self.report(UndefinedGeneric {
+                        src: self.source.to_string(),
+                        span: ty.span,
+                        name: name.clone(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn check_generic_type(&mut self, ty: &Type, generic_params: &HashSet<String>, span: SourceSpan) {
+        match ty {
+            Type::Function { params, return_ty } => {
+                for param in params {
+                    self.check_generic_type(param, generic_params, span);
+                }
+                self.check_generic_type(return_ty, generic_params, span);
+            }
+            Type::Vec(vec_ty) => self.check_generic_type(vec_ty, generic_params, span),
+            Type::Generic(name) => {
+                if !generic_params.contains(name) {
+                    self.report(UndefinedGeneric {
+                        src: self.source.to_string(),
+                        span,
+                        name: name.clone(),
+                    });
+                }
+            }
+            _ => {}
+        }
     }
 
     fn resolve_stmts(&mut self, stmts: &Vec<Stmt>) {

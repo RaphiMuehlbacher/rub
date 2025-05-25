@@ -64,18 +64,59 @@ pub enum TypeInferrerError {
 
         name: String,
     },
-
-    #[error("Operation not supported between types {left:?} and {right:?}")]
-    #[diagnostic(help("The operation cannot be performed with these types"), code(type_inferrer::invalid_operation))]
-    InvalidOperation {
+    #[error("Wrong number of arguments: expected {expected}, found {found}")]
+    #[diagnostic(help("Function call requires {expected} arguments"), code(type_inferrer::wrong_argument_count))]
+    WrongArgumentCount {
         #[source_code]
         src: String,
 
-        #[label("invalid operation here")]
+        #[label("incorrect number of arguments")]
         span: SourceSpan,
 
-        left: Type,
-        right: Type,
+        expected: usize,
+        found: usize,
+    },
+    #[error("Cannot call non-function type '{found:?}'")]
+    #[diagnostic(
+        help("This value is not callable - only functions can be called"),
+        code(type_inferrer::not_callable)
+    )]
+    NotCallable {
+        #[source_code]
+        src: String,
+
+        #[label("attempted to call non-function here")]
+        span: SourceSpan,
+
+        found: Type,
+    },
+
+    #[error("Condition must be boolean")]
+    #[diagnostic(
+        help("If conditions, while loops, and other conditionals require boolean expressions"),
+        code(type_inferrer::non_boolean_condition)
+    )]
+    NonBooleanCondition {
+        #[source_code]
+        src: String,
+
+        #[label("non-boolean condition here")]
+        span: SourceSpan,
+
+        found: Type,
+    },
+
+    #[error("Method '{method}' does not exist on type {base_type:?}")]
+    #[diagnostic(help("This type doesn't have the requested method"), code(type_inferrer::unknown_method))]
+    UnknownMethod {
+        #[source_code]
+        src: String,
+
+        #[label("unknown method")]
+        span: SourceSpan,
+
+        method: String,
+        base_type: Type,
     },
 }
 
@@ -91,6 +132,17 @@ pub enum ResolverError {
         src: String,
 
         #[label("variable used here before being initialized")]
+        span: SourceSpan,
+
+        name: String,
+    },
+    #[error("Undefined generic type parameter '{name}'")]
+    #[diagnostic(help("This generic type parameter has not been declared"), code(resolver::undefined_generic))]
+    UndefinedGeneric {
+        #[source_code]
+        src: String,
+
+        #[label("undefined generic type parameter used here")]
         span: SourceSpan,
 
         name: String,
