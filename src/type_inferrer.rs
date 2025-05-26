@@ -9,7 +9,6 @@ use miette::{Report, SourceOffset, SourceSpan};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::Deref;
-use std::vec;
 
 pub type TypeVarId = usize;
 

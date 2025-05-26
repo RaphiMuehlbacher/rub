@@ -1,4 +1,5 @@
-use crate::builtins::{float_vec_sum_method, vec_first_method, vec_len_method, vec_push_method};
+use crate::builtins::{float_vec_sum_method, vec_first_method, vec_get_method, vec_len_method, vec_push_method};
+use crate::error::InterpreterError;
 use crate::interpreters::{Function, Value};
 use crate::type_inferrer::Type;
 use std::collections::HashMap;
@@ -47,7 +48,7 @@ impl MethodRegistry {
         method_name: &str,
         params: Vec<Type>,
         return_ty: Type,
-        method: fn(Vec<Value>) -> Result<Value, String>,
+        method: fn(Vec<Value>) -> Result<Value, InterpreterError>,
     ) {
         let method_type = Type::Function {
             params,
@@ -73,7 +74,15 @@ impl MethodRegistry {
             vec![Type::Generic("T".to_string())],
             Type::Nil,
             vec_push_method,
-        )
+        );
+
+        self.create_method(
+            &vec_generic_ty,
+            "get",
+            vec![Type::Float],
+            Type::Generic("T".to_string()),
+            vec_get_method,
+        );
     }
 
     fn register_methods(&mut self) {

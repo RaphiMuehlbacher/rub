@@ -23,6 +23,15 @@ pub enum RuntimeError {
 
         type_name: String,
     },
+    #[error("Division by zero")]
+    #[diagnostic(help("Cannot divide by zero"), code(runtime::division_by_zero))]
+    DivisionByZero {
+        #[source_code]
+        src: String,
+
+        #[label("division by zero here")]
+        span: SourceSpan,
+    },
 
     #[error("Return statement used outside of a function")]
     #[diagnostic(
@@ -35,6 +44,19 @@ pub enum RuntimeError {
 
         #[label("invalid return statement here")]
         span: SourceSpan,
+    },
+
+    #[error("Index out of bounds: {index} (length: {length})")]
+    #[diagnostic(help("Array index is outside the valid range"), code(runtime::index_out_of_bounds))]
+    IndexOutOfBounds {
+        #[source_code]
+        src: String,
+
+        #[label("invalid index access here")]
+        span: SourceSpan,
+
+        index: usize,
+        length: usize,
     },
 }
 

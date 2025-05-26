@@ -4,6 +4,7 @@ use crate::ast::{
     VarDeclStmt, WhileStmt,
 };
 use crate::builtins::{clock_native, print_native};
+use crate::error::RuntimeError::DivisionByZero;
 use crate::error::{InterpreterError, RuntimeError};
 use crate::interpreters::Function::{NativeFunction, UserFunction};
 use crate::type_inferrer::{Type, TypeVarId};
@@ -26,7 +27,7 @@ pub enum Value {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Function {
-    NativeFunction(fn(Vec<Value>) -> Result<Value, String>),
+    NativeFunction(fn(Vec<Value>) -> Result<Value, InterpreterError>),
     UserFunction {
         name: Option<String>,
         params: Rc<Vec<Parameter>>,
@@ -60,28 +61,28 @@ impl Value {
         }
     }
 
-    fn to_number(&self) -> f64 {
+    pub fn to_number(&self) -> f64 {
         match self {
             Value::Number(num) => *num,
             _ => panic!(),
         }
     }
 
-    fn to_string(&self) -> &str {
+    pub fn to_string(&self) -> &str {
         match self {
             Value::String(str) => str,
             _ => panic!(),
         }
     }
 
-    fn to_bool(&self) -> bool {
+    pub fn to_bool(&self) -> bool {
         match self {
             Value::Bool(bool) => *bool,
             _ => panic!(),
         }
     }
 
-    fn to_fn(&self) -> &Function {
+    pub fn to_fn(&self) -> &Function {
         match self {
             Value::Function(func) => func,
             _ => panic!(),
@@ -284,7 +285,7 @@ impl<'a> Interpreter<'a> {
 
                 if let Some((_, function)) = self.method_registry.lookup_method(receiver_ty, method_name) {
                     match function {
-                        NativeFunction(native_fn) => native_fn(args).map_err(|_e| panic!()),
+                        NativeFunction(native_fn) => native_fn(args),
                         _ => panic!(),
                     }
                 } else {
@@ -337,7 +338,15 @@ impl<'a> Interpreter<'a> {
                     },
                     BinaryOp::Minus => Ok(Value::Number(left.to_number() - right.to_number())),
                     BinaryOp::Star => Ok(Value::Number(left.to_number() * right.to_number())),
-                    BinaryOp::Slash => Ok(Value::Number(left.to_number() / right.to_number())),
+                    BinaryOp::Slash => {
+                        if right.to_number() == 0.0 {
+                            return Err(InterpreterError::RuntimeError(DivisionByZero {
+                                src: self.source.to_string(),
+                                span: expr.span,
+                            }));
+                        }
+                        Ok(Value::Number(left.to_number() / right.to_number()))
+                    }
                     BinaryOp::Greater => Ok(Value::Bool(left.to_number() > right.to_number())),
                     BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_number() >= right.to_number())),
                     BinaryOp::Less => Ok(Value::Bool(left.to_number() < right.to_number())),

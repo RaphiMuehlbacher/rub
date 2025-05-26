@@ -1,12 +1,3 @@
-fn append<T>(arr: Vec<T>, a: T) {
-    arr.push(a);
-}
-
-
-fn main() {
-    let array = [1, 2];
-    append(array, 3);
-    print(array);
-}
-
-main();
+let a = [1, 2, 3];
+let b = a.get(2) / 0;
+print(b);
