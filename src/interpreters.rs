@@ -1,5 +1,4 @@
 use crate::MethodRegistry;
-use crate::ast::Expr::MethodCall;
 use crate::ast::{
     BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
     VarDeclStmt, WhileStmt,
@@ -9,6 +8,7 @@ use crate::error::{InterpreterError, RuntimeError};
 use crate::interpreters::Function::{NativeFunction, UserFunction};
 use crate::type_inferrer::{Type, TypeVarId};
 use miette::Report;
+use std::cell::RefCell;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -20,7 +20,7 @@ pub enum Value {
     String(Rc<str>),
     Bool(bool),
     Function(Rc<Function>),
-    Vec(Vec<Value>),
+    Vec(Rc<RefCell<Vec<Value>>>),
     Nil,
 }
 
@@ -41,7 +41,7 @@ impl Value {
             Value::String(str) => format!("{str}"),
             Value::Bool(bool) => format!("{bool}"),
             Value::Vec(vec) => {
-                let elements: Vec<String> = vec.iter().map(|value| value.to_printable_value()).collect();
+                let elements: Vec<String> = vec.borrow().iter().map(|value| value.to_printable_value()).collect();
                 format!("[{}]", elements.join(", "))
             }
             Value::Function(function) => match function.as_ref() {
@@ -127,9 +127,9 @@ impl<'a> Interpreter<'a> {
         self.var_env.last_mut().unwrap().insert(name, value);
     }
 
-    fn get_var(&mut self, name: &str) -> &Value {
-        for env in self.var_env.iter().rev() {
-            if let Some(val) = env.get(name) {
+    fn get_var_mut(&mut self, name: &str) -> &mut Value {
+        for env in self.var_env.iter_mut().rev() {
+            if let Some(val) = env.get_mut(name) {
                 return val;
             }
         }
@@ -272,17 +272,19 @@ impl<'a> Interpreter<'a> {
 
                 Ok(return_value)
             }
-            MethodCall(method_call) => {
+            Expr::MethodCall(method_call) => {
                 let receiver = self.interpret_expr(&method_call.receiver)?;
                 let method_name = &method_call.method.node;
                 let receiver_ty = self.type_env.get(&method_call.receiver.type_id).expect("should work");
 
+                let mut args = vec![receiver];
+                for arg in &method_call.arguments {
+                    args.push(self.interpret_expr(arg)?)
+                }
+
                 if let Some((_, function)) = self.method_registry.lookup_method(receiver_ty, method_name) {
                     match function {
-                        NativeFunction(native_fn) => {
-                            let args = vec![receiver];
-                            native_fn(args).map_err(|_e| panic!())
-                        }
+                        NativeFunction(native_fn) => native_fn(args).map_err(|_e| panic!()),
                         _ => panic!(),
                     }
                 } else {
@@ -300,7 +302,7 @@ impl<'a> Interpreter<'a> {
                     for expr in vec {
                         values.push(self.interpret_expr(expr)?);
                     }
-                    Ok(Value::Vec(values))
+                    Ok(Value::Vec(Rc::new(RefCell::new(values))))
                 }
             },
 
@@ -346,7 +348,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Grouping(grouping) => self.interpret_expr(grouping),
-            Expr::Variable(variable) => Ok(self.get_var(&variable.node).clone()),
+            Expr::Variable(variable) => Ok(self.get_var_mut(&variable.node).clone()),
 
             Expr::Assign(assign) => {
                 let value = self.interpret_expr(&assign.value)?;

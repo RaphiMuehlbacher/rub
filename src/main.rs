@@ -58,6 +58,7 @@ fn interpret(code: &str) {
         return;
     }
 
+    // println!("{:?}", parse_result.ast);
     let mut interpreter = Interpreter::new(&parse_result.ast, type_inference_result.type_env, code.to_string());
     let error = interpreter.interpret().error;
     if let Some(err) = error {

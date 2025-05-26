@@ -1,4 +1,4 @@
-use crate::builtins::{float_vec_sum_method, vec_first_method, vec_len_method};
+use crate::builtins::{float_vec_sum_method, vec_first_method, vec_len_method, vec_push_method};
 use crate::interpreters::{Function, Value};
 use crate::type_inferrer::Type;
 use std::collections::HashMap;
@@ -67,6 +67,13 @@ impl MethodRegistry {
         self.create_method(&vec_generic_ty, "len", vec![], Type::Float, vec_len_method);
         self.create_method(&vec_generic_ty, "first", vec![], Type::Generic("T".to_string()), vec_first_method);
         self.create_method(&vec_float_ty, "sum", vec![], Type::Float, float_vec_sum_method);
+        self.create_method(
+            &vec_generic_ty,
+            "push",
+            vec![Type::Generic("T".to_string())],
+            Type::Nil,
+            vec_push_method,
+        )
     }
 
     fn register_methods(&mut self) {

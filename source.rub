@@ -1,5 +1,12 @@
-fn test<A>(a: Vec<B>) -> Float {
-    return a.first();
+fn append<T>(arr: Vec<T>, a: T) {
+    arr.push(a);
 }
 
-let b = test([3]);
+
+fn main() {
+    let array = [1, 2];
+    append(array, 3);
+    print(array);
+}
+
+main();

@@ -149,11 +149,11 @@ impl<'a> TypeInferrer<'a> {
         }
     }
 
-    fn unify(&mut self, left: Type, right: Type, span: SourceSpan) -> Result<Type, TypeInferrerError> {
-        let left_ty = self.lookup_type(&left);
-        let right_ty = self.lookup_type(&right);
+    fn unify(&mut self, found: Type, expected: Type, span: SourceSpan) -> Result<Type, TypeInferrerError> {
+        let found_ty = self.lookup_type(&found);
+        let expected_ty = self.lookup_type(&expected);
 
-        match (left_ty, right_ty) {
+        match (found_ty, expected_ty) {
             (Type::Float, Type::Float) => Ok(Type::Float),
             (Type::String, Type::String) => Ok(Type::String),
             (Type::Bool, Type::Bool) => Ok(Type::Bool),
@@ -322,7 +322,7 @@ impl<'a> TypeInferrer<'a> {
                 .iter()
                 .any(|stmt| matches!(stmt, Stmt::Return(_)))
             {
-                self.unify(Type::Nil, fun_decl.node.return_type.node.clone(), fun_decl.node.return_type.span)?;
+                self.unify(fun_decl.node.return_type.node.clone(), Type::Nil, fun_decl.node.return_type.span)?;
             }
 
             self.current_function_return_ty = old_ret_ty;
@@ -382,12 +382,12 @@ impl<'a> TypeInferrer<'a> {
             let ret_ty = self.lookup_type(&ret_id);
 
             if let Some(expected_ty) = &self.current_function_return_ty {
-                self.unify(expected_ty.clone(), ret_ty, ret_expr.span)?;
+                self.unify(ret_ty, expected_ty.clone(), ret_expr.span)?;
             }
         } else {
             let ret_ty = Type::Nil;
             if let Some(expected_ty) = &self.current_function_return_ty {
-                self.unify(expected_ty.clone(), ret_ty, return_stmt.span)?;
+                self.unify(ret_ty, expected_ty.clone(), return_stmt.span)?;
             }
         }
 
@@ -464,7 +464,7 @@ impl<'a> TypeInferrer<'a> {
                         let first_elem_ty = self.infer_expr(&vec[0])?;
                         for elem in vec.iter().skip(1) {
                             let elem_ty = self.infer_expr(elem)?;
-                            self.unify(first_elem_ty.clone(), elem_ty, elem.span)?;
+                            self.unify(elem_ty, first_elem_ty.clone(), elem.span)?;
                         }
 
                         Type::Vec(Box::new(first_elem_ty))

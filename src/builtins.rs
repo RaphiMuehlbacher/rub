@@ -18,7 +18,7 @@ pub fn print_native(args: Vec<Value>) -> Result<Value, String> {
 
 pub fn vec_len_method(args: Vec<Value>) -> Result<Value, String> {
     if let Value::Vec(arr) = &args[0] {
-        Ok(Value::Number(arr.len() as f64))
+        Ok(Value::Number(arr.borrow().len() as f64))
     } else {
         Err("Expected vec".to_string())
     }
@@ -27,6 +27,7 @@ pub fn vec_len_method(args: Vec<Value>) -> Result<Value, String> {
 pub fn float_vec_sum_method(args: Vec<Value>) -> Result<Value, String> {
     if let Value::Vec(arr) = &args[0] {
         let sum = arr
+            .borrow()
             .iter()
             .fold(0.0, |acc, val| if let Value::Number(n) = val { acc + n } else { acc });
         Ok(Value::Number(sum))
@@ -37,12 +38,21 @@ pub fn float_vec_sum_method(args: Vec<Value>) -> Result<Value, String> {
 
 pub fn vec_first_method(args: Vec<Value>) -> Result<Value, String> {
     if let Value::Vec(arr) = &args[0] {
-        if let Some(first) = arr.first() {
+        if let Some(first) = arr.borrow().first() {
             Ok(first.clone())
         } else {
             Err("No first".to_string())
         }
     } else {
         Err("Expected vec".to_string())
+    }
+}
+
+pub fn vec_push_method(args: Vec<Value>) -> Result<Value, String> {
+    if let [Value::Vec(arr), value] = &args[..] {
+        arr.borrow_mut().push(value.clone());
+        Ok(Value::Nil)
+    } else {
+        Err("Expected vec and value".to_string())
     }
 }
