@@ -33,6 +33,7 @@ pub enum Function {
         name: Option<String>,
         params: Rc<Vec<Parameter>>,
         body: Rc<Typed<BlockExpr>>,
+        env: Env,
     },
 }
 
@@ -49,7 +50,12 @@ impl Value {
             }
             Value::Function(function) => match function.as_ref() {
                 NativeFunction(_) => "<native_fn>".to_string(),
-                UserFunction { name, params, body: _ } => {
+                UserFunction {
+                    name,
+                    params,
+                    body: _,
+                    env: _,
+                } => {
                     let param_strings: Vec<String> = params.iter().map(|p| p.name.node.clone()).collect();
                     match name {
                         None => format!("<fn ({})>", param_strings.join(", ")),
@@ -109,21 +115,49 @@ pub enum ControlFlow {
 
 type Env = Rc<RefCell<Environment>>;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
     values: HashMap<String, Value>,
     parent: Option<Env>,
 }
 
 impl Environment {
-    pub fn new(parent: Option<Env>) -> Self {
-        Self {
+    pub fn new() -> Env {
+        Rc::new(RefCell::new(Self {
             values: HashMap::new(),
-            parent,
-        }
+            parent: None,
+        }))
+    }
+
+    pub fn with_parent(parent: Env) -> Env {
+        Rc::new(RefCell::new(Self {
+            values: HashMap::new(),
+            parent: Some(parent),
+        }))
     }
 
     pub fn define(&mut self, name: String, value: Value) {
         self.values.insert(name, value);
+    }
+
+    pub fn assign(&mut self, name: String, value: Value) {
+        if self.values.contains_key(&name) {
+            self.values.insert(name, value);
+        } else if let Some(parent) = &self.parent {
+            parent.borrow_mut().assign(name, value);
+        } else {
+            panic!()
+        }
+    }
+
+    pub fn get(&self, name: String) -> Value {
+        if let Some(val) = self.values.get(&name) {
+            val.clone()
+        } else if let Some(parent) = &self.parent {
+            parent.borrow().get(name)
+        } else {
+            panic!()
+        }
     }
 }
 
@@ -131,15 +165,19 @@ pub struct Interpreter<'a> {
     source: String,
     program: &'a Program,
     type_env: &'a HashMap<TypeVarId, Type>,
-    var_env: Vec<HashMap<String, Value>>,
+    var_env: Env,
     method_registry: MethodRegistry,
 }
 
 impl<'a> Interpreter<'a> {
     pub fn new(program: &'a Program, type_env: &'a HashMap<TypeVarId, Type>, source: String) -> Self {
-        let mut var_env = HashMap::new();
-        var_env.insert("clock".to_string(), Value::Function(Rc::new(NativeFunction(clock_native))));
-        var_env.insert("print".to_string(), Value::Function(Rc::new(NativeFunction(print_native))));
+        let mut var_env = Environment::new();
+        var_env
+            .borrow_mut()
+            .define("clock".to_string(), Value::Function(Rc::new(NativeFunction(clock_native))));
+        var_env
+            .borrow_mut()
+            .define("print".to_string(), Value::Function(Rc::new(NativeFunction(print_native))));
 
         let method_registry = MethodRegistry::new();
 
@@ -147,22 +185,21 @@ impl<'a> Interpreter<'a> {
             source,
             program,
             type_env,
-            var_env: vec![var_env],
+            var_env,
             method_registry,
         }
     }
 
-    fn insert_var(&mut self, name: String, value: Value) {
-        self.var_env.last_mut().unwrap().insert(name, value);
+    fn define_var(&mut self, name: String, value: Value) {
+        self.var_env.borrow_mut().define(name, value);
     }
 
-    fn get_var_mut(&mut self, name: &str) -> &mut Value {
-        for env in self.var_env.iter_mut().rev() {
-            if let Some(val) = env.get_mut(name) {
-                return val;
-            }
-        }
-        panic!()
+    fn get_var(&self, name: String) -> Value {
+        self.var_env.borrow().get(name)
+    }
+
+    fn assign_var(&mut self, name: String, value: Value) {
+        self.var_env.borrow_mut().assign(name, value);
     }
 
     pub fn interpret(&mut self) -> InterpreterResult {
@@ -201,8 +238,9 @@ impl<'a> Interpreter<'a> {
                     name: Some(fun_decl.node.ident.node.clone()),
                     params: Rc::new(fun_decl.node.params.clone()),
                     body: Rc::new(fun_decl.node.body.clone()),
+                    env: self.var_env.clone(),
                 }));
-                self.insert_var(fun_decl.node.ident.node.clone(), value);
+                self.define_var(fun_decl.node.ident.node.clone(), value)
             }
             _ => {}
         }
@@ -233,21 +271,22 @@ impl<'a> Interpreter<'a> {
     fn var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) -> Result<(), InterpreterError> {
         if let Some(init) = &var_decl.node.initializer {
             let value = self.interpret_expr(&init)?;
-            self.insert_var(var_decl.node.ident.node.clone(), value);
+            self.define_var(var_decl.node.ident.node.clone(), value);
         } else {
-            self.insert_var(var_decl.node.ident.node.clone(), Value::Nil);
+            self.define_var(var_decl.node.ident.node.clone(), Value::Nil);
         }
 
         Ok(())
     }
 
     fn fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) -> Result<(), InterpreterError> {
-        self.insert_var(
+        self.define_var(
             fun_decl.node.ident.node.clone(),
             Value::Function(Rc::new(UserFunction {
                 name: Some(fun_decl.node.ident.node.clone()),
                 params: Rc::new(fun_decl.node.params.clone()),
                 body: Rc::new(fun_decl.node.body.clone()),
+                env: self.var_env.clone(),
             })),
         );
 
@@ -409,11 +448,11 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Grouping(grouping) => self.interpret_expr(grouping),
-            Expr::Variable(variable) => Ok(self.get_var_mut(&variable.node).clone()),
+            Expr::Variable(variable) => Ok(self.get_var(variable.node.clone()).clone()),
 
             Expr::Assign(assign) => {
                 let value = self.interpret_expr(&assign.value)?;
-                self.insert_var(assign.target.node.clone(), value.clone());
+                self.assign_var(assign.target.node.clone(), value.clone());
                 Ok(value)
             }
 
@@ -441,12 +480,22 @@ impl<'a> Interpreter<'a> {
                         }
                         Ok(native_fun(arguments).expect("error handling for native functions not yet implemented"))
                     }
-                    UserFunction { name: _, params, body } => {
-                        self.var_env.push(HashMap::new());
+                    UserFunction {
+                        name: _,
+                        params,
+                        body,
+                        env,
+                    } => {
+                        let local_env = Environment::with_parent(env.clone());
+
                         for (arg, param) in call.arguments.iter().zip(params.as_ref()) {
                             let value = self.interpret_expr(arg)?;
-                            self.insert_var(param.name.node.clone(), value);
+                            local_env.borrow_mut().define(param.name.node.clone(), value);
                         }
+
+                        let old_env = self.var_env.clone();
+                        self.var_env = local_env;
+
                         let return_val = match self.interpret_stmts(&body.node.statements) {
                             Ok(_) => {
                                 if let Some(expr) = &body.node.expr {
@@ -459,7 +508,7 @@ impl<'a> Interpreter<'a> {
                             Err(InterpreterError::ControlFlowError(ControlFlow::Return(val))) => val,
                         };
 
-                        self.var_env.pop();
+                        self.var_env = old_env;
                         Ok(return_val)
                     }
                 }
@@ -469,6 +518,7 @@ impl<'a> Interpreter<'a> {
                 name: None,
                 params: Rc::new(lambda.parameters.clone()),
                 body: Rc::new(lambda.body.deref().clone()),
+                env: self.var_env.clone(),
             }))),
         }
     }

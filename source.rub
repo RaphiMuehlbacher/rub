@@ -40,10 +40,10 @@ fn main(a: Float) {
 
 fn make_adder(x: Int) -> (Int) -> Int {
     fn test(a: Int) -> Int {
-        // x should be able to be accessed.
-        print(x);
         return a + x;
     }
     return test;
 }
-make_adder(1);
+let a = make_adder(6);
+let b = a(3);
+print(b);
