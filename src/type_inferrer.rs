@@ -623,9 +623,20 @@ impl<'a> TypeInferrer<'a> {
                         }
                     }
                     BinaryOp::Star | BinaryOp::Slash => {
-                        self.unify(left, Type::Float, binary_expr.left.span)?;
-                        self.unify(right, Type::Float, binary_expr.right.span)?;
-                        Type::Float
+                        let left_ty = self.lookup_type(&left);
+                        let right_ty = self.lookup_type(&right);
+                        match (left_ty.clone(), right_ty.clone()) {
+                            (Type::Int, Type::Int) => Type::Int,
+                            (Type::Float, Type::Float) => Type::Float,
+                            _ => {
+                                return Err(TypeMismatch {
+                                    src: self.source.clone(),
+                                    span: binary_expr.right.span,
+                                    expected: left_ty,
+                                    found: right_ty,
+                                });
+                            }
+                        }
                     }
                     BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => {
                         let left_ty = self.lookup_type(&left);

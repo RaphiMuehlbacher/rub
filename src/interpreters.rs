@@ -415,16 +415,24 @@ impl<'a> Interpreter<'a> {
                         Type::Float => Ok(Value::Float(left.to_float() - right.to_float())),
                         _ => panic!(),
                     },
-                    BinaryOp::Star => Ok(Value::Float(left.to_float() * right.to_float())),
-                    BinaryOp::Slash => {
-                        if right.to_float() == 0.0 {
-                            return Err(InterpreterError::RuntimeError(DivisionByZero {
-                                src: self.source.to_string(),
-                                span: expr.span,
-                            }));
+                    BinaryOp::Star => match expr_type {
+                        Type::Int => Ok(Value::Int(left.to_int() * right.to_int())),
+                        Type::Float => Ok(Value::Float(left.to_float() * right.to_float())),
+                        _ => panic!(),
+                    },
+                    BinaryOp::Slash => match expr_type {
+                        Type::Int => Ok(Value::Int(left.to_int() / right.to_int())),
+                        Type::Float => {
+                            if right.to_float() == 0.0 {
+                                return Err(InterpreterError::RuntimeError(DivisionByZero {
+                                    src: self.source.to_string(),
+                                    span: expr.span,
+                                }));
+                            }
+                            Ok(Value::Float(left.to_float() / right.to_float()))
                         }
-                        Ok(Value::Float(left.to_float() / right.to_float()))
-                    }
+                        _ => panic!(),
+                    },
                     BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => match expr_type {
                         Type::Int => match binary.op.node {
                             BinaryOp::Greater => Ok(Value::Bool(left.to_int() > right.to_int())),
