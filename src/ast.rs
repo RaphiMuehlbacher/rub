@@ -66,6 +66,7 @@ pub struct ExprStmt {
 pub struct VarDeclStmt {
     pub ident: Ident,
     pub initializer: Option<Typed<Expr>>,
+    pub type_annotation: Option<Typed<Type>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

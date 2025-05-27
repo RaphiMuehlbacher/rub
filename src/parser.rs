@@ -327,6 +327,12 @@ impl<'a> Parser<'a> {
 
         let variable_name = self.parse_variable_name()?;
 
+        let type_annotation = if self.matches(&[TokenKind::Colon]) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+
         let initializer = self.parse_var_initializer()?;
         self.expect_semicolon();
 
@@ -334,6 +340,7 @@ impl<'a> Parser<'a> {
             VarDeclStmt {
                 ident: variable_name,
                 initializer,
+                type_annotation,
             },
             self.create_span(var_keyword_span, self.previous().span),
         )))

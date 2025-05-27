@@ -1,2 +1,2 @@
-let a = 3 / 2;
+let a: Vec<Int> = [3.0];
 print(a);

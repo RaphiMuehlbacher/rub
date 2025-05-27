@@ -279,8 +279,24 @@ impl<'a> TypeInferrer<'a> {
         let var_decl_id = var_decl.node.ident.type_id.clone();
         self.var_env.insert(var_decl.node.ident.node.clone(), var_decl_id);
 
+        if let Some(type_annotation) = &var_decl.node.type_annotation {
+            self.type_env.insert(var_decl_id, type_annotation.node.clone());
+        }
         if let Some(init) = &var_decl.node.initializer {
-            let init_type = self.infer_expr(init)?;
+            let init_type = match &init.node {
+                Expr::Literal(LiteralExpr::VecLiteral(elements)) if elements.is_empty() => {
+                    if let Some(type_annotation) = &var_decl.node.type_annotation {
+                        type_annotation.node.clone()
+                    } else {
+                        return Err(TypeInferrerError::CannotInferType {
+                            src: self.source.clone(),
+                            span: var_decl.span,
+                            name: "Vec".to_string(),
+                        });
+                    }
+                }
+                _ => self.infer_expr(init)?,
+            };
             self.unify(TypeVar(var_decl_id), init_type, var_decl.node.ident.span)?;
         }
 
