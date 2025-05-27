@@ -1,3 +1,49 @@
-let a = [1, 2, 3];
-let b = a.get(2) / 0;
-print(b);
+/*
+fn greet(name: String) -> String {
+    return "Hello " + name;
+}
+
+fn add(a: Int, b: Int) -> Int {
+    return a + b;
+}
+
+fn apply(f: (Int) -> Int, value: Int) -> Int {
+    return f(value);
+}
+
+fn double<T>(x: T) -> T {
+    return x + x;
+}
+
+
+
+fn incr(x: Int) -> Int {
+    return x + 1;
+}
+
+let name = greet("Alice");
+let sum = add(5, 3);
+
+let test = apply(incr, 2);
+
+*/
+
+fn main(a: Float) {
+    fn test(x: Float) -> Float {
+        return a + x;
+    }
+
+    let x = test(1.0);
+}
+
+// main(3.0);
+
+fn make_adder(x: Int) -> (Int) -> Int {
+    fn test(a: Int) -> Int {
+        // x should be able to be accessed.
+        print(x);
+        return a + x;
+    }
+    return test;
+}
+make_adder(1);

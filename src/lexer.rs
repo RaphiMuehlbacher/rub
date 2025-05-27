@@ -29,7 +29,8 @@ pub enum TokenKind {
 
     String(String),
     Ident(String),
-    Number(f64),
+    Float(f64),
+    Int(i64),
 
     And,
     Else,
@@ -44,6 +45,7 @@ pub enum TokenKind {
     Let,
     While,
 
+    TypeInt,
     TypeFloat,
     TypeString,
     TypeBool,
@@ -220,6 +222,7 @@ impl<'a> Lexer<'a> {
                         "Bool" => TokenKind::TypeBool,
                         "Nil" => TokenKind::TypeNil,
                         "Vec" => TokenKind::TypeVec,
+                        "Int" => TokenKind::TypeInt,
                         _ => TokenKind::Ident(literal.to_string()),
                     };
 
@@ -237,15 +240,16 @@ impl<'a> Lexer<'a> {
 
                         self.position += second_part_offset;
                         Token {
-                            token_kind: TokenKind::Number(self.source[self.start..self.position].parse().unwrap()),
+                            token_kind: TokenKind::Float(self.source[self.start..self.position].parse().unwrap()),
                             span: SourceSpan::new(self.start.into(), self.position - self.start),
                             literal: &self.source[self.start..self.position],
                         }
                     } else {
+                        let literal = &rest[..first_part_offset];
                         Token {
-                            token_kind: TokenKind::Number(rest[..first_part_offset].parse().unwrap()),
+                            token_kind: TokenKind::Int(literal.parse().unwrap()),
                             span: SourceSpan::new(self.start.into(), self.position - self.start),
-                            literal: &rest[..first_part_offset],
+                            literal,
                         }
                     }
                 }

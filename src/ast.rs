@@ -171,7 +171,8 @@ pub struct MethodCallExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralExpr {
-    Number(f64),
+    Int(i64),
+    Float(f64),
     String(String),
     Bool(bool),
     VecLiteral(Vec<Typed<Expr>>),

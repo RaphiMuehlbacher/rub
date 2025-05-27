@@ -17,7 +17,8 @@ use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
-    Number(f64),
+    Int(i64),
+    Float(f64),
     String(Rc<str>),
     Bool(bool),
     Function(Rc<Function>),
@@ -38,7 +39,8 @@ pub enum Function {
 impl Value {
     pub fn to_printable_value(&self) -> String {
         match self {
-            Value::Number(num) => format!("{num}"),
+            Value::Int(int) => format!("{int}"),
+            Value::Float(num) => format!("{num}"),
             Value::String(str) => format!("{str}"),
             Value::Bool(bool) => format!("{bool}"),
             Value::Vec(vec) => {
@@ -61,9 +63,15 @@ impl Value {
         }
     }
 
-    pub fn to_number(&self) -> f64 {
+    pub fn to_int(&self) -> i64 {
         match self {
-            Value::Number(num) => *num,
+            Value::Int(num) => *num,
+            _ => panic!(),
+        }
+    }
+    pub fn to_float(&self) -> f64 {
+        match self {
+            Value::Float(num) => *num,
             _ => panic!(),
         }
     }
@@ -97,6 +105,26 @@ pub struct InterpreterResult {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ControlFlow {
     Return(Value),
+}
+
+type Env = Rc<RefCell<Environment>>;
+
+pub struct Environment {
+    values: HashMap<String, Value>,
+    parent: Option<Env>,
+}
+
+impl Environment {
+    pub fn new(parent: Option<Env>) -> Self {
+        Self {
+            values: HashMap::new(),
+            parent,
+        }
+    }
+
+    pub fn define(&mut self, name: String, value: Value) {
+        self.values.insert(name, value);
+    }
 }
 
 pub struct Interpreter<'a> {
@@ -294,7 +322,8 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Literal(lit) => match &lit {
-                LiteralExpr::Number(num) => Ok(Value::Number(*num)),
+                LiteralExpr::Int(int) => Ok(Value::Int(*int)),
+                LiteralExpr::Float(num) => Ok(Value::Float(*num)),
                 LiteralExpr::String(str) => Ok(Value::String(Rc::from(str.as_str()))),
                 LiteralExpr::Bool(bool) => Ok(Value::Bool(*bool)),
                 LiteralExpr::Nil => Ok(Value::Nil),
@@ -309,10 +338,15 @@ impl<'a> Interpreter<'a> {
 
             Expr::Unary(unary) => {
                 let right = self.interpret_expr(&unary.expr)?;
+                let expr_type = self.type_env.get(&expr.type_id).unwrap();
 
                 match unary.op.node {
                     UnaryOp::Bang => Ok(Value::Bool(!right.to_bool())),
-                    UnaryOp::Minus => Ok(Value::Number(-right.to_number())),
+                    UnaryOp::Minus => match expr_type {
+                        Type::Int => Ok(Value::Int(-right.to_int())),
+                        Type::Float => Ok(Value::Float(-right.to_float())),
+                        _ => panic!(),
+                    },
                 }
             }
 
@@ -320,11 +354,12 @@ impl<'a> Interpreter<'a> {
                 let left = self.interpret_expr(&binary.left)?;
                 let right = self.interpret_expr(&binary.right)?;
 
-                let left_type = self.type_env.get(&expr.type_id).unwrap();
+                let expr_type = self.type_env.get(&expr.type_id).unwrap();
 
                 match binary.op.node {
-                    BinaryOp::Plus => match left_type {
-                        Type::Float => Ok(Value::Number(left.to_number() + right.to_number())),
+                    BinaryOp::Plus => match expr_type {
+                        Type::Int => Ok(Value::Int(left.to_int() + right.to_int())),
+                        Type::Float => Ok(Value::Float(left.to_float() + right.to_float())),
                         Type::String => {
                             let left_string = left.to_string();
                             let right_string = right.to_string();
@@ -334,23 +369,40 @@ impl<'a> Interpreter<'a> {
 
                             Ok(Value::String(Rc::from(buffer)))
                         }
-                        _ => panic!("{:?}", left_type),
+                        _ => panic!("{:?}", expr_type),
                     },
-                    BinaryOp::Minus => Ok(Value::Number(left.to_number() - right.to_number())),
-                    BinaryOp::Star => Ok(Value::Number(left.to_number() * right.to_number())),
+                    BinaryOp::Minus => match expr_type {
+                        Type::Int => Ok(Value::Int(left.to_int() - right.to_int())),
+                        Type::Float => Ok(Value::Float(left.to_float() - right.to_float())),
+                        _ => panic!(),
+                    },
+                    BinaryOp::Star => Ok(Value::Float(left.to_float() * right.to_float())),
                     BinaryOp::Slash => {
-                        if right.to_number() == 0.0 {
+                        if right.to_float() == 0.0 {
                             return Err(InterpreterError::RuntimeError(DivisionByZero {
                                 src: self.source.to_string(),
                                 span: expr.span,
                             }));
                         }
-                        Ok(Value::Number(left.to_number() / right.to_number()))
+                        Ok(Value::Float(left.to_float() / right.to_float()))
                     }
-                    BinaryOp::Greater => Ok(Value::Bool(left.to_number() > right.to_number())),
-                    BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_number() >= right.to_number())),
-                    BinaryOp::Less => Ok(Value::Bool(left.to_number() < right.to_number())),
-                    BinaryOp::LessEqual => Ok(Value::Bool(left.to_number() <= right.to_number())),
+                    BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => match expr_type {
+                        Type::Int => match binary.op.node {
+                            BinaryOp::Greater => Ok(Value::Bool(left.to_int() > right.to_int())),
+                            BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_int() >= right.to_int())),
+                            BinaryOp::Less => Ok(Value::Bool(left.to_int() < right.to_int())),
+                            BinaryOp::LessEqual => Ok(Value::Bool(left.to_int() <= right.to_int())),
+                            _ => unreachable!(),
+                        },
+                        Type::Float => match binary.op.node {
+                            BinaryOp::Greater => Ok(Value::Bool(left.to_float() > right.to_float())),
+                            BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_float() >= right.to_float())),
+                            BinaryOp::Less => Ok(Value::Bool(left.to_float() < right.to_float())),
+                            BinaryOp::LessEqual => Ok(Value::Bool(left.to_float() <= right.to_float())),
+                            _ => unreachable!(),
+                        },
+                        _ => panic!("{:?}", expr_type),
+                    },
                     BinaryOp::EqualEqual => Ok(Value::Bool(left == right)),
                     BinaryOp::BangEqual => Ok(Value::Bool(left != right)),
                 }

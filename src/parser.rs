@@ -55,7 +55,8 @@ impl<'a> Parser<'a> {
 
     fn next_is(&self, kind: TokenKind) -> bool {
         match (&self.peek().token_kind, &kind) {
-            (TokenKind::Number(_), TokenKind::Number(_)) => true,
+            (TokenKind::Int(_), TokenKind::Int(_)) => true,
+            (TokenKind::Float(_), TokenKind::Float(_)) => true,
             (TokenKind::String(_), TokenKind::String(_)) => true,
             (TokenKind::Ident(_), TokenKind::Ident(_)) => true,
             (a, b) => a == b,
@@ -64,7 +65,8 @@ impl<'a> Parser<'a> {
 
     fn current_is(&self, kind: TokenKind) -> bool {
         match (&self.current().token_kind, &kind) {
-            (TokenKind::Number(_), TokenKind::Number(_)) => true,
+            (TokenKind::Int(_), TokenKind::Int(_)) => true,
+            (TokenKind::Float(_), TokenKind::Float(_)) => true,
             (TokenKind::String(_), TokenKind::String(_)) => true,
             (TokenKind::Ident(_), TokenKind::Ident(_)) => true,
             (a, b) => a == b,
@@ -347,7 +349,7 @@ impl<'a> Parser<'a> {
                 self.advance_position();
                 Typed::new(name.clone(), variable_span)
             }
-            TokenKind::Number(_) => {
+            TokenKind::Float(_) | TokenKind::Int(_) => {
                 if self.next_is(TokenKind::Ident(String::new())) {
                     self.advance_position();
                     return Err(InvalidVariableName {
@@ -470,7 +472,7 @@ impl<'a> Parser<'a> {
                 self.advance_position();
                 Typed::new(name.clone(), function_token.span)
             }
-            TokenKind::Number(_) => {
+            TokenKind::Float(_) | TokenKind::Int(_) => {
                 if self.next_is(TokenKind::Ident(String::new())) {
                     self.skip_to_next_paren();
                     self.report(
@@ -636,6 +638,10 @@ impl<'a> Parser<'a> {
                     }
 
                     Ok(Type::Vec(inner_type))
+                }
+                TokenKind::TypeInt => {
+                    self.advance_position();
+                    Ok(Type::Int)
                 }
                 TokenKind::TypeFloat => {
                     self.advance_position();
@@ -1526,7 +1532,7 @@ impl<'a> Parser<'a> {
                     self.create_span(opening_paren_span, self.current().span),
                 ))))
             }
-            TokenKind::Number(value) => {
+            TokenKind::Int(value) => {
                 let span = self.current().span;
                 self.advance_position();
 
@@ -1538,7 +1544,21 @@ impl<'a> Parser<'a> {
                     }
                     .into());
                 }
-                Ok(Literal(LiteralExpr::Number(value)))
+                Ok(Literal(LiteralExpr::Int(value)))
+            }
+            TokenKind::Float(value) => {
+                let span = self.current().span;
+                self.advance_position();
+
+                if self.current_is(TokenKind::Ident(String::new())) {
+                    return Err(InvalidVariableName {
+                        src: self.source.to_string(),
+                        span,
+                        message: "A variable cannot start with a number".to_string(),
+                    }
+                    .into());
+                }
+                Ok(Literal(LiteralExpr::Float(value)))
             }
             TokenKind::String(ref value) => {
                 let string = value.clone();

@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn clock_native(_args: Vec<Value>) -> Result<Value, InterpreterError> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    Ok(Value::Number(now.as_millis() as f64))
+    Ok(Value::Float(now.as_millis() as f64))
 }
 
 pub fn print_native(args: Vec<Value>) -> Result<Value, InterpreterError> {
@@ -20,7 +20,7 @@ pub fn print_native(args: Vec<Value>) -> Result<Value, InterpreterError> {
 
 pub fn vec_len_method(args: Vec<Value>) -> Result<Value, InterpreterError> {
     let Value::Vec(arr) = &args[0] else { unreachable!() };
-    Ok(Value::Number(arr.borrow().len() as f64))
+    Ok(Value::Int(arr.borrow().len() as i64))
 }
 
 pub fn float_vec_sum_method(args: Vec<Value>) -> Result<Value, InterpreterError> {
@@ -28,8 +28,17 @@ pub fn float_vec_sum_method(args: Vec<Value>) -> Result<Value, InterpreterError>
     let sum = arr
         .borrow()
         .iter()
-        .fold(0.0, |acc, val| if let Value::Number(n) = val { acc + n } else { acc });
-    Ok(Value::Number(sum))
+        .fold(0.0, |acc, val| if let Value::Float(n) = val { acc + n } else { acc });
+    Ok(Value::Float(sum))
+}
+
+pub fn int_vec_sum_method(args: Vec<Value>) -> Result<Value, InterpreterError> {
+    let Value::Vec(arr) = &args[0] else { unreachable!() };
+    let sum = arr
+        .borrow()
+        .iter()
+        .fold(0, |acc, val| if let Value::Int(n) = val { acc + n } else { acc });
+    Ok(Value::Int(sum))
 }
 
 pub fn vec_first_method(args: Vec<Value>) -> Result<Value, InterpreterError> {
@@ -44,7 +53,7 @@ pub fn vec_push_method(args: Vec<Value>) -> Result<Value, InterpreterError> {
 }
 
 pub fn vec_get_method(args: Vec<Value>) -> Result<Value, InterpreterError> {
-    let [Value::Vec(arr), Value::Number(index)] = &args[..] else {
+    let [Value::Vec(arr), Value::Int(index)] = &args[..] else {
         unreachable!()
     };
     let index = *index as usize;

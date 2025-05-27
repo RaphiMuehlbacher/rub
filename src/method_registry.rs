@@ -1,4 +1,4 @@
-use crate::builtins::{float_vec_sum_method, vec_first_method, vec_get_method, vec_len_method, vec_push_method};
+use crate::builtins::{float_vec_sum_method, int_vec_sum_method, vec_first_method, vec_get_method, vec_len_method, vec_push_method};
 use crate::error::InterpreterError;
 use crate::interpreters::{Function, Value};
 use crate::type_inferrer::Type;
@@ -63,11 +63,13 @@ impl MethodRegistry {
 
     fn register_vec_methods(&mut self) {
         let vec_float_ty = Type::Vec(Box::new(Type::Float));
+        let vec_int_ty = Type::Vec(Box::new(Type::Int));
         let vec_generic_ty = Type::Vec(Box::new(Type::Generic("T".to_string())));
 
-        self.create_method(&vec_generic_ty, "len", vec![], Type::Float, vec_len_method);
+        self.create_method(&vec_generic_ty, "len", vec![], Type::Int, vec_len_method);
         self.create_method(&vec_generic_ty, "first", vec![], Type::Generic("T".to_string()), vec_first_method);
         self.create_method(&vec_float_ty, "sum", vec![], Type::Float, float_vec_sum_method);
+        self.create_method(&vec_int_ty, "sum", vec![], Type::Int, int_vec_sum_method);
         self.create_method(
             &vec_generic_ty,
             "push",
@@ -79,7 +81,7 @@ impl MethodRegistry {
         self.create_method(
             &vec_generic_ty,
             "get",
-            vec![Type::Float],
+            vec![Type::Int],
             Type::Generic("T".to_string()),
             vec_get_method,
         );

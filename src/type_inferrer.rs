@@ -14,6 +14,7 @@ pub type TypeVarId = usize;
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum Type {
+    Int,
     Float,
     Bool,
     String,
@@ -114,7 +115,7 @@ impl<'a> TypeInferrer<'a> {
         let t = self.lookup_type(ty);
 
         match t {
-            Type::Float | Type::Bool | Type::String | Type::Nil => t,
+            Type::Float | Type::Bool | Type::String | Type::Nil | Type::Int => t,
             Type::Generic(ref name) => substitutions.get(name).cloned().unwrap_or(t),
             Type::Function { params, return_ty } => {
                 let new_params = params.iter().map(|p| self.substitute(p, substitutions)).collect();
@@ -153,6 +154,7 @@ impl<'a> TypeInferrer<'a> {
         let expected_ty = self.lookup_type(&expected);
 
         match (found_ty, expected_ty) {
+            (Type::Int, Type::Int) => Ok(Type::Int),
             (Type::Float, Type::Float) => Ok(Type::Float),
             (Type::String, Type::String) => Ok(Type::String),
             (Type::Bool, Type::Bool) => Ok(Type::Bool),
@@ -447,7 +449,8 @@ impl<'a> TypeInferrer<'a> {
         match &expr.node {
             Expr::Literal(literal_expr) => {
                 let ty = match literal_expr {
-                    LiteralExpr::Number(_) => Type::Float,
+                    LiteralExpr::Int(_) => Type::Int,
+                    LiteralExpr::Float(_) => Type::Float,
                     LiteralExpr::String(_) => Type::String,
                     LiteralExpr::Bool(_) => Type::Bool,
                     LiteralExpr::Nil => Type::Nil,
@@ -590,6 +593,7 @@ impl<'a> TypeInferrer<'a> {
                         let left_ty = self.lookup_type(&left);
                         let right_ty = self.lookup_type(&right);
                         match (left_ty.clone(), right_ty.clone()) {
+                            (Type::Int, Type::Int) => Type::Int,
                             (Type::Float, Type::Float) => Type::Float,
                             (Type::String, Type::String) => Type::String,
                             _ => {
@@ -602,15 +606,42 @@ impl<'a> TypeInferrer<'a> {
                             }
                         }
                     }
-                    BinaryOp::Star | BinaryOp::Minus | BinaryOp::Slash => {
+                    BinaryOp::Minus => {
+                        let left_ty = self.lookup_type(&left);
+                        let right_ty = self.lookup_type(&right);
+                        match (left_ty.clone(), right_ty.clone()) {
+                            (Type::Int, Type::Int) => Type::Int,
+                            (Type::Float, Type::Float) => Type::Float,
+                            _ => {
+                                return Err(TypeMismatch {
+                                    src: self.source.clone(),
+                                    span: binary_expr.right.span,
+                                    expected: left_ty,
+                                    found: right_ty,
+                                });
+                            }
+                        }
+                    }
+                    BinaryOp::Star | BinaryOp::Slash => {
                         self.unify(left, Type::Float, binary_expr.left.span)?;
                         self.unify(right, Type::Float, binary_expr.right.span)?;
                         Type::Float
                     }
                     BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => {
-                        self.unify(left, Type::Float, binary_expr.left.span)?;
-                        self.unify(right, Type::Float, binary_expr.right.span)?;
-                        Type::Bool
+                        let left_ty = self.lookup_type(&left);
+                        let right_ty = self.lookup_type(&right);
+                        match (left_ty.clone(), right_ty.clone()) {
+                            (Type::Int, Type::Int) => Type::Bool,
+                            (Type::Float, Type::Float) => Type::Bool,
+                            _ => {
+                                return Err(TypeMismatch {
+                                    src: self.source.clone(),
+                                    span: binary_expr.right.span,
+                                    expected: left_ty,
+                                    found: right_ty,
+                                });
+                            }
+                        }
                     }
                     BinaryOp::EqualEqual | BinaryOp::BangEqual => {
                         self.unify(left, right, binary_expr.right.span)?;
