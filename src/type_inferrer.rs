@@ -522,73 +522,50 @@ impl<'a> TypeInferrer<'a> {
                 let receiver_ty = self.lookup_type(&receiver_ty);
                 self.type_env.insert(method_call.receiver.type_id, receiver_ty.clone());
 
-                let return_ty =
-                    if let Some((method_ty, _)) = self.method_registry.lookup_method(&receiver_ty, &method_call.method.node).cloned() {
-                        match method_ty {
-                            Type::Function { params, return_ty } => {
-                                if params.len() != method_call.arguments.len() {
-                                    return Err(TypeMismatch {
-                                        src: self.source.clone(),
-                                        span: method_call.method.span,
-                                        expected: Type::Function {
-                                            params: params.clone(),
-                                            return_ty: return_ty.clone(),
-                                        },
-                                        found: Type::Function {
-                                            params: method_call.arguments.iter().map(|_| TypeVar(0)).collect(),
-                                            return_ty: Box::new(TypeVar(0)),
-                                        },
-                                    });
-                                }
-
-                                let mut substitutions: HashMap<String, Type> = HashMap::new();
-
-                                for (arg, param_ty) in method_call.arguments.iter().zip(params.iter()) {
-                                    let arg_ty = self.infer_expr(arg)?;
-                                    let arg_ty = self.lookup_type(&arg_ty);
-
-                                    match param_ty {
-                                        Type::Generic(name) => {
-                                            if let Some(existing) = substitutions.get(name) {
-                                                self.unify(existing.clone(), arg_ty.clone(), arg.span)?;
-                                            } else {
-                                                substitutions.insert(name.clone(), arg_ty);
-                                            }
-                                        }
-                                        _ => {
-                                            let substituted = self.substitute(param_ty, &substitutions);
-                                            self.unify(substituted, arg_ty, arg.span)?;
-                                        }
-                                    }
-                                }
-
-                                let return_ty = match return_ty.deref() {
-                                    Type::Generic(name) => {
-                                        if let Some(concrete_ty) = substitutions.get(name) {
-                                            concrete_ty.clone()
-                                        } else if let Type::Vec(elem_ty) = &receiver_ty {
-                                            *elem_ty.clone()
-                                        } else {
-                                            *return_ty.clone()
-                                        }
-                                    }
-                                    _ => self.substitute(&return_ty, &substitutions),
-                                };
-
-                                Ok(return_ty)
+                if let Some((method_ty, _)) = self.method_registry.lookup_method(&receiver_ty, &method_call.method.node).cloned() {
+                    match method_ty {
+                        Type::Function { params, return_ty } => {
+                            if params.len() != method_call.arguments.len() {
+                                return Err(TypeMismatch {
+                                    src: self.source.clone(),
+                                    span: method_call.method.span,
+                                    expected: Type::Function {
+                                        params: params.clone(),
+                                        return_ty: return_ty.clone(),
+                                    },
+                                    found: Type::Function {
+                                        params: method_call.arguments.iter().map(|_| TypeVar(0)).collect(),
+                                        return_ty: Box::new(TypeVar(0)),
+                                    },
+                                });
                             }
-                            _ => unreachable!(),
+                            let mut substitutions = HashMap::new();
+
+                            if let Type::Vec(elem_ty) = &receiver_ty {
+                                substitutions.insert("T".to_string(), elem_ty.as_ref().clone());
+                            }
+
+                            for (param, arg) in params.iter().zip(&method_call.arguments) {
+                                let arg_ty = self.infer_expr(arg)?;
+                                let arg_ty = self.lookup_type(&arg_ty);
+                                let substituted_param = self.substitute(param, &substitutions);
+                                self.unify(arg_ty, substituted_param, arg.span)?;
+                            }
+
+                            let return_ty = self.substitute(&return_ty, &substitutions);
+                            self.type_env.insert(expr.type_id, return_ty);
+                            Ok(TypeVar(expr.type_id))
                         }
-                    } else {
-                        Err(UnknownMethod {
-                            src: self.source.clone(),
-                            span: expr.span,
-                            method: method_call.method.node.clone(),
-                            base_type: receiver_ty,
-                        })
-                    }?;
-                self.type_env.insert(expr.type_id, return_ty);
-                Ok(TypeVar(expr.type_id))
+                        _ => unreachable!(),
+                    }
+                } else {
+                    Err(UnknownMethod {
+                        src: self.source.clone(),
+                        span: expr.span,
+                        method: method_call.method.node.clone(),
+                        base_type: receiver_ty,
+                    })
+                }
             }
             Expr::Unary(unary_expr) => {
                 let right_ty = self.infer_expr(unary_expr.expr.deref())?;
