@@ -1,2 +1,10 @@
-let a = ["ha"];
-print(a.get(0));
+fn testa<T>(fa: (T) -> T, x: T) -> T {
+    return fa(x);
+}
+
+
+fn testfa(a: Int) -> Int {
+    return a + 1;
+}
+
+let a = testa(testfa, 3);

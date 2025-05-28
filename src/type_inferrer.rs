@@ -455,7 +455,7 @@ impl<'a> TypeInferrer<'a> {
             let arg_ty = self.infer_expr(arg)?;
             let arg_ty = self.lookup_type(&arg_ty);
             let substituted = self.substitute(param_ty, &substitutions);
-            self.unify(substituted, arg_ty, arg.span)?;
+            self.unify(arg_ty, substituted, arg.span)?;
         }
 
         Ok(substitutions)
@@ -526,17 +526,11 @@ impl<'a> TypeInferrer<'a> {
                     match method_ty {
                         Type::Function { params, return_ty } => {
                             if params.len() != method_call.arguments.len() {
-                                return Err(TypeMismatch {
+                                return Err(WrongArgumentCount {
                                     src: self.source.clone(),
                                     span: method_call.method.span,
-                                    expected: Type::Function {
-                                        params: params.clone(),
-                                        return_ty: return_ty.clone(),
-                                    },
-                                    found: Type::Function {
-                                        params: method_call.arguments.iter().map(|_| TypeVar(0)).collect(),
-                                        return_ty: Box::new(TypeVar(0)),
-                                    },
+                                    expected: params.len(),
+                                    found: method_call.arguments.len(),
                                 });
                             }
                             let mut substitutions = HashMap::new();
