@@ -1,10 +1,5 @@
-fn testa<T>(fa: (T) -> T, x: T) -> T {
-    return fa(x);
+fn main() -> Int {
+    return 3;
 }
-
-
-fn testfa(a: Int) -> Int {
-    return a + 1;
-}
-
-let a = testa(testfa, 3);
+let a = main();
+print(a);

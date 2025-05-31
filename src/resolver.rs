@@ -1,7 +1,8 @@
 use crate::ast::{Expr, ExprStmt, FunDeclStmt, Ident, Parameter, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt};
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
-    DuplicateLambdaParameter, DuplicateParameter, UndefinedFunction, UndefinedGeneric, UndefinedVariable, UninitializedVariable,
+    DuplicateLambdaParameter, DuplicateParameter, ReturnOutsideFunction, UndefinedFunction, UndefinedGeneric, UndefinedVariable,
+    UninitializedVariable,
 };
 use crate::type_inferrer::Type;
 use miette::{Report, SourceSpan};
@@ -19,6 +20,7 @@ pub struct Resolver<'a> {
     program: &'a Program,
     errors: Vec<Report>,
     scopes: Vec<HashMap<String, Symbol>>,
+    inside_fn: bool,
 }
 
 impl<'a> Resolver<'a> {
@@ -44,6 +46,7 @@ impl<'a> Resolver<'a> {
             program: ast,
             errors: vec![],
             scopes: vec![var_env],
+            inside_fn: false,
         }
     }
 
@@ -155,9 +158,12 @@ impl<'a> Resolver<'a> {
 
         self.check_generic_param(&fun_decl.node.return_type, &generic_params);
 
+        let prev_inside_fn = self.inside_fn;
+        self.inside_fn = true;
         for stmt in &fun_decl.node.body.node.statements {
             self.resolve_stmt(stmt);
         }
+        self.inside_fn = prev_inside_fn;
         self.scopes.pop();
     }
 
@@ -219,7 +225,12 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_return_stmt(&mut self, return_stmt: &Typed<ReturnStmt>) {
-        if let Some(return_expr) = &return_stmt.node.expr {
+        if !self.inside_fn {
+            self.report(ReturnOutsideFunction {
+                src: self.source.clone(),
+                span: return_stmt.span,
+            })
+        } else if let Some(return_expr) = &return_stmt.node.expr {
             self.resolve_expr(return_expr);
         }
     }
@@ -326,9 +337,12 @@ impl<'a> Resolver<'a> {
                     }
                 }
 
+                let prev_inside_fn = self.inside_fn;
+                self.inside_fn = true;
                 for stmt in &lambda.body.node.statements {
                     self.resolve_stmt(stmt);
                 }
+                self.inside_fn = prev_inside_fn;
                 self.scopes.pop();
             }
         }

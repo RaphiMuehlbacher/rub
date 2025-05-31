@@ -215,17 +215,7 @@ impl<'a> Interpreter<'a> {
                         error: Some(Report::from(err)),
                     };
                 }
-                Err(InterpreterError::ControlFlowError(ControlFlow::Return(_))) => {
-                    return InterpreterResult {
-                        error: Some(
-                            RuntimeError::ReturnOutsideFunction {
-                                src: self.source.to_string(),
-                                span: stmt.span(),
-                            }
-                            .into(),
-                        ),
-                    };
-                }
+                _ => panic!(),
             }
         }
         InterpreterResult { error: None }

@@ -33,19 +33,6 @@ pub enum RuntimeError {
         span: SourceSpan,
     },
 
-    #[error("Return statement used outside of a function")]
-    #[diagnostic(
-        help("Return statements can only be used inside functions"),
-        code(runtime::return_outside_function)
-    )]
-    ReturnOutsideFunction {
-        #[source_code]
-        src: String,
-
-        #[label("invalid return statement here")]
-        span: SourceSpan,
-    },
-
     #[error("Index out of bounds: {index} (length: {length})")]
     #[diagnostic(help("Array index is outside the valid range"), code(runtime::index_out_of_bounds))]
     IndexOutOfBounds {
@@ -144,6 +131,19 @@ pub enum TypeInferrerError {
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum ResolverError {
+    #[error("Return statement used outside of a function")]
+    #[diagnostic(
+        help("Return statements can only be used inside functions"),
+        code(resolver::return_outside_function)
+    )]
+    ReturnOutsideFunction {
+        #[source_code]
+        src: String,
+
+        #[label("invalid return statement here")]
+        span: SourceSpan,
+    },
+
     #[error("Variable '{name}' used before initialization")]
     #[diagnostic(
         help("Make sure to initialize the variable before using it"),
