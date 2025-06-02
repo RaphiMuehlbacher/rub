@@ -1,5 +1,2 @@
-fn main() -> Int {
-    return 3;
-}
-let a = main();
+let a = if 3 > 3 { 2 } else {1 };
 print(a);

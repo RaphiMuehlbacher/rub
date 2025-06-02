@@ -423,23 +423,26 @@ impl<'a> Interpreter<'a> {
                         }
                         _ => panic!(),
                     },
-                    BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => match expr_type {
-                        Type::Int => match binary.op.node {
-                            BinaryOp::Greater => Ok(Value::Bool(left.to_int() > right.to_int())),
-                            BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_int() >= right.to_int())),
-                            BinaryOp::Less => Ok(Value::Bool(left.to_int() < right.to_int())),
-                            BinaryOp::LessEqual => Ok(Value::Bool(left.to_int() <= right.to_int())),
-                            _ => unreachable!(),
-                        },
-                        Type::Float => match binary.op.node {
-                            BinaryOp::Greater => Ok(Value::Bool(left.to_float() > right.to_float())),
-                            BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_float() >= right.to_float())),
-                            BinaryOp::Less => Ok(Value::Bool(left.to_float() < right.to_float())),
-                            BinaryOp::LessEqual => Ok(Value::Bool(left.to_float() <= right.to_float())),
-                            _ => unreachable!(),
-                        },
-                        _ => panic!("{:?}", expr_type),
-                    },
+                    BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => {
+                        let operand_type = self.type_env.get(&binary.left.type_id).unwrap();
+                        match operand_type {
+                            Type::Int => match binary.op.node {
+                                BinaryOp::Greater => Ok(Value::Bool(left.to_int() > right.to_int())),
+                                BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_int() >= right.to_int())),
+                                BinaryOp::Less => Ok(Value::Bool(left.to_int() < right.to_int())),
+                                BinaryOp::LessEqual => Ok(Value::Bool(left.to_int() <= right.to_int())),
+                                _ => unreachable!(),
+                            },
+                            Type::Float => match binary.op.node {
+                                BinaryOp::Greater => Ok(Value::Bool(left.to_float() > right.to_float())),
+                                BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_float() >= right.to_float())),
+                                BinaryOp::Less => Ok(Value::Bool(left.to_float() < right.to_float())),
+                                BinaryOp::LessEqual => Ok(Value::Bool(left.to_float() <= right.to_float())),
+                                _ => unreachable!(),
+                            },
+                            _ => panic!("{:?}", expr_type),
+                        }
+                    }
                     BinaryOp::EqualEqual => Ok(Value::Bool(left == right)),
                     BinaryOp::BangEqual => Ok(Value::Bool(left != right)),
                 }
