@@ -265,6 +265,7 @@ impl<'a> TypeInferrer<'a> {
             Stmt::ExprStmtNode(expr_stmt) => self.infer_expr_stmt(expr_stmt),
             Stmt::VarDecl(var_decl) => self.infer_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.infer_fun_decl(fun_decl),
+            Stmt::StructDecl(struct_decl) => todo!(),
             Stmt::While(while_stmt) => self.infer_while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.infer_return_stmt(return_stmt),
         }

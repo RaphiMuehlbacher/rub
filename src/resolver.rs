@@ -1,4 +1,4 @@
-use crate::ast::{Expr, ExprStmt, FunDeclStmt, Ident, Parameter, Program, ReturnStmt, Stmt, Typed, VarDeclStmt, WhileStmt};
+use crate::ast::{Expr, ExprStmt, FunDeclStmt, Ident, Program, ReturnStmt, Stmt, Typed, TypedIdent, VarDeclStmt, WhileStmt};
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
     DuplicateLambdaParameter, DuplicateParameter, ReturnOutsideFunction, UndefinedFunction, UndefinedGeneric, UndefinedVariable,
@@ -12,7 +12,7 @@ use std::ops::Deref;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Symbol {
     Variable { initialized: bool },
-    Function { params: Vec<Parameter>, generics: Vec<Ident> },
+    Function { params: Vec<TypedIdent>, generics: Vec<Ident> },
 }
 
 pub struct Resolver<'a> {
@@ -107,6 +107,7 @@ impl<'a> Resolver<'a> {
             Stmt::ExprStmtNode(expr_stmt) => self.resolve_expr_stmt(expr_stmt),
             Stmt::VarDecl(var_decl) => self.resolve_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.resolve_fun_decl(fun_decl),
+            Stmt::StructDecl(struct_decl) => todo!(),
             Stmt::While(while_stmt) => self.resolve_while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.resolve_return_stmt(return_stmt),
         }

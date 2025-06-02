@@ -1,11 +1,11 @@
 use crate::MethodRegistry;
 use crate::ast::{
-    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryOp,
+    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, TypedIdent, UnaryOp,
     VarDeclStmt, WhileStmt,
 };
 use crate::builtins::{clock_native, print_native};
+use crate::error::InterpreterError;
 use crate::error::RuntimeError::DivisionByZero;
-use crate::error::{InterpreterError, RuntimeError};
 use crate::interpreters::Function::{NativeFunction, UserFunction};
 use crate::type_inferrer::{Type, TypeVarId};
 use miette::Report;
@@ -31,7 +31,7 @@ pub enum Function {
     NativeFunction(fn(Vec<Value>) -> Result<Value, InterpreterError>),
     UserFunction {
         name: Option<String>,
-        params: Rc<Vec<Parameter>>,
+        params: Rc<Vec<TypedIdent>>,
         body: Rc<Typed<BlockExpr>>,
         env: Env,
     },
@@ -241,6 +241,7 @@ impl<'a> Interpreter<'a> {
             Stmt::ExprStmtNode(expr) => self.expr_stmt(expr),
             Stmt::VarDecl(var_decl) => self.var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.fun_decl(fun_decl),
+            Stmt::StructDecl(struct_decl) => todo!(),
             Stmt::While(while_stmt) => self.while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.return_stmt(return_stmt),
         }

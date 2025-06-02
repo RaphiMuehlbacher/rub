@@ -34,6 +34,7 @@ pub enum TokenKind {
 
     And,
     Else,
+    True,
     False,
     For,
     Fn,
@@ -41,9 +42,9 @@ pub enum TokenKind {
     Nil,
     Or,
     Return,
-    True,
     Let,
     While,
+    Struct,
 
     TypeInt,
     TypeFloat,
@@ -217,6 +218,7 @@ impl<'a> Lexer<'a> {
                         "true" => TokenKind::True,
                         "let" => TokenKind::Let,
                         "while" => TokenKind::While,
+                        "struct" => TokenKind::Struct,
                         "Float" => TokenKind::TypeFloat,
                         "String" => TokenKind::TypeString,
                         "Bool" => TokenKind::TypeBool,

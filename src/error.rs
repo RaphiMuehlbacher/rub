@@ -394,12 +394,24 @@ pub enum ParseError {
     },
 
     #[error("Invalid function name: {message}")]
-    #[diagnostic(help("change the function name"), code(parser::invalid_assignment_target))]
+    #[diagnostic(help("change the function name"), code(parser::invalid_function_name))]
     InvalidFunctionName {
         #[source_code]
         src: String,
 
         #[label("this function")]
+        span: SourceSpan,
+
+        message: String,
+    },
+
+    #[error("Invalid struct name: {message}")]
+    #[diagnostic(help("change the struct name"), code(parser::invalid_struct_name))]
+    InvalidStructName {
+        #[source_code]
+        src: String,
+
+        #[label("this struct")]
         span: SourceSpan,
 
         message: String,

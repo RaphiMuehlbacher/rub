@@ -3,12 +3,13 @@ use crate::ast::LiteralExpr::VecLiteral;
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr,
-    LogicalExpr, LogicalOp, MethodCallExpr, Parameter, Program, ReturnStmt, Stmt, Typed, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt, Typed, TypedIdent, UnaryExpr, UnaryOp, VarDeclStmt,
+    WhileStmt,
 };
 use crate::error::ParseError::{
-    ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidVariableName, MissingBlock, MissingOperand, MissingSemicolon,
-    RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter, UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken,
-    UnmatchedDelimiter,
+    ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidStructName, InvalidVariableName, MissingBlock, MissingOperand,
+    MissingSemicolon, RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter, UnexpectedClosingDelimiter, UnexpectedEOF,
+    UnexpectedToken, UnmatchedDelimiter,
 };
 use crate::type_inferrer::Type;
 use crate::{TokenKind, lexer};
@@ -317,6 +318,8 @@ impl<'a> Parser<'a> {
             return self.var_declaration();
         } else if self.matches(&[TokenKind::Fn]) {
             return self.fun_declaration();
+        } else if self.matches(&[TokenKind::Struct]) {
+            return self.struct_declaration();
         }
         self.statement()
     }
@@ -455,6 +458,69 @@ impl<'a> Parser<'a> {
                 return_type,
             },
             self.create_span(fun_keyword_span, self.previous().span),
+        )))
+    }
+
+    /// current is struct name, ends at '{'
+    fn parse_struct_name(&mut self) -> ParseResult<Ident> {
+        let struct_token = self.current().clone();
+
+        let struct_name = match &struct_token.token_kind {
+            TokenKind::Ident(name) => {
+                self.advance_position();
+                Typed::new(name.clone(), struct_token.span)
+            }
+            TokenKind::Float(_) | TokenKind::Int(_) => {
+                if self.next_is(TokenKind::Ident(String::new())) {
+                    self.skip_to_next_paren();
+                    self.report(
+                        InvalidStructName {
+                            src: self.source.to_string(),
+                            span: self.create_span(struct_token.span, self.current().span),
+                            message: "A struct name cannot start with a number".to_string(),
+                        }
+                        .into(),
+                    );
+                    Typed::new("err_fun".to_string(), self.current().span)
+                } else {
+                    self.skip_to_next_paren();
+                    self.report(
+                        InvalidStructName {
+                            src: self.source.to_string(),
+                            span: struct_token.span,
+                            message: "A struct name name cannot be a number".to_string(),
+                        }
+                        .into(),
+                    );
+                    Typed::new("err fun".to_string(), self.current().span)
+                }
+            }
+            _ => {
+                self.skip_to_next_paren();
+                return Err(ExpectedIdentifier {
+                    src: self.source.to_string(),
+                    span: struct_token.span,
+                    context: "struct".to_string(),
+                }
+                .into());
+            }
+        };
+        Ok(struct_name)
+    }
+    fn struct_declaration(&mut self) -> ParseResult<Stmt> {
+        let struct_keyword_span = self.current().span;
+        self.advance_position();
+
+        let struct_name = self.parse_struct_name()?;
+        self.open_delimiter(TokenKind::LeftBrace)?;
+        let parameters = self.parse_typed_idents(TokenKind::RightBrace)?;
+
+        Ok(Stmt::StructDecl(Typed::new(
+            StructDeclStmt {
+                ident: struct_name,
+                fields: parameters,
+            },
+            self.create_span(struct_keyword_span, self.previous().span),
         )))
     }
 
@@ -682,7 +748,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_parameter(&mut self) -> ParseResult<Parameter> {
+    fn parse_parameter(&mut self) -> ParseResult<TypedIdent> {
         let curr_token = self.current().clone();
 
         match &curr_token.token_kind {
@@ -692,9 +758,9 @@ impl<'a> Parser<'a> {
 
                 let type_annotation = self.parse_type_annotation()?;
 
-                Ok(Parameter {
+                Ok(TypedIdent {
                     name: Typed::new(name.clone(), name_span),
-                    type_annotation: type_annotation,
+                    type_annotation,
                 })
             }
             _ => {
@@ -709,51 +775,33 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// current is '(' ends after ')'
-    fn parse_function_parameters(&mut self) -> ParseResult<Vec<Parameter>> {
-        let mut parameters = vec![];
-        let opening_paren_span = self.current().span;
-
-        self.open_delimiter(self.current().token_kind.clone())?;
-
-        if self.matches(&[TokenKind::RightParen]) {
-            self.close_delimiter(self.current().token_kind.clone())?;
-            return Ok(parameters);
-        }
-
+    /// start at first `field` ends after the `closing_delimiter`
+    fn parse_typed_idents(&mut self, closing_delimiter: TokenKind) -> ParseResult<Vec<TypedIdent>> {
+        let mut fields = vec![];
         loop {
-            if self.matches(&[TokenKind::EOF]) {
-                return Err(UnclosedDelimiter {
-                    src: self.source.to_string(),
-                    span: opening_paren_span,
-                    delimiter: TokenKind::LeftParen,
-                }
-                .into());
-            }
+            let field = self.parse_parameter()?;
+            fields.push(field);
 
-            let parameter = self.parse_parameter()?;
-            parameters.push(parameter);
-
-            match self.current().token_kind {
+            match self.current().token_kind.clone() {
                 TokenKind::Comma => {
                     self.advance_position();
                     if self.current_is(TokenKind::RightParen) {
                         return Err(ExpectedIdentifier {
                             src: self.source.to_string(),
                             span: self.previous().span,
-                            context: "parameter".to_string(),
+                            context: "TODO".to_string(),
                         }
                         .into());
                     }
                 }
-                TokenKind::RightParen => {
-                    self.close_delimiter(self.current().token_kind.clone())?;
+                closing_delim if closing_delim == closing_delimiter => {
+                    self.close_delimiter(closing_delim)?;
                     break;
                 }
                 TokenKind::EOF => {
                     return Err(UnexpectedEOF {
                         src: self.source.to_string(),
-                        expected: "')' after function parameters".to_string(),
+                        expected: format!("{closing_delimiter:?}"),
                     }
                     .into());
                 }
@@ -762,13 +810,26 @@ impl<'a> Parser<'a> {
                         src: self.source.to_string(),
                         span: self.current().span,
                         found: self.current().token_kind.clone(),
-                        expected: "',', or ')'".to_string(),
+                        expected: format!("',', or {closing_delimiter:?}"),
                     }
                     .into());
                 }
             }
         }
-        Ok(parameters)
+        Ok(fields)
+    }
+    /// current is '(' ends after ')'
+    fn parse_function_parameters(&mut self) -> ParseResult<Vec<TypedIdent>> {
+        let opening_paren_span = self.current().span;
+
+        self.open_delimiter(TokenKind::LeftParen)?;
+
+        if self.matches(&[TokenKind::RightParen]) {
+            self.close_delimiter(TokenKind::RightParen)?;
+            return Ok(vec![]);
+        }
+
+        Ok(self.parse_typed_idents(TokenKind::RightParen)?)
     }
 
     /// current is the start of the statement

@@ -40,6 +40,7 @@ pub enum Stmt {
     ExprStmtNode(Typed<ExprStmt>),
     VarDecl(Typed<VarDeclStmt>),
     FunDecl(Typed<FunDeclStmt>),
+    StructDecl(Typed<StructDeclStmt>),
     While(Typed<WhileStmt>),
     Return(Typed<ReturnStmt>),
 }
@@ -50,11 +51,13 @@ impl Stmt {
             Stmt::ExprStmtNode(stmt) => stmt.span,
             Stmt::VarDecl(stmt) => stmt.span,
             Stmt::FunDecl(stmt) => stmt.span,
+            Stmt::StructDecl(stmt) => stmt.span,
             Stmt::While(stmt) => stmt.span,
             Stmt::Return(stmt) => stmt.span,
         }
     }
 }
+
 pub type Ident = Typed<String>;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,7 +73,7 @@ pub struct VarDeclStmt {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Parameter {
+pub struct TypedIdent {
     pub name: Ident,
     pub type_annotation: Typed<Type>,
 }
@@ -78,10 +81,16 @@ pub struct Parameter {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDeclStmt {
     pub ident: Ident,
-    pub params: Vec<Parameter>,
+    pub params: Vec<TypedIdent>,
     pub body: Typed<BlockExpr>,
     pub generics: Vec<Ident>,
     pub return_type: Typed<Type>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDeclStmt {
+    pub ident: Ident,
+    pub fields: Vec<TypedIdent>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,7 +154,7 @@ pub struct CallExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
-    pub parameters: Vec<Parameter>,
+    pub parameters: Vec<TypedIdent>,
     pub body: Box<Typed<BlockExpr>>,
     pub return_type: Typed<Type>,
 }
