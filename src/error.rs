@@ -226,6 +226,30 @@ pub enum ResolverError {
 
         name: String,
     },
+
+    #[error("Struct '{name}' is already defined")]
+    #[diagnostic(help("A struct with this name already exists in this scope"), code(resolver::duplicate_struct))]
+    DuplicateStruct {
+        #[source_code]
+        src: String,
+
+        #[label("struct already defined")]
+        span: SourceSpan,
+
+        name: String,
+    },
+
+    #[error("Cannot declare struct '{name}' with duplicate field names")]
+    #[diagnostic(help("Struct fields must have unique names"), code(resolver::duplicate_fields))]
+    DuplicateField {
+        #[source_code]
+        src: String,
+
+        #[label("duplicate field name")]
+        span: SourceSpan,
+
+        name: String,
+    },
 }
 
 #[derive(Debug, Error, Diagnostic)]
