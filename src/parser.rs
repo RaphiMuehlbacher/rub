@@ -778,6 +778,12 @@ impl<'a> Parser<'a> {
     /// start at first `field` ends after the `closing_delimiter`
     fn parse_typed_idents(&mut self, closing_delimiter: TokenKind) -> ParseResult<Vec<TypedIdent>> {
         let mut fields = vec![];
+
+        if self.matches(&[closing_delimiter.clone()]) {
+            self.close_delimiter(closing_delimiter)?;
+            return Ok(fields);
+        }
+
         loop {
             let field = self.parse_parameter()?;
             fields.push(field);
@@ -785,17 +791,13 @@ impl<'a> Parser<'a> {
             match self.current().token_kind.clone() {
                 TokenKind::Comma => {
                     self.advance_position();
-                    if self.current_is(TokenKind::RightParen) {
-                        return Err(ExpectedIdentifier {
-                            src: self.source.to_string(),
-                            span: self.previous().span,
-                            context: "TODO".to_string(),
-                        }
-                        .into());
+                    if self.current_is(closing_delimiter.clone()) {
+                        self.close_delimiter(closing_delimiter)?;
+                        break;
                     }
                 }
-                closing_delim if closing_delim == closing_delimiter => {
-                    self.close_delimiter(closing_delim)?;
+                kind if kind == closing_delimiter => {
+                    self.close_delimiter(kind)?;
                     break;
                 }
                 TokenKind::EOF => {
@@ -820,14 +822,7 @@ impl<'a> Parser<'a> {
     }
     /// current is '(' ends after ')'
     fn parse_function_parameters(&mut self) -> ParseResult<Vec<TypedIdent>> {
-        let opening_paren_span = self.current().span;
-
         self.open_delimiter(TokenKind::LeftParen)?;
-
-        if self.matches(&[TokenKind::RightParen]) {
-            self.close_delimiter(TokenKind::RightParen)?;
-            return Ok(vec![]);
-        }
 
         Ok(self.parse_typed_idents(TokenKind::RightParen)?)
     }

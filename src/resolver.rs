@@ -1,4 +1,6 @@
-use crate::ast::{Expr, ExprStmt, FunDeclStmt, Ident, Program, ReturnStmt, Stmt, Typed, TypedIdent, VarDeclStmt, WhileStmt};
+use crate::ast::{
+    Expr, ExprStmt, FunDeclStmt, Ident, Program, ReturnStmt, Stmt, StructDeclStmt, Typed, TypedIdent, VarDeclStmt, WhileStmt,
+};
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
     DuplicateLambdaParameter, DuplicateParameter, ReturnOutsideFunction, UndefinedFunction, UndefinedGeneric, UndefinedVariable,
@@ -13,6 +15,7 @@ use std::ops::Deref;
 pub enum Symbol {
     Variable { initialized: bool },
     Function { params: Vec<TypedIdent>, generics: Vec<Ident> },
+    Struct { fields: Vec<TypedIdent> },
 }
 
 pub struct Resolver<'a> {
@@ -81,20 +84,36 @@ impl<'a> Resolver<'a> {
     fn declare_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::FunDecl(fun_decl) => {
-                if let Some(_) = self.curr_scope().get(&fun_decl.node.ident.node.clone()) {
+                let name = &fun_decl.node.ident.node;
+                if let Some(_) = self.curr_scope().get(name) {
                     self.report(ResolverError::DuplicateFunction {
                         src: self.source.to_string(),
                         span: fun_decl.node.ident.span,
-                        name: fun_decl.node.ident.node.clone(),
+                        name: name.clone(),
                     });
                     return;
                 }
-                let name = &fun_decl.node.ident.node;
                 self.curr_scope().insert(
                     name.clone(),
                     Symbol::Function {
                         params: fun_decl.node.params.clone(),
                         generics: fun_decl.node.generics.clone(),
+                    },
+                );
+            }
+            Stmt::StructDecl(struct_decl) => {
+                let name = &struct_decl.node.ident.node;
+                if let Some(_) = self.curr_scope().get(name) {
+                    self.report(ResolverError::DuplicateStruct {
+                        src: self.source.clone(),
+                        span: struct_decl.node.ident.span,
+                        name: name.clone(),
+                    })
+                }
+                self.curr_scope().insert(
+                    name.clone(),
+                    Symbol::Struct {
+                        fields: struct_decl.node.fields.clone(),
                     },
                 );
             }
@@ -107,7 +126,7 @@ impl<'a> Resolver<'a> {
             Stmt::ExprStmtNode(expr_stmt) => self.resolve_expr_stmt(expr_stmt),
             Stmt::VarDecl(var_decl) => self.resolve_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.resolve_fun_decl(fun_decl),
-            Stmt::StructDecl(struct_decl) => todo!(),
+            Stmt::StructDecl(struct_decl) => self.resolve_struct_decl(struct_decl),
             Stmt::While(while_stmt) => self.resolve_while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.resolve_return_stmt(return_stmt),
         }
@@ -209,6 +228,27 @@ impl<'a> Resolver<'a> {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn resolve_struct_decl(&mut self, struct_decl: &Typed<StructDeclStmt>) {
+        let name = struct_decl.node.ident.node.clone();
+        self.curr_scope().insert(
+            name.clone(),
+            Symbol::Struct {
+                fields: struct_decl.node.fields.clone(),
+            },
+        );
+
+        let mut seen_fields = HashSet::new();
+        for field in &struct_decl.node.fields {
+            if !seen_fields.insert(field.name.node.clone()) {
+                self.report(ResolverError::DuplicateField {
+                    src: self.source.clone(),
+                    name: field.name.node.clone(),
+                    span: field.name.span,
+                })
+            }
         }
     }
 

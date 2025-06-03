@@ -2,7 +2,7 @@ use crate::TokenKind;
 use crate::type_inferrer::Type;
 use miette::SourceSpan;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Typed<T> {
     pub node: T,
     pub span: SourceSpan,
@@ -72,7 +72,7 @@ pub struct VarDeclStmt {
     pub type_annotation: Option<Typed<Type>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub struct TypedIdent {
     pub name: Ident,
     pub type_annotation: Typed<Type>,
