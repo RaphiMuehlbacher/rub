@@ -1,6 +1,7 @@
 use crate::MethodRegistry;
 use crate::ast::{
-    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, Program, ReturnStmt, Stmt, Typed, UnaryOp, VarDeclStmt, WhileStmt,
+    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, Program, ReturnStmt, Stmt, StructDeclStmt, Typed, UnaryOp, VarDeclStmt,
+    WhileStmt,
 };
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::{NonBooleanCondition, NotCallable, TypeMismatch, UnknownMethod, WrongArgumentCount};
@@ -20,6 +21,7 @@ pub enum Type {
     String,
     Nil,
     Function { params: Vec<Type>, return_ty: Box<Type> },
+    Struct { fields: Vec<(String, Type)> },
     Vec(Box<Type>),
     TypeVar(TypeVarId),
     Generic(String),
@@ -126,6 +128,7 @@ impl<'a> TypeInferrer<'a> {
                     return_ty: Box::new(new_return),
                 }
             }
+            Type::Struct { fields } => todo!(),
             Type::Vec(elem_ty) => {
                 let new_elem = self.substitute(elem_ty.deref(), substitutions);
                 match new_elem {
@@ -165,6 +168,12 @@ impl<'a> TypeInferrer<'a> {
                 Ok(Type::Vec(Box::new(unified_elem)))
             }
 
+            (Type::Struct { fields: f1 }, Type::Struct { fields: f2 }) => {
+                for (field1, field2) in f1.iter().zip(f2.iter()) {
+                    self.unify(field1.1.clone(), field2.1.clone(), span)?;
+                }
+                Ok(Type::Struct { fields: f1 })
+            }
             (Type::Function { params: p1, return_ty: r1 }, Type::Function { params: p2, return_ty: r2 }) => {
                 if p1.len() != p2.len() {
                     return Err(TypeMismatch {
@@ -265,7 +274,7 @@ impl<'a> TypeInferrer<'a> {
             Stmt::ExprStmtNode(expr_stmt) => self.infer_expr_stmt(expr_stmt),
             Stmt::VarDecl(var_decl) => self.infer_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.infer_fun_decl(fun_decl),
-            Stmt::StructDecl(struct_decl) => todo!(),
+            Stmt::StructDecl(struct_decl) => self.infer_struct_decl(struct_decl),
             Stmt::While(while_stmt) => self.infer_while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.infer_return_stmt(return_stmt),
         }
@@ -346,6 +355,20 @@ impl<'a> TypeInferrer<'a> {
             self.current_function_return_ty = old_ret_ty;
             self.var_env.exit_scope()
         }
+        Ok(())
+    }
+
+    fn infer_struct_decl(&mut self, struct_decl: &Typed<StructDeclStmt>) -> Result<(), TypeInferrerError> {
+        let struct_type = Type::Struct {
+            fields: struct_decl
+                .node
+                .fields
+                .iter()
+                .map(|f| (f.name.node.clone(), f.type_annotation.node.clone()))
+                .collect(),
+        };
+        self.type_env.insert(struct_decl.type_id, struct_type);
+        self.var_env.insert(struct_decl.node.ident.node.clone(), struct_decl.type_id);
         Ok(())
     }
 
