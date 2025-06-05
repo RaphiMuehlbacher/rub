@@ -278,6 +278,9 @@ impl<'a> Resolver<'a> {
 
     fn resolve_expr(&mut self, expr: &Typed<Expr>) {
         match &expr.node {
+            Expr::FieldAccess(field_access) => {
+                self.resolve_expr(&field_access.receiver);
+            }
             Expr::StructInit(struct_init) => match self.lookup_symbol(&struct_init.name.node).cloned() {
                 None => {
                     self.report(UndefinedVariable {

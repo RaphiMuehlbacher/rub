@@ -487,6 +487,30 @@ impl<'a> TypeInferrer<'a> {
 
     fn infer_expr(&mut self, expr: &Typed<Expr>) -> Result<Type, TypeInferrerError> {
         match &expr.node {
+            Expr::FieldAccess(field_access) => {
+                let receiver_ty = self.infer_expr(&field_access.receiver)?;
+                let receiver_ty = self.lookup_type(&receiver_ty);
+                match receiver_ty {
+                    Type::Struct { fields } => {
+                        if let Some((_, field_ty)) = fields.iter().find(|(name, _)| *name == field_access.field.node) {
+                            self.type_env.insert(expr.type_id, field_ty.clone());
+                            Ok(TypeVar(expr.type_id))
+                        } else {
+                            Err(TypeInferrerError::UndefinedField {
+                                src: self.source.clone(),
+                                span: field_access.field.span,
+                                field: field_access.field.node.clone(),
+                            })
+                        }
+                    }
+                    found => Err(TypeInferrerError::TypeMismatch {
+                        src: self.source.clone(),
+                        span: field_access.receiver.span,
+                        expected: Type::Struct { fields: vec![] },
+                        found,
+                    }),
+                }
+            }
             Expr::StructInit(struct_init) => {
                 let struct_type_id = self.var_env.lookup(&struct_init.name.node).unwrap();
                 let struct_type = self.lookup_type(&TypeVar(struct_type_id));

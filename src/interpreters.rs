@@ -319,6 +319,20 @@ impl<'a> Interpreter<'a> {
 
     fn interpret_expr(&mut self, expr: &Typed<Expr>) -> Result<Value, InterpreterError> {
         match &expr.node {
+            Expr::FieldAccess(field_access) => {
+                let receiver = self.interpret_expr(&field_access.receiver)?;
+
+                match receiver {
+                    Value::Struct(fields) => {
+                        if let Some(value) = fields.get(&field_access.field.node) {
+                            Ok(value.clone())
+                        } else {
+                            panic!()
+                        }
+                    }
+                    _ => panic!(),
+                }
+            }
             Expr::StructInit(struct_init) => {
                 let mut field_values = HashMap::new();
                 for (field_name, field_expr) in &struct_init.fields {

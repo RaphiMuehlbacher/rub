@@ -2,9 +2,9 @@ use crate::ast::Expr::{Block, Call, Grouping, Lambda, Literal, Unary, Variable};
 use crate::ast::LiteralExpr::VecLiteral;
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr,
-    LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt, StructInitExpr, Typed, TypedIdent, UnaryExpr,
-    UnaryOp, VarDeclStmt, WhileStmt,
+    AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FieldAccessExpr, FunDeclStmt, Ident, IfExpr,
+    LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt, StructInitExpr, Typed,
+    TypedIdent, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidStructName, InvalidVariableName, MissingBlock, MissingOperand,
@@ -1478,7 +1478,7 @@ impl<'a> Parser<'a> {
     fn finish_method_call(&mut self, receiver: Expr) -> ParseResult<Expr> {
         self.advance_position();
 
-        let method = match self.current().token_kind.clone() {
+        let field = match self.current().token_kind.clone() {
             TokenKind::Ident(name) => {
                 let span = self.current().span;
                 self.advance_position();
@@ -1488,35 +1488,43 @@ impl<'a> Parser<'a> {
                 return Err(ExpectedIdentifier {
                     src: self.source.to_string(),
                     span: self.current().span,
-                    context: "method name".to_string(),
+                    context: "field name or method".to_string(),
                 }
                 .into());
             }
         };
-        let mut arguments = vec![];
-        self.open_delimiter(TokenKind::LeftParen)?;
+        if self.matches(&[TokenKind::LeftParen]) {
+            let mut arguments = vec![];
+            self.open_delimiter(TokenKind::LeftParen)?;
 
-        if !self.matches(&[TokenKind::RightParen]) {
-            let expr_left_span = self.current().span;
-            arguments.push(Typed::new(
-                self.expression()?,
-                self.create_span(expr_left_span, self.previous().span),
-            ));
-            while self.consume(&[TokenKind::Comma]) {
+            if !self.matches(&[TokenKind::RightParen]) {
                 let expr_left_span = self.current().span;
                 arguments.push(Typed::new(
                     self.expression()?,
                     self.create_span(expr_left_span, self.previous().span),
                 ));
+                while self.consume(&[TokenKind::Comma]) {
+                    let expr_left_span = self.current().span;
+                    arguments.push(Typed::new(
+                        self.expression()?,
+                        self.create_span(expr_left_span, self.previous().span),
+                    ));
+                }
             }
-        }
 
-        self.close_delimiter(TokenKind::RightParen)?;
-        Ok(Expr::MethodCall(MethodCallExpr {
-            receiver: Box::new(Typed::new(receiver, self.previous().span)),
-            method,
-            arguments,
-        }))
+            self.close_delimiter(TokenKind::RightParen)?;
+            Ok(Expr::MethodCall(MethodCallExpr {
+                receiver: Box::new(Typed::new(receiver, self.previous().span)),
+                method: field,
+                arguments,
+            }))
+        } else {
+            // It's a field access
+            Ok(Expr::FieldAccess(FieldAccessExpr {
+                receiver: Box::new(Typed::new(receiver, self.previous().span)),
+                field,
+            }))
+        }
     }
 
     /// current is token to parse, end is after the token

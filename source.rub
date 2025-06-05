@@ -1,7 +1,15 @@
 struct Person {
     age: Int,
     name: String,
+    friends: Vec<Int>,
 }
 
-let a = Person { age: 3, name: "hi" };
-let b = Person {age: 3, name: "hi"};
+let a = Person {
+    age: 3,
+    name: "hi",
+    friends: [1, 2],
+};
+
+a.friends.push(3);
+print(a.friends);
+

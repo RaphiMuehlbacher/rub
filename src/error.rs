@@ -49,6 +49,17 @@ pub enum RuntimeError {
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum TypeInferrerError {
+    #[error("Undefined field '{field}'")]
+    #[diagnostic(code(type_inferrer::undefined_field))]
+    UndefinedField {
+        #[source_code]
+        src: String,
+
+        #[label("undefined field")]
+        span: SourceSpan,
+
+        field: String,
+    },
     #[error("Type mismatch: expected {expected:?}, found {found:?}")]
     #[diagnostic(help("The types don't match"), code(type_inferrer::type_mismatch))]
     TypeMismatch {
