@@ -2,3 +2,6 @@ struct Person {
     age: Int,
     name: String,
 }
+
+let a = Person { age: 3, name: "hi" };
+let b = Person {age: 3, name: "hi"};

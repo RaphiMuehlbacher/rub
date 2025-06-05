@@ -131,6 +131,41 @@ pub enum TypeInferrerError {
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum ResolverError {
+    #[error("Undefined field '{field}' in struct '{struct_name}'")]
+    #[diagnostic(code(resolver::undefined_field))]
+    UndefinedField {
+        #[source_code]
+        src: String,
+
+        #[label("undefined field")]
+        span: SourceSpan,
+
+        field: String,
+        struct_name: String,
+    },
+
+    #[error("Missing required field '{field}' in struct '{struct_name}'")]
+    #[diagnostic(code(resolver::missing_field))]
+    MissingField {
+        #[source_code]
+        src: String,
+
+        #[label("missing field in struct initialization")]
+        span: SourceSpan,
+        field: String,
+        struct_name: String,
+    },
+
+    #[error("'{name}' is not a struct")]
+    #[diagnostic(code(resolver::not_a_struct))]
+    NotAStruct {
+        #[source_code]
+        src: String,
+
+        #[label("not a struct type")]
+        span: SourceSpan,
+        name: String,
+    },
     #[error("Return statement used outside of a function")]
     #[diagnostic(
         help("Return statements can only be used inside functions"),

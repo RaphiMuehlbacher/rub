@@ -487,6 +487,22 @@ impl<'a> TypeInferrer<'a> {
 
     fn infer_expr(&mut self, expr: &Typed<Expr>) -> Result<Type, TypeInferrerError> {
         match &expr.node {
+            Expr::StructInit(struct_init) => {
+                let struct_type_id = self.var_env.lookup(&struct_init.name.node).unwrap();
+                let struct_type = self.lookup_type(&TypeVar(struct_type_id));
+                if let Type::Struct { fields } = struct_type.clone() {
+                    let struct_fields: HashMap<String, Type> = fields.into_iter().map(|(name, ty)| (name, ty)).collect();
+
+                    for (field_name, field_value) in &struct_init.fields {
+                        let expected_type = struct_fields.get(&field_name.node).unwrap();
+                        let actual_type = self.infer_expr(field_value)?;
+                        self.unify(actual_type, expected_type.clone(), field_value.span)?;
+                    }
+                }
+
+                self.type_env.insert(expr.type_id, struct_type.clone());
+                Ok(TypeVar(expr.type_id))
+            }
             Expr::Literal(literal_expr) => {
                 let ty = match literal_expr {
                     LiteralExpr::Int(_) => Type::Int,

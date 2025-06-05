@@ -278,6 +278,57 @@ impl<'a> Resolver<'a> {
 
     fn resolve_expr(&mut self, expr: &Typed<Expr>) {
         match &expr.node {
+            Expr::StructInit(struct_init) => match self.lookup_symbol(&struct_init.name.node).cloned() {
+                None => {
+                    self.report(UndefinedVariable {
+                        src: self.source.clone(),
+                        span: struct_init.name.span,
+                        name: struct_init.name.node.clone(),
+                    });
+                    return;
+                }
+                Some(Symbol::Struct { fields }) => {
+                    let struct_fields: HashSet<String> = fields.iter().map(|f| f.name.node.clone()).collect();
+                    let mut seen_fields = HashSet::new();
+                    for (field_name, value) in &struct_init.fields {
+                        if !seen_fields.insert(field_name.node.clone()) {
+                            self.report(ResolverError::DuplicateField {
+                                src: self.source.clone(),
+                                name: field_name.node.clone(),
+                                span: field_name.span,
+                            });
+                            continue;
+                        }
+
+                        if !struct_fields.contains(&field_name.node) {
+                            self.report(ResolverError::UndefinedField {
+                                src: self.source.clone(),
+                                span: field_name.span,
+                                field: field_name.node.clone(),
+                                struct_name: struct_init.name.node.clone(),
+                            });
+                        }
+                        self.resolve_expr(&value);
+                    }
+                    for field in fields {
+                        if !seen_fields.contains(&field.name.node) {
+                            self.report(ResolverError::MissingField {
+                                src: self.source.clone(),
+                                span: struct_init.name.span,
+                                field: field.name.node,
+                                struct_name: struct_init.name.node.clone(),
+                            });
+                        }
+                    }
+                }
+                Some(_) => {
+                    self.report(ResolverError::NotAStruct {
+                        src: self.source.clone(),
+                        span: struct_init.name.span,
+                        name: struct_init.name.node.clone(),
+                    });
+                }
+            },
             Expr::Literal(_) => {}
             Expr::Block(block) => {
                 self.scopes.push(HashMap::new());

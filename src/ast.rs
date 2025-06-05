@@ -118,6 +118,7 @@ pub enum Expr {
     Block(BlockExpr),
     If(IfExpr),
     MethodCall(MethodCallExpr),
+    StructInit(StructInitExpr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -179,6 +180,11 @@ pub struct MethodCallExpr {
     pub arguments: Vec<Typed<Expr>>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructInitExpr {
+    pub name: Ident,
+    pub fields: Vec<(Ident, Box<Typed<Expr>>)>,
+}
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralExpr {
     Int(i64),

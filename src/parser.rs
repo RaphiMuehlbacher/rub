@@ -3,8 +3,8 @@ use crate::ast::LiteralExpr::VecLiteral;
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
     AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr,
-    LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt, Typed, TypedIdent, UnaryExpr, UnaryOp, VarDeclStmt,
-    WhileStmt,
+    LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt, StructInitExpr, Typed, TypedIdent, UnaryExpr,
+    UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidStructName, InvalidVariableName, MissingBlock, MissingOperand,
@@ -1630,8 +1630,67 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Ident(ref name) => {
                 let string = name.clone();
+                let name_span = self.current().span;
                 self.advance_position();
-                Ok(Variable(Typed::new(string, self.previous().span)))
+
+                if self.consume(&[TokenKind::LeftBrace]) {
+                    let mut fields = vec![];
+
+                    while !self.matches(&[TokenKind::RightBrace]) {
+                        let field_name = match self.current().token_kind.clone() {
+                            TokenKind::Ident(field_name) => {
+                                let span = self.current().span;
+                                self.advance_position();
+                                Typed::new(field_name, span)
+                            }
+                            _ => {
+                                return Err(ExpectedIdentifier {
+                                    src: self.source.to_string(),
+                                    span: self.current().span,
+                                    context: "struct field name".to_string(),
+                                }
+                                .into());
+                            }
+                        };
+                        if !self.consume(&[TokenKind::Colon]) {
+                            return Err(UnexpectedToken {
+                                src: self.source.to_string(),
+                                span: self.current().span,
+                                found: self.current().token_kind.clone(),
+                                expected: "':' after field name".to_string(),
+                            }
+                            .into());
+                        }
+                        let expr_left_span = self.current().span;
+                        let value = self.expression()?;
+                        let expr_right_span = self.previous().span;
+
+                        fields.push((
+                            field_name.clone(),
+                            Box::new(Typed::new(value, self.create_span(expr_left_span, expr_right_span))),
+                        ));
+                        if !self.matches(&[TokenKind::RightBrace]) {
+                            if !self.consume(&[TokenKind::Comma]) {
+                                return Err(UnexpectedToken {
+                                    src: self.source.to_string(),
+                                    span: self.current().span,
+                                    found: self.current().token_kind.clone(),
+                                    expected: "',' or '}'".to_string(),
+                                }
+                                .into());
+                            }
+                        }
+                    }
+
+                    self.consume(&[TokenKind::RightBrace]);
+
+                    Ok(Expr::StructInit(StructInitExpr {
+                        name: Typed::new(string, name_span),
+                        fields,
+                    }))
+                } else {
+                    Ok(Variable(Typed::new(string, name_span)))
+                }
             }
             TokenKind::EOF => Err(UnexpectedEOF {
                 src: self.source.to_string(),
