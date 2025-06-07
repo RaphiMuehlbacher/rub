@@ -1,29 +1,12 @@
-struct Person {
-    age: Int,
-    name: String,
-}
-
-struct Student {
+struct Person1 {
     age: Float,
-    name: String,
 }
 
-let p = Person {
-    age: 25,
-    name: "John",
-};
-
-let s = Student {
-    age: 20.1,      // Missing name field
-    name: "hi",
-};
-
-let t = Student {
-    age: 20.2,
-    name: "Test",
-};
-
-struct Empty {    // # Empty struct
+struct Person2 {
+    age: Float,
 }
 
-let a = Empty {};
+
+let p1 = Person1 {age: 3.0};
+let p2 = Person2 {age: 3.0};
+print(p1 == p2);

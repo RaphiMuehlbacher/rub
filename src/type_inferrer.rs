@@ -168,7 +168,15 @@ impl<'a> TypeInferrer<'a> {
                 Ok(Type::Vec(Box::new(unified_elem)))
             }
 
-            (Type::Struct { name: name1, fields: f1 }, Type::Struct { name: _, fields: f2 }) => {
+            (Type::Struct { name: name1, fields: f1 }, Type::Struct { name: name2, fields: f2 }) => {
+                if name1 != name2 {
+                    return Err(TypeMismatch {
+                        src: self.source.clone(),
+                        span,
+                        expected: self.lookup_type(&found),
+                        found: self.lookup_type(&expected),
+                    });
+                }
                 for (field1, field2) in f1.iter().zip(f2.iter()) {
                     self.unify(field1.1.clone(), field2.1.clone(), span)?;
                 }
