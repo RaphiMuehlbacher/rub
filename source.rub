@@ -1,15 +1,29 @@
 struct Person {
     age: Int,
     name: String,
-    friends: Vec<Int>,
 }
 
-let a = Person {
-    age: 3,
-    name: "hi",
-    friends: [1, 2],
+struct Student {
+    age: Float,
+    name: String,
+}
+
+let p = Person {
+    age: 25,
+    name: "John",
 };
 
-a.friends.push(3);
-print(a.friends);
+let s = Student {
+    age: 20.1,      // Missing name field
+    name: "hi",
+};
 
+let t = Student {
+    age: 20.2,
+    name: "Test",
+};
+
+struct Empty {    // # Empty struct
+}
+
+let a = Empty {};

@@ -49,7 +49,54 @@ pub enum RuntimeError {
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum TypeInferrerError {
-    #[error("Undefined field '{field}'")]
+    #[error("Cannot declare struct '{name}' with duplicate field names")]
+    #[diagnostic(help("Struct fields must have unique names"), code(type_inferrer::duplicate_field_on_declaration))]
+    DuplicateFieldDeclaration {
+        #[source_code]
+        src: String,
+
+        #[label("duplicate field name")]
+        span: SourceSpan,
+
+        name: String,
+    },
+
+    #[error("Cannot instantiate instance with duplicate field names")]
+    #[diagnostic(help("Struct fields must have unique names"), code(type_inferrer::duplicate_field_on_instantation))]
+    DuplicateFieldInstantiation {
+        #[source_code]
+        src: String,
+
+        #[label("duplicate field name")]
+        span: SourceSpan,
+
+        name: String,
+    },
+    #[error("no field '{field}' on type '{struct_name}'")]
+    #[diagnostic(code(type_inferrer::unknown_field))]
+    UnknownField {
+        #[source_code]
+        src: String,
+
+        #[label("unknown field")]
+        span: SourceSpan,
+        field: String,
+        struct_name: String,
+    },
+
+    #[error("Missing required field '{field}' in struct '{struct_name}'")]
+    #[diagnostic(code(type_inferrer::missing_field))]
+    MissingField {
+        #[source_code]
+        src: String,
+
+        #[label("missing field in struct initialization")]
+        span: SourceSpan,
+        field: String,
+        struct_name: String,
+    },
+
+    #[error("Undefined field '{field}'in '{struct_name}'")]
     #[diagnostic(code(type_inferrer::undefined_field))]
     UndefinedField {
         #[source_code]
@@ -59,6 +106,7 @@ pub enum TypeInferrerError {
         span: SourceSpan,
 
         field: String,
+        struct_name: String,
     },
     #[error("Type mismatch: expected {expected:?}, found {found:?}")]
     #[diagnostic(help("The types don't match"), code(type_inferrer::type_mismatch))]
@@ -142,31 +190,6 @@ pub enum TypeInferrerError {
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum ResolverError {
-    #[error("Undefined field '{field}' in struct '{struct_name}'")]
-    #[diagnostic(code(resolver::undefined_field))]
-    UndefinedField {
-        #[source_code]
-        src: String,
-
-        #[label("undefined field")]
-        span: SourceSpan,
-
-        field: String,
-        struct_name: String,
-    },
-
-    #[error("Missing required field '{field}' in struct '{struct_name}'")]
-    #[diagnostic(code(resolver::missing_field))]
-    MissingField {
-        #[source_code]
-        src: String,
-
-        #[label("missing field in struct initialization")]
-        span: SourceSpan,
-        field: String,
-        struct_name: String,
-    },
-
     #[error("'{name}' is not a struct")]
     #[diagnostic(code(resolver::not_a_struct))]
     NotAStruct {
@@ -280,18 +303,6 @@ pub enum ResolverError {
         src: String,
 
         #[label("struct already defined")]
-        span: SourceSpan,
-
-        name: String,
-    },
-
-    #[error("Cannot declare struct '{name}' with duplicate field names")]
-    #[diagnostic(help("Struct fields must have unique names"), code(resolver::duplicate_fields))]
-    DuplicateField {
-        #[source_code]
-        src: String,
-
-        #[label("duplicate field name")]
         span: SourceSpan,
 
         name: String,
