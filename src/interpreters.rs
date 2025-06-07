@@ -23,7 +23,7 @@ pub enum Value {
     Bool(bool),
     Function(Rc<Function>),
     Vec(Rc<RefCell<Vec<Value>>>),
-    Struct(Rc<HashMap<String, Value>>),
+    Struct(Rc<RefCell<HashMap<String, Value>>>),
     Nil,
 }
 
@@ -319,12 +319,24 @@ impl<'a> Interpreter<'a> {
 
     fn interpret_expr(&mut self, expr: &Typed<Expr>) -> Result<Value, InterpreterError> {
         match &expr.node {
+            Expr::FieldAssign(field_assign) => {
+                let receiver = self.interpret_expr(&field_assign.receiver)?;
+                let value = self.interpret_expr(&field_assign.value)?;
+
+                match receiver {
+                    Value::Struct(fields) => {
+                        fields.borrow_mut().insert(field_assign.field.node.clone(), value.clone());
+                        Ok(value)
+                    }
+                    _ => panic!(),
+                }
+            }
             Expr::FieldAccess(field_access) => {
                 let receiver = self.interpret_expr(&field_access.receiver)?;
 
                 match receiver {
                     Value::Struct(fields) => {
-                        if let Some(value) = fields.get(&field_access.field.node) {
+                        if let Some(value) = fields.borrow().get(&field_access.field.node) {
                             Ok(value.clone())
                         } else {
                             panic!()
@@ -339,7 +351,7 @@ impl<'a> Interpreter<'a> {
                     let value = self.interpret_expr(field_expr)?;
                     field_values.insert(field_name.node.clone(), value);
                 }
-                Ok(Value::Struct(Rc::new(field_values)))
+                Ok(Value::Struct(Rc::new(RefCell::new(field_values))))
             }
             Expr::Block(block) => Ok(self.interpret_block_expr(block)?),
             Expr::If(if_expr) => {

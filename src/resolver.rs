@@ -267,6 +267,10 @@ impl<'a> Resolver<'a> {
 
     fn resolve_expr(&mut self, expr: &Typed<Expr>) {
         match &expr.node {
+            Expr::FieldAssign(field_assign) => {
+                self.resolve_expr(&field_assign.receiver);
+                self.resolve_expr(&field_assign.value);
+            }
             Expr::FieldAccess(field_access) => {
                 self.resolve_expr(&field_access.receiver);
             }

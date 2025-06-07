@@ -2,9 +2,9 @@ use crate::ast::Expr::{Block, Call, Grouping, Lambda, Literal, Unary, Variable};
 use crate::ast::LiteralExpr::VecLiteral;
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FieldAccessExpr, FunDeclStmt, Ident, IfExpr,
-    LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt, StructInitExpr, Typed,
-    TypedIdent, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FieldAccessExpr, FieldAssignExpr, FunDeclStmt, Ident,
+    IfExpr, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt, StructInitExpr,
+    Typed, TypedIdent, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidStructName, InvalidVariableName, MissingBlock, MissingOperand,
@@ -1182,6 +1182,7 @@ impl<'a> Parser<'a> {
         if self.consume(&[TokenKind::Equal]) {
             let equal_span = self.previous().span;
 
+            let left_result_span = self.current().span;
             let result = self.expression();
             let value = match result {
                 Ok(val) => val,
@@ -1198,6 +1199,11 @@ impl<'a> Parser<'a> {
                 Variable(name) => Ok(Expr::Assign(AssignExpr {
                     target: name,
                     value: Box::new(Typed::new(value, self.create_span(left_assignment_span, self.previous().span))),
+                })),
+                Expr::FieldAccess(field_access) => Ok(Expr::FieldAssign(FieldAssignExpr {
+                    receiver: field_access.receiver,
+                    field: field_access.field,
+                    value: Box::new(Typed::new(value, self.create_span(left_result_span, self.previous().span))),
                 })),
                 _ => Err(ExpectedIdentifier {
                     src: self.source.to_string(),

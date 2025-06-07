@@ -508,6 +508,38 @@ impl<'a> TypeInferrer<'a> {
 
     fn infer_expr(&mut self, expr: &Typed<Expr>) -> Result<Type, TypeInferrerError> {
         match &expr.node {
+            Expr::FieldAssign(field_assign) => {
+                let receiver_ty = self.infer_expr(&field_assign.receiver)?;
+                let receiver_ty = self.lookup_type(&receiver_ty);
+                let value_ty = self.infer_expr(&field_assign.value)?;
+
+                match receiver_ty {
+                    Type::Struct { name, fields } => {
+                        if let Some((_, field_ty)) = fields.iter().find(|(name, _)| *name == field_assign.field.node) {
+                            self.unify(value_ty, field_ty.clone(), field_assign.value.span)?;
+
+                            self.type_env.insert(expr.type_id, field_ty.clone());
+                            Ok(TypeVar(expr.type_id))
+                        } else {
+                            Err(TypeInferrerError::UnknownField {
+                                src: self.source.clone(),
+                                span: field_assign.field.span,
+                                field: field_assign.field.node.clone(),
+                                struct_name: name.clone(),
+                            })
+                        }
+                    }
+                    found => Err(TypeMismatch {
+                        src: self.source.clone(),
+                        span: field_assign.receiver.span,
+                        found,
+                        expected: Type::Struct {
+                            name: "todo".to_string(),
+                            fields: vec![],
+                        },
+                    }),
+                }
+            }
             Expr::FieldAccess(field_access) => {
                 let receiver_ty = self.infer_expr(&field_access.receiver)?;
                 let receiver_ty = self.lookup_type(&receiver_ty);

@@ -1,12 +1,9 @@
-struct Person1 {
-    age: Float,
+struct Person {
+    age: Int,
+    name: String,
+    ages: Vec<Int>
 }
 
-struct Person2 {
-    age: Float,
-}
-
-
-let p1 = Person1 {age: 3.0};
-let p2 = Person2 {age: 3.0};
-print(p1 == p2);
+let p1 = Person {age: 3, name: "hi", ages: [1, 2, 3]};
+p1.age = p1.ages.len();
+print(p1.age);

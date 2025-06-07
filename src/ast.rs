@@ -120,6 +120,7 @@ pub enum Expr {
     MethodCall(MethodCallExpr),
     StructInit(StructInitExpr),
     FieldAccess(FieldAccessExpr),
+    FieldAssign(FieldAssignExpr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -191,6 +192,13 @@ pub struct StructInitExpr {
 pub struct FieldAccessExpr {
     pub receiver: Box<Typed<Expr>>,
     pub field: Ident,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldAssignExpr {
+    pub receiver: Box<Typed<Expr>>,
+    pub field: Ident,
+    pub value: Box<Typed<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
