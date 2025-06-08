@@ -1,7 +1,7 @@
 use crate::MethodRegistry;
 use crate::ast::{
-    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, Program, ReturnStmt, Stmt, StructDeclStmt, Typed, UnaryOp, VarDeclStmt,
-    WhileStmt,
+    AstNode, BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, Program, ReturnStmt, Stmt, StructDeclStmt, UnaryOp,
+    VarDeclStmt, WhileStmt,
 };
 use crate::error::TypeInferrerError::{NonBooleanCondition, NotCallable, TypeMismatch, UnknownMethod, WrongArgumentCount};
 use crate::error::{ResolverError, TypeInferrerError};
@@ -234,11 +234,11 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn fresh_type_var(&mut self) -> TypeVarId {
-        let typed = Typed::new(
+        let typed = AstNode::new(
             LiteralExpr::String("if you see this something is wrong".to_string()),
             SourceSpan::new(SourceOffset::from(0), 0),
         );
-        typed.type_id
+        typed.node_id
     }
 
     fn declare_native_functions(&mut self) {
@@ -270,8 +270,8 @@ impl<'a> TypeInferrer<'a> {
                     return_ty: Box::new(fun_decl.node.return_type.node.clone()),
                 };
 
-                self.type_env.insert(fun_decl.node.ident.type_id, fn_type);
-                self.var_env.insert(name.clone(), fun_decl.node.ident.type_id);
+                self.type_env.insert(fun_decl.node.ident.node_id, fn_type);
+                self.var_env.insert(name.clone(), fun_decl.node.ident.node_id);
             }
             _ => {}
         }
@@ -288,13 +288,13 @@ impl<'a> TypeInferrer<'a> {
         }
     }
 
-    fn infer_expr_stmt(&mut self, expr_stmt: &Typed<ExprStmt>) -> Result<(), TypeInferrerError> {
+    fn infer_expr_stmt(&mut self, expr_stmt: &AstNode<ExprStmt>) -> Result<(), TypeInferrerError> {
         self.infer_expr(&expr_stmt.node.expr)?;
         Ok(())
     }
 
-    fn infer_var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) -> Result<(), TypeInferrerError> {
-        let var_decl_id = var_decl.node.ident.type_id.clone();
+    fn infer_var_decl(&mut self, var_decl: &AstNode<VarDeclStmt>) -> Result<(), TypeInferrerError> {
+        let var_decl_id = var_decl.node.ident.node_id.clone();
         self.var_env.insert(var_decl.node.ident.node.clone(), var_decl_id);
 
         if let Some(type_annotation) = &var_decl.node.type_annotation {
@@ -321,22 +321,22 @@ impl<'a> TypeInferrer<'a> {
         Ok(())
     }
 
-    fn infer_fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) -> Result<(), TypeInferrerError> {
-        let name = &fun_decl.node.ident.node;
+    fn infer_fun_decl(&mut self, fun_decl: &AstNode<FunDeclStmt>) -> Result<(), TypeInferrerError> {
+        let name = &fun_decl.node.name.node;
 
         let fn_type = Type::Function {
             params: fun_decl.node.params.iter().map(|p| p.type_annotation.node.clone()).collect(),
             return_ty: Box::new(fun_decl.node.return_type.node.clone()),
         };
 
-        self.type_env.insert(fun_decl.node.ident.type_id, fn_type);
-        self.var_env.insert(name.clone(), fun_decl.node.ident.type_id);
+        self.type_env.insert(fun_decl.node.name.node_id, fn_type);
+        self.var_env.insert(name.clone(), fun_decl.node.name.node_id);
 
         if fun_decl.node.generics.is_empty() {
             self.var_env.enter_scope();
 
             for param in &fun_decl.node.params {
-                let param_id = param.name.type_id;
+                let param_id = param.name.node_id;
                 self.type_env.insert(param_id, param.type_annotation.node.clone());
                 self.var_env.insert(param.name.node.clone(), param_id);
             }
@@ -348,7 +348,7 @@ impl<'a> TypeInferrer<'a> {
 
             if let Some(expr) = &fun_decl.node.body.node.expr {
                 let body_ty = self.infer_expr(expr)?;
-                self.unify(fun_decl.node.return_type.node.clone(), body_ty, fun_decl.node.ident.span)?;
+                self.unify(fun_decl.node.return_type.node.clone(), body_ty, fun_decl.node.name.span)?;
             } else if !fun_decl
                 .node
                 .body
@@ -366,7 +366,7 @@ impl<'a> TypeInferrer<'a> {
         Ok(())
     }
 
-    fn infer_struct_decl(&mut self, struct_decl: &Typed<StructDeclStmt>) -> Result<(), TypeInferrerError> {
+    fn infer_struct_decl(&mut self, struct_decl: &AstNode<StructDeclStmt>) -> Result<(), TypeInferrerError> {
         let mut seen_fields = HashSet::new();
         for field in &struct_decl.node.fields {
             if !seen_fields.insert(field.name.node.clone()) {
@@ -388,8 +388,8 @@ impl<'a> TypeInferrer<'a> {
                 .collect(),
         };
 
-        self.type_env.insert(struct_decl.type_id, struct_type);
-        self.var_env.insert(struct_decl.node.ident.node.clone(), struct_decl.type_id);
+        self.type_env.insert(struct_decl.node_id, struct_type);
+        self.var_env.insert(struct_decl.node.ident.node.clone(), struct_decl.node_id);
         Ok(())
     }
 
@@ -422,7 +422,7 @@ impl<'a> TypeInferrer<'a> {
         return_ty
     }
 
-    fn infer_while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) -> Result<(), TypeInferrerError> {
+    fn infer_while_stmt(&mut self, while_stmt: &AstNode<WhileStmt>) -> Result<(), TypeInferrerError> {
         let condition_ty = self.infer_expr(&while_stmt.node.condition)?;
 
         match self.lookup_type(&condition_ty) {
@@ -438,7 +438,7 @@ impl<'a> TypeInferrer<'a> {
         Ok(())
     }
 
-    fn infer_return_stmt(&mut self, return_stmt: &Typed<ReturnStmt>) -> Result<(), TypeInferrerError> {
+    fn infer_return_stmt(&mut self, return_stmt: &AstNode<ReturnStmt>) -> Result<(), TypeInferrerError> {
         if let Some(ret_expr) = &return_stmt.node.expr {
             let ret_id = self.infer_expr(ret_expr)?;
             let ret_ty = self.lookup_type(&ret_id);
@@ -476,7 +476,7 @@ impl<'a> TypeInferrer<'a> {
     fn handle_parameters(
         &mut self,
         params: &Vec<Type>,
-        args: &Vec<Typed<Expr>>,
+        args: &Vec<AstNode<Expr>>,
         span: SourceSpan,
     ) -> Result<HashMap<String, Type>, TypeInferrerError> {
         if params.len() != args.len() {
@@ -506,7 +506,7 @@ impl<'a> TypeInferrer<'a> {
         Ok(substitutions)
     }
 
-    fn infer_expr(&mut self, expr: &Typed<Expr>) -> Result<Type, TypeInferrerError> {
+    fn infer_expr(&mut self, expr: &AstNode<Expr>) -> Result<Type, TypeInferrerError> {
         match &expr.node {
             Expr::FieldAssign(field_assign) => {
                 let receiver_ty = self.infer_expr(&field_assign.receiver)?;
@@ -518,8 +518,8 @@ impl<'a> TypeInferrer<'a> {
                         if let Some((_, field_ty)) = fields.iter().find(|(name, _)| *name == field_assign.field.node) {
                             self.unify(value_ty, field_ty.clone(), field_assign.value.span)?;
 
-                            self.type_env.insert(expr.type_id, field_ty.clone());
-                            Ok(TypeVar(expr.type_id))
+                            self.type_env.insert(expr.node_id, field_ty.clone());
+                            Ok(TypeVar(expr.node_id))
                         } else {
                             Err(TypeInferrerError::UnknownField {
                                 src: self.source.clone(),
@@ -547,8 +547,8 @@ impl<'a> TypeInferrer<'a> {
                 match receiver_ty {
                     Type::Struct { name, fields } => {
                         if let Some((_, field_ty)) = fields.iter().find(|(name, _)| *name == field_access.field.node) {
-                            self.type_env.insert(expr.type_id, field_ty.clone());
-                            Ok(TypeVar(expr.type_id))
+                            self.type_env.insert(expr.node_id, field_ty.clone());
+                            Ok(TypeVar(expr.node_id))
                         } else {
                             Err(TypeInferrerError::UnknownField {
                                 src: self.source.clone(),
@@ -614,8 +614,8 @@ impl<'a> TypeInferrer<'a> {
                     }
                 }
 
-                self.type_env.insert(expr.type_id, struct_type.clone());
-                Ok(TypeVar(expr.type_id))
+                self.type_env.insert(expr.node_id, struct_type.clone());
+                Ok(TypeVar(expr.node_id))
             }
             Expr::Literal(literal_expr) => {
                 let ty = match literal_expr {
@@ -643,8 +643,8 @@ impl<'a> TypeInferrer<'a> {
                     }
                 };
 
-                self.type_env.insert(expr.type_id, ty);
-                Ok(TypeVar(expr.type_id))
+                self.type_env.insert(expr.node_id, ty);
+                Ok(TypeVar(expr.node_id))
             }
 
             Expr::Block(block) => self.infer_block_expr(block),
@@ -674,7 +674,7 @@ impl<'a> TypeInferrer<'a> {
             Expr::MethodCall(method_call) => {
                 let receiver_ty = self.infer_expr(&method_call.receiver)?;
                 let receiver_ty = self.lookup_type(&receiver_ty);
-                self.type_env.insert(method_call.receiver.type_id, receiver_ty.clone());
+                self.type_env.insert(method_call.receiver.node_id, receiver_ty.clone());
 
                 if let Some((method_ty, _)) = self.method_registry.lookup_method(&receiver_ty, &method_call.method.node).cloned() {
                     match method_ty {
@@ -701,8 +701,8 @@ impl<'a> TypeInferrer<'a> {
                             }
 
                             let return_ty = self.substitute(&return_ty, &substitutions);
-                            self.type_env.insert(expr.type_id, return_ty);
-                            Ok(TypeVar(expr.type_id))
+                            self.type_env.insert(expr.node_id, return_ty);
+                            Ok(TypeVar(expr.node_id))
                         }
                         _ => unreachable!(),
                     }
@@ -722,8 +722,8 @@ impl<'a> TypeInferrer<'a> {
                     UnaryOp::Minus => self.unify(right_ty, Type::Float, unary_expr.expr.span)?,
                 };
 
-                self.type_env.insert(unary_expr.expr.type_id, result_ty.clone());
-                Ok(TypeVar(unary_expr.expr.type_id))
+                self.type_env.insert(unary_expr.expr.node_id, result_ty.clone());
+                Ok(TypeVar(unary_expr.expr.node_id))
             }
             Expr::Binary(binary_expr) => {
                 let left = self.infer_expr(binary_expr.left.deref())?;
@@ -801,8 +801,8 @@ impl<'a> TypeInferrer<'a> {
                     }
                 };
 
-                self.type_env.insert(expr.type_id, result_ty);
-                Ok(TypeVar(expr.type_id))
+                self.type_env.insert(expr.node_id, result_ty);
+                Ok(TypeVar(expr.node_id))
             }
             Expr::Grouping(grouping) => self.infer_expr(grouping.deref()),
             Expr::Variable(variable_expr) => {
@@ -816,8 +816,8 @@ impl<'a> TypeInferrer<'a> {
 
                 self.unify(TypeVar(left_var.clone()), right_ty.clone(), assign_expr.value.deref().span)?;
 
-                self.type_env.insert(expr.type_id, right_ty);
-                Ok(TypeVar(expr.type_id))
+                self.type_env.insert(expr.node_id, right_ty);
+                Ok(TypeVar(expr.node_id))
             }
             Expr::Logical(logical_expr) => {
                 let left = self.infer_expr(logical_expr.left.deref())?;
@@ -826,8 +826,8 @@ impl<'a> TypeInferrer<'a> {
                 self.unify(left, Type::Bool, logical_expr.left.span)?;
                 self.unify(right, Type::Bool, logical_expr.right.span)?;
 
-                self.type_env.insert(expr.type_id, Type::Bool);
-                Ok(TypeVar(expr.type_id))
+                self.type_env.insert(expr.node_id, Type::Bool);
+                Ok(TypeVar(expr.node_id))
             }
             Expr::Call(call_expr) => {
                 let callee_ty = self.infer_expr(call_expr.callee.deref())?;
@@ -850,8 +850,8 @@ impl<'a> TypeInferrer<'a> {
                                 if let Stmt::FunDecl(fd) = fn_decl {
                                     for (param, param_ty) in fd.node.params.iter().zip(params.iter()) {
                                         let substituted_ty = self.substitute(param_ty, &substitutions);
-                                        self.type_env.insert(param.name.type_id, substituted_ty);
-                                        self.var_env.insert(param.name.node.clone(), param.name.type_id);
+                                        self.type_env.insert(param.name.node_id, substituted_ty);
+                                        self.var_env.insert(param.name.node.clone(), param.name.node_id);
                                     }
 
                                     let substituted_return = self.substitute(&fd.node.return_type.node, &substitutions);
@@ -874,8 +874,8 @@ impl<'a> TypeInferrer<'a> {
                         self.var_env.exit_scope();
 
                         let concrete_return = self.substitute(&return_ty, &substitutions);
-                        self.type_env.insert(expr.type_id, concrete_return.clone());
-                        Ok(TypeVar(expr.type_id))
+                        self.type_env.insert(expr.node_id, concrete_return.clone());
+                        Ok(TypeVar(expr.node_id))
                     }
                     found => Err(NotCallable {
                         src: self.source.clone(),
@@ -894,10 +894,10 @@ impl<'a> TypeInferrer<'a> {
                     return_ty: Box::new(lambda.return_type.node.clone()),
                 };
 
-                self.type_env.insert(expr.type_id, fn_type.clone());
+                self.type_env.insert(expr.node_id, fn_type.clone());
 
                 for param in &lambda.parameters {
-                    let param_id = param.name.type_id;
+                    let param_id = param.name.node_id;
                     self.type_env.insert(param_id, param.type_annotation.node.clone());
                     self.var_env.insert(param.name.node.clone(), param_id);
                 }
@@ -916,7 +916,7 @@ impl<'a> TypeInferrer<'a> {
 
                 self.current_function_return_ty = old_ret_ty;
                 self.var_env.exit_scope();
-                Ok(TypeVar(expr.type_id))
+                Ok(TypeVar(expr.node_id))
             }
         }
     }

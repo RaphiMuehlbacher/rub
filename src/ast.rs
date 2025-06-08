@@ -1,26 +1,49 @@
 use crate::TokenKind;
-use crate::type_inferrer::Type;
 use miette::SourceSpan;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Typed<T> {
+pub struct AstNode<T> {
     pub node: T,
     pub span: SourceSpan,
-    pub type_id: usize,
+    pub node_id: usize,
 }
 
-impl<T> Typed<T> {
+impl<T> AstNode<T> {
     pub fn new(node: T, span: SourceSpan) -> Self {
-        static mut TYPE_ID: usize = 1;
+        static mut NODE_ID: usize = 1;
 
-        let type_id = unsafe {
-            let id = TYPE_ID;
-            TYPE_ID += 1;
+        let node_id = unsafe {
+            let id = NODE_ID;
+            NODE_ID += 1;
             id
         };
 
-        Self { node, span, type_id }
+        Self { node, span, node_id }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnresolvedType {
+    Primitive(PrimitiveType),
+    Named(String),
+    Function {
+        params: Vec<UnresolvedType>,
+        return_type: Box<UnresolvedType>,
+    },
+    /// Option<T>, Option<Int>, Result<A, B>
+    GenericApplication {
+        base: Box<UnresolvedType>,
+        args: Vec<UnresolvedType>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PrimitiveType {
+    Nil,
+    Int,
+    Float,
+    Bool,
+    String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,60 +54,48 @@ pub struct Delimiter {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
-    pub statements: Vec<Stmt>,
+    pub statements: Vec<AstNode<Stmt>>,
     pub span: SourceSpan,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
-    ExprStmtNode(Typed<ExprStmt>),
-    VarDecl(Typed<VarDeclStmt>),
-    FunDecl(Typed<FunDeclStmt>),
-    StructDecl(Typed<StructDeclStmt>),
-    While(Typed<WhileStmt>),
-    Return(Typed<ReturnStmt>),
+    ExprStmtNode(ExprStmt),
+    VarDecl(VarDeclStmt),
+    FunDecl(FunDeclStmt),
+    StructDecl(StructDeclStmt),
+    While(WhileStmt),
+    For(ForStmt),
+    Return(ReturnStmt),
 }
 
-impl Stmt {
-    pub fn span(&self) -> SourceSpan {
-        match self {
-            Stmt::ExprStmtNode(stmt) => stmt.span,
-            Stmt::VarDecl(stmt) => stmt.span,
-            Stmt::FunDecl(stmt) => stmt.span,
-            Stmt::StructDecl(stmt) => stmt.span,
-            Stmt::While(stmt) => stmt.span,
-            Stmt::Return(stmt) => stmt.span,
-        }
-    }
-}
-
-pub type Ident = Typed<String>;
+pub type Ident = AstNode<String>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExprStmt {
-    pub expr: Typed<Expr>,
+    pub expr: AstNode<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarDeclStmt {
     pub ident: Ident,
-    pub initializer: Option<Typed<Expr>>,
-    pub type_annotation: Option<Typed<Type>>,
+    pub initializer: Option<AstNode<Expr>>,
+    pub type_annotation: Option<AstNode<UnresolvedType>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypedIdent {
     pub name: Ident,
-    pub type_annotation: Typed<Type>,
+    pub type_annotation: AstNode<UnresolvedType>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDeclStmt {
-    pub ident: Ident,
+    pub name: Ident,
     pub params: Vec<TypedIdent>,
-    pub body: Typed<BlockExpr>,
+    pub body: AstNode<BlockExpr>,
     pub generics: Vec<Ident>,
-    pub return_type: Typed<Type>,
+    pub return_type: AstNode<UnresolvedType>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -95,13 +106,21 @@ pub struct StructDeclStmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileStmt {
-    pub condition: Typed<Expr>,
-    pub body: Typed<BlockExpr>,
+    pub condition: AstNode<Expr>,
+    pub body: AstNode<BlockExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForStmt {
+    pub initializer: Option<Box<AstNode<Stmt>>>,
+    pub condition: AstNode<Expr>,
+    pub increment: Option<AstNode<Expr>>,
+    pub body: AstNode<BlockExpr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReturnStmt {
-    pub expr: Option<Typed<Expr>>,
+    pub expr: Option<AstNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -109,7 +128,7 @@ pub enum Expr {
     Literal(LiteralExpr),
     Unary(UnaryExpr),
     Binary(BinaryExpr),
-    Grouping(Box<Typed<Expr>>),
+    Grouping(Box<AstNode<Expr>>),
     Variable(Ident),
     Assign(AssignExpr),
     Logical(LogicalExpr),
@@ -125,80 +144,80 @@ pub enum Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnaryExpr {
-    pub op: Typed<UnaryOp>,
-    pub expr: Box<Typed<Expr>>,
+    pub op: AstNode<UnaryOp>,
+    pub expr: Box<AstNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BinaryExpr {
-    pub left: Box<Typed<Expr>>,
-    pub op: Typed<BinaryOp>,
-    pub right: Box<Typed<Expr>>,
+    pub left: Box<AstNode<Expr>>,
+    pub op: AstNode<BinaryOp>,
+    pub right: Box<AstNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LogicalExpr {
-    pub left: Box<Typed<Expr>>,
-    pub op: Typed<LogicalOp>,
-    pub right: Box<Typed<Expr>>,
+    pub left: Box<AstNode<Expr>>,
+    pub op: AstNode<LogicalOp>,
+    pub right: Box<AstNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignExpr {
     pub target: Ident,
-    pub value: Box<Typed<Expr>>,
+    pub value: Box<AstNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CallExpr {
-    pub callee: Box<Typed<Expr>>,
-    pub arguments: Vec<Typed<Expr>>,
+    pub callee: Box<AstNode<Expr>>,
+    pub arguments: Vec<AstNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
     pub parameters: Vec<TypedIdent>,
-    pub body: Box<Typed<BlockExpr>>,
-    pub return_type: Typed<Type>,
+    pub body: Box<AstNode<BlockExpr>>,
+    pub return_type: AstNode<UnresolvedType>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockExpr {
-    pub statements: Vec<Stmt>,
-    pub expr: Option<Box<Typed<Expr>>>,
+    pub statements: Vec<AstNode<Stmt>>,
+    pub expr: Option<Box<AstNode<Expr>>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfExpr {
-    pub condition: Box<Typed<Expr>>,
-    pub then_branch: Typed<BlockExpr>,
-    pub else_branch: Option<Box<Typed<BlockExpr>>>,
+    pub condition: Box<AstNode<Expr>>,
+    pub then_branch: AstNode<BlockExpr>,
+    pub else_branch: Option<AstNode<BlockExpr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodCallExpr {
-    pub receiver: Box<Typed<Expr>>,
+    pub receiver: Box<AstNode<Expr>>,
     pub method: Ident,
-    pub arguments: Vec<Typed<Expr>>,
+    pub arguments: Vec<AstNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructInitExpr {
     pub name: Ident,
-    pub fields: Vec<(Ident, Box<Typed<Expr>>)>,
+    pub fields: Vec<(Ident, AstNode<Expr>)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldAccessExpr {
-    pub receiver: Box<Typed<Expr>>,
+    pub receiver: Box<AstNode<Expr>>,
     pub field: Ident,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldAssignExpr {
-    pub receiver: Box<Typed<Expr>>,
+    pub receiver: Box<AstNode<Expr>>,
     pub field: Ident,
-    pub value: Box<Typed<Expr>>,
+    pub value: Box<AstNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -207,7 +226,7 @@ pub enum LiteralExpr {
     Float(f64),
     String(String),
     Bool(bool),
-    VecLiteral(Vec<Typed<Expr>>),
+    VecLiteral(Vec<AstNode<Expr>>),
     Nil,
 }
 

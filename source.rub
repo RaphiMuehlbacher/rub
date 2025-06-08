@@ -1,9 +1,6 @@
 struct Person {
     age: Int,
-    name: String,
-    ages: Vec<Int>
 }
 
-let p1 = Person {age: 3, name: "hi", ages: [1, 2, 3]};
-p1.age = p1.ages.len();
-print(p1.age);
+let p = Person {age: 3};
+print(p.age);

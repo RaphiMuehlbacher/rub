@@ -1,5 +1,5 @@
 use crate::ast::{
-    Expr, ExprStmt, FunDeclStmt, Ident, Program, ReturnStmt, Stmt, StructDeclStmt, Typed, TypedIdent, VarDeclStmt, WhileStmt,
+    AstNode, Expr, ExprStmt, FunDeclStmt, Ident, Program, ReturnStmt, Stmt, StructDeclStmt, TypedIdent, VarDeclStmt, WhileStmt,
 };
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
@@ -131,11 +131,12 @@ impl<'a> Resolver<'a> {
             Stmt::Return(return_stmt) => self.resolve_return_stmt(return_stmt),
         }
     }
-    fn resolve_expr_stmt(&mut self, expr_stmt: &Typed<ExprStmt>) {
+
+    fn resolve_expr_stmt(&mut self, expr_stmt: &AstNode<ExprStmt>) {
         self.resolve_expr(&expr_stmt.node.expr);
     }
 
-    fn resolve_var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) {
+    fn resolve_var_decl(&mut self, var_decl: &AstNode<VarDeclStmt>) {
         if let Some(init) = &var_decl.node.initializer {
             self.resolve_expr(init);
         }
@@ -147,9 +148,9 @@ impl<'a> Resolver<'a> {
         );
     }
 
-    fn resolve_fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) {
+    fn resolve_fun_decl(&mut self, fun_decl: &AstNode<FunDeclStmt>) {
         self.curr_scope().insert(
-            fun_decl.node.ident.node.clone(),
+            fun_decl.node.name.node.clone(),
             Symbol::Function {
                 params: fun_decl.node.params.clone(),
                 generics: fun_decl.node.generics.clone(),
@@ -167,7 +168,7 @@ impl<'a> Resolver<'a> {
                 self.report(DuplicateParameter {
                     src: self.source.to_string(),
                     span: param.name.span,
-                    function_name: fun_decl.node.ident.node.clone(),
+                    function_name: fun_decl.node.name.node.clone(),
                 });
                 continue;
             }
@@ -187,7 +188,7 @@ impl<'a> Resolver<'a> {
         self.scopes.pop();
     }
 
-    fn check_generic_param(&mut self, ty: &Typed<Type>, generic_params: &HashSet<String>) {
+    fn check_generic_param(&mut self, ty: &AstNode<Type>, generic_params: &HashSet<String>) {
         match &ty.node {
             Type::Function { params, return_ty } => {
                 for param in params {
@@ -231,7 +232,7 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_struct_decl(&mut self, struct_decl: &Typed<StructDeclStmt>) {
+    fn resolve_struct_decl(&mut self, struct_decl: &AstNode<StructDeclStmt>) {
         let name = struct_decl.node.ident.node.clone();
         self.curr_scope().insert(
             name.clone(),
@@ -249,12 +250,12 @@ impl<'a> Resolver<'a> {
         self.scopes.pop();
     }
 
-    fn resolve_while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) {
+    fn resolve_while_stmt(&mut self, while_stmt: &AstNode<WhileStmt>) {
         self.resolve_expr(&while_stmt.node.condition);
         self.resolve_stmts(&while_stmt.node.body.node.statements);
     }
 
-    fn resolve_return_stmt(&mut self, return_stmt: &Typed<ReturnStmt>) {
+    fn resolve_return_stmt(&mut self, return_stmt: &AstNode<ReturnStmt>) {
         if !self.inside_fn {
             self.report(ReturnOutsideFunction {
                 src: self.source.clone(),
@@ -265,7 +266,7 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_expr(&mut self, expr: &Typed<Expr>) {
+    fn resolve_expr(&mut self, expr: &AstNode<Expr>) {
         match &expr.node {
             Expr::FieldAssign(field_assign) => {
                 self.resolve_expr(&field_assign.receiver);
