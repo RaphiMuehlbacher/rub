@@ -2,7 +2,7 @@ use crate::TokenKind;
 use crate::type_inferrer::Type;
 use miette::SourceSpan;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Typed<T> {
     pub node: T,
     pub span: SourceSpan,
@@ -72,7 +72,7 @@ pub struct VarDeclStmt {
     pub type_annotation: Option<Typed<Type>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub struct TypedIdent {
     pub name: Ident,
     pub type_annotation: Typed<Type>,
@@ -118,6 +118,9 @@ pub enum Expr {
     Block(BlockExpr),
     If(IfExpr),
     MethodCall(MethodCallExpr),
+    StructInit(StructInitExpr),
+    FieldAccess(FieldAccessExpr),
+    FieldAssign(FieldAssignExpr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -177,6 +180,25 @@ pub struct MethodCallExpr {
     pub receiver: Box<Typed<Expr>>,
     pub method: Ident,
     pub arguments: Vec<Typed<Expr>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructInitExpr {
+    pub name: Ident,
+    pub fields: Vec<(Ident, Box<Typed<Expr>>)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldAccessExpr {
+    pub receiver: Box<Typed<Expr>>,
+    pub field: Ident,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldAssignExpr {
+    pub receiver: Box<Typed<Expr>>,
+    pub field: Ident,
+    pub value: Box<Typed<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

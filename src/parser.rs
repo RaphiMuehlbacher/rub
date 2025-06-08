@@ -2,9 +2,9 @@ use crate::ast::Expr::{Block, Call, Grouping, Lambda, Literal, Unary, Variable};
 use crate::ast::LiteralExpr::VecLiteral;
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr,
-    LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt, Typed, TypedIdent, UnaryExpr, UnaryOp, VarDeclStmt,
-    WhileStmt,
+    AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FieldAccessExpr, FieldAssignExpr, FunDeclStmt, Ident,
+    IfExpr, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt, StructInitExpr,
+    Typed, TypedIdent, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidStructName, InvalidVariableName, MissingBlock, MissingOperand,
@@ -778,6 +778,12 @@ impl<'a> Parser<'a> {
     /// start at first `field` ends after the `closing_delimiter`
     fn parse_typed_idents(&mut self, closing_delimiter: TokenKind) -> ParseResult<Vec<TypedIdent>> {
         let mut fields = vec![];
+
+        if self.matches(&[closing_delimiter.clone()]) {
+            self.close_delimiter(closing_delimiter)?;
+            return Ok(fields);
+        }
+
         loop {
             let field = self.parse_parameter()?;
             fields.push(field);
@@ -785,17 +791,13 @@ impl<'a> Parser<'a> {
             match self.current().token_kind.clone() {
                 TokenKind::Comma => {
                     self.advance_position();
-                    if self.current_is(TokenKind::RightParen) {
-                        return Err(ExpectedIdentifier {
-                            src: self.source.to_string(),
-                            span: self.previous().span,
-                            context: "TODO".to_string(),
-                        }
-                        .into());
+                    if self.current_is(closing_delimiter.clone()) {
+                        self.close_delimiter(closing_delimiter)?;
+                        break;
                     }
                 }
-                closing_delim if closing_delim == closing_delimiter => {
-                    self.close_delimiter(closing_delim)?;
+                kind if kind == closing_delimiter => {
+                    self.close_delimiter(kind)?;
                     break;
                 }
                 TokenKind::EOF => {
@@ -820,14 +822,7 @@ impl<'a> Parser<'a> {
     }
     /// current is '(' ends after ')'
     fn parse_function_parameters(&mut self) -> ParseResult<Vec<TypedIdent>> {
-        let opening_paren_span = self.current().span;
-
         self.open_delimiter(TokenKind::LeftParen)?;
-
-        if self.matches(&[TokenKind::RightParen]) {
-            self.close_delimiter(TokenKind::RightParen)?;
-            return Ok(vec![]);
-        }
 
         Ok(self.parse_typed_idents(TokenKind::RightParen)?)
     }
@@ -1187,6 +1182,7 @@ impl<'a> Parser<'a> {
         if self.consume(&[TokenKind::Equal]) {
             let equal_span = self.previous().span;
 
+            let left_result_span = self.current().span;
             let result = self.expression();
             let value = match result {
                 Ok(val) => val,
@@ -1203,6 +1199,11 @@ impl<'a> Parser<'a> {
                 Variable(name) => Ok(Expr::Assign(AssignExpr {
                     target: name,
                     value: Box::new(Typed::new(value, self.create_span(left_assignment_span, self.previous().span))),
+                })),
+                Expr::FieldAccess(field_access) => Ok(Expr::FieldAssign(FieldAssignExpr {
+                    receiver: field_access.receiver,
+                    field: field_access.field,
+                    value: Box::new(Typed::new(value, self.create_span(left_result_span, self.previous().span))),
                 })),
                 _ => Err(ExpectedIdentifier {
                     src: self.source.to_string(),
@@ -1483,7 +1484,7 @@ impl<'a> Parser<'a> {
     fn finish_method_call(&mut self, receiver: Expr) -> ParseResult<Expr> {
         self.advance_position();
 
-        let method = match self.current().token_kind.clone() {
+        let field = match self.current().token_kind.clone() {
             TokenKind::Ident(name) => {
                 let span = self.current().span;
                 self.advance_position();
@@ -1493,35 +1494,43 @@ impl<'a> Parser<'a> {
                 return Err(ExpectedIdentifier {
                     src: self.source.to_string(),
                     span: self.current().span,
-                    context: "method name".to_string(),
+                    context: "field name or method".to_string(),
                 }
                 .into());
             }
         };
-        let mut arguments = vec![];
-        self.open_delimiter(TokenKind::LeftParen)?;
+        if self.matches(&[TokenKind::LeftParen]) {
+            let mut arguments = vec![];
+            self.open_delimiter(TokenKind::LeftParen)?;
 
-        if !self.matches(&[TokenKind::RightParen]) {
-            let expr_left_span = self.current().span;
-            arguments.push(Typed::new(
-                self.expression()?,
-                self.create_span(expr_left_span, self.previous().span),
-            ));
-            while self.consume(&[TokenKind::Comma]) {
+            if !self.matches(&[TokenKind::RightParen]) {
                 let expr_left_span = self.current().span;
                 arguments.push(Typed::new(
                     self.expression()?,
                     self.create_span(expr_left_span, self.previous().span),
                 ));
+                while self.consume(&[TokenKind::Comma]) {
+                    let expr_left_span = self.current().span;
+                    arguments.push(Typed::new(
+                        self.expression()?,
+                        self.create_span(expr_left_span, self.previous().span),
+                    ));
+                }
             }
-        }
 
-        self.close_delimiter(TokenKind::RightParen)?;
-        Ok(Expr::MethodCall(MethodCallExpr {
-            receiver: Box::new(Typed::new(receiver, self.previous().span)),
-            method,
-            arguments,
-        }))
+            self.close_delimiter(TokenKind::RightParen)?;
+            Ok(Expr::MethodCall(MethodCallExpr {
+                receiver: Box::new(Typed::new(receiver, self.previous().span)),
+                method: field,
+                arguments,
+            }))
+        } else {
+            // It's a field access
+            Ok(Expr::FieldAccess(FieldAccessExpr {
+                receiver: Box::new(Typed::new(receiver, self.previous().span)),
+                field,
+            }))
+        }
     }
 
     /// current is token to parse, end is after the token
@@ -1635,8 +1644,67 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Ident(ref name) => {
                 let string = name.clone();
+                let name_span = self.current().span;
                 self.advance_position();
-                Ok(Variable(Typed::new(string, self.previous().span)))
+
+                if self.consume(&[TokenKind::LeftBrace]) {
+                    let mut fields = vec![];
+
+                    while !self.matches(&[TokenKind::RightBrace]) {
+                        let field_name = match self.current().token_kind.clone() {
+                            TokenKind::Ident(field_name) => {
+                                let span = self.current().span;
+                                self.advance_position();
+                                Typed::new(field_name, span)
+                            }
+                            _ => {
+                                return Err(ExpectedIdentifier {
+                                    src: self.source.to_string(),
+                                    span: self.current().span,
+                                    context: "struct field name".to_string(),
+                                }
+                                .into());
+                            }
+                        };
+                        if !self.consume(&[TokenKind::Colon]) {
+                            return Err(UnexpectedToken {
+                                src: self.source.to_string(),
+                                span: self.current().span,
+                                found: self.current().token_kind.clone(),
+                                expected: "':' after field name".to_string(),
+                            }
+                            .into());
+                        }
+                        let expr_left_span = self.current().span;
+                        let value = self.expression()?;
+                        let expr_right_span = self.previous().span;
+
+                        fields.push((
+                            field_name.clone(),
+                            Box::new(Typed::new(value, self.create_span(expr_left_span, expr_right_span))),
+                        ));
+                        if !self.matches(&[TokenKind::RightBrace]) {
+                            if !self.consume(&[TokenKind::Comma]) {
+                                return Err(UnexpectedToken {
+                                    src: self.source.to_string(),
+                                    span: self.current().span,
+                                    found: self.current().token_kind.clone(),
+                                    expected: "',' or '}'".to_string(),
+                                }
+                                .into());
+                            }
+                        }
+                    }
+
+                    self.consume(&[TokenKind::RightBrace]);
+
+                    Ok(Expr::StructInit(StructInitExpr {
+                        name: Typed::new(string, name_span),
+                        fields,
+                    }))
+                } else {
+                    Ok(Variable(Typed::new(string, name_span)))
+                }
             }
             TokenKind::EOF => Err(UnexpectedEOF {
                 src: self.source.to_string(),

@@ -1,7 +1,7 @@
 use crate::MethodRegistry;
 use crate::ast::{
-    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, Typed, TypedIdent, UnaryOp,
-    VarDeclStmt, WhileStmt,
+    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, StructDeclStmt, Typed, TypedIdent,
+    UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::builtins::{clock_native, print_native};
 use crate::error::InterpreterError;
@@ -23,6 +23,7 @@ pub enum Value {
     Bool(bool),
     Function(Rc<Function>),
     Vec(Rc<RefCell<Vec<Value>>>),
+    Struct(Rc<RefCell<HashMap<String, Value>>>),
     Nil,
 }
 
@@ -48,6 +49,7 @@ impl Value {
                 let elements: Vec<String> = vec.borrow().iter().map(|value| value.to_printable_value()).collect();
                 format!("[{}]", elements.join(", "))
             }
+            Value::Struct(_) => todo!(),
             Value::Function(function) => match function.as_ref() {
                 NativeFunction(_) => "<native_fn>".to_string(),
                 UserFunction {
@@ -241,7 +243,7 @@ impl<'a> Interpreter<'a> {
             Stmt::ExprStmtNode(expr) => self.expr_stmt(expr),
             Stmt::VarDecl(var_decl) => self.var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.fun_decl(fun_decl),
-            Stmt::StructDecl(struct_decl) => todo!(),
+            Stmt::StructDecl(_) => Ok(()),
             Stmt::While(while_stmt) => self.while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.return_stmt(return_stmt),
         }
@@ -317,6 +319,40 @@ impl<'a> Interpreter<'a> {
 
     fn interpret_expr(&mut self, expr: &Typed<Expr>) -> Result<Value, InterpreterError> {
         match &expr.node {
+            Expr::FieldAssign(field_assign) => {
+                let receiver = self.interpret_expr(&field_assign.receiver)?;
+                let value = self.interpret_expr(&field_assign.value)?;
+
+                match receiver {
+                    Value::Struct(fields) => {
+                        fields.borrow_mut().insert(field_assign.field.node.clone(), value.clone());
+                        Ok(value)
+                    }
+                    _ => panic!(),
+                }
+            }
+            Expr::FieldAccess(field_access) => {
+                let receiver = self.interpret_expr(&field_access.receiver)?;
+
+                match receiver {
+                    Value::Struct(fields) => {
+                        if let Some(value) = fields.borrow().get(&field_access.field.node) {
+                            Ok(value.clone())
+                        } else {
+                            panic!()
+                        }
+                    }
+                    _ => panic!(),
+                }
+            }
+            Expr::StructInit(struct_init) => {
+                let mut field_values = HashMap::new();
+                for (field_name, field_expr) in &struct_init.fields {
+                    let value = self.interpret_expr(field_expr)?;
+                    field_values.insert(field_name.node.clone(), value);
+                }
+                Ok(Value::Struct(Rc::new(RefCell::new(field_values))))
+            }
             Expr::Block(block) => Ok(self.interpret_block_expr(block)?),
             Expr::If(if_expr) => {
                 let cond_value = self.interpret_expr(&if_expr.condition)?;

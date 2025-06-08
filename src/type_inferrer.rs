@@ -1,12 +1,13 @@
 use crate::MethodRegistry;
 use crate::ast::{
-    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, Program, ReturnStmt, Stmt, Typed, UnaryOp, VarDeclStmt, WhileStmt,
+    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, Program, ReturnStmt, Stmt, StructDeclStmt, Typed, UnaryOp, VarDeclStmt,
+    WhileStmt,
 };
-use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::{NonBooleanCondition, NotCallable, TypeMismatch, UnknownMethod, WrongArgumentCount};
+use crate::error::{ResolverError, TypeInferrerError};
 use crate::type_inferrer::Type::TypeVar;
 use miette::{Report, SourceOffset, SourceSpan};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::ops::Deref;
 
@@ -20,6 +21,7 @@ pub enum Type {
     String,
     Nil,
     Function { params: Vec<Type>, return_ty: Box<Type> },
+    Struct { name: String, fields: Vec<(String, Type)> },
     Vec(Box<Type>),
     TypeVar(TypeVarId),
     Generic(String),
@@ -126,6 +128,7 @@ impl<'a> TypeInferrer<'a> {
                     return_ty: Box::new(new_return),
                 }
             }
+            Type::Struct { name, fields } => todo!(),
             Type::Vec(elem_ty) => {
                 let new_elem = self.substitute(elem_ty.deref(), substitutions);
                 match new_elem {
@@ -165,6 +168,20 @@ impl<'a> TypeInferrer<'a> {
                 Ok(Type::Vec(Box::new(unified_elem)))
             }
 
+            (Type::Struct { name: name1, fields: f1 }, Type::Struct { name: name2, fields: f2 }) => {
+                if name1 != name2 {
+                    return Err(TypeMismatch {
+                        src: self.source.clone(),
+                        span,
+                        expected: self.lookup_type(&found),
+                        found: self.lookup_type(&expected),
+                    });
+                }
+                for (field1, field2) in f1.iter().zip(f2.iter()) {
+                    self.unify(field1.1.clone(), field2.1.clone(), span)?;
+                }
+                Ok(Type::Struct { name: name1, fields: f1 })
+            }
             (Type::Function { params: p1, return_ty: r1 }, Type::Function { params: p2, return_ty: r2 }) => {
                 if p1.len() != p2.len() {
                     return Err(TypeMismatch {
@@ -265,7 +282,7 @@ impl<'a> TypeInferrer<'a> {
             Stmt::ExprStmtNode(expr_stmt) => self.infer_expr_stmt(expr_stmt),
             Stmt::VarDecl(var_decl) => self.infer_var_decl(var_decl),
             Stmt::FunDecl(fun_decl) => self.infer_fun_decl(fun_decl),
-            Stmt::StructDecl(struct_decl) => todo!(),
+            Stmt::StructDecl(struct_decl) => self.infer_struct_decl(struct_decl),
             Stmt::While(while_stmt) => self.infer_while_stmt(while_stmt),
             Stmt::Return(return_stmt) => self.infer_return_stmt(return_stmt),
         }
@@ -346,6 +363,33 @@ impl<'a> TypeInferrer<'a> {
             self.current_function_return_ty = old_ret_ty;
             self.var_env.exit_scope()
         }
+        Ok(())
+    }
+
+    fn infer_struct_decl(&mut self, struct_decl: &Typed<StructDeclStmt>) -> Result<(), TypeInferrerError> {
+        let mut seen_fields = HashSet::new();
+        for field in &struct_decl.node.fields {
+            if !seen_fields.insert(field.name.node.clone()) {
+                self.report(TypeInferrerError::DuplicateFieldDeclaration {
+                    src: self.source.clone(),
+                    name: field.name.node.clone(),
+                    span: field.name.span,
+                });
+            }
+        }
+
+        let struct_type = Type::Struct {
+            name: struct_decl.node.ident.node.clone(),
+            fields: struct_decl
+                .node
+                .fields
+                .iter()
+                .map(|f| (f.name.node.clone(), f.type_annotation.node.clone()))
+                .collect(),
+        };
+
+        self.type_env.insert(struct_decl.type_id, struct_type);
+        self.var_env.insert(struct_decl.node.ident.node.clone(), struct_decl.type_id);
         Ok(())
     }
 
@@ -464,6 +508,115 @@ impl<'a> TypeInferrer<'a> {
 
     fn infer_expr(&mut self, expr: &Typed<Expr>) -> Result<Type, TypeInferrerError> {
         match &expr.node {
+            Expr::FieldAssign(field_assign) => {
+                let receiver_ty = self.infer_expr(&field_assign.receiver)?;
+                let receiver_ty = self.lookup_type(&receiver_ty);
+                let value_ty = self.infer_expr(&field_assign.value)?;
+
+                match receiver_ty {
+                    Type::Struct { name, fields } => {
+                        if let Some((_, field_ty)) = fields.iter().find(|(name, _)| *name == field_assign.field.node) {
+                            self.unify(value_ty, field_ty.clone(), field_assign.value.span)?;
+
+                            self.type_env.insert(expr.type_id, field_ty.clone());
+                            Ok(TypeVar(expr.type_id))
+                        } else {
+                            Err(TypeInferrerError::UnknownField {
+                                src: self.source.clone(),
+                                span: field_assign.field.span,
+                                field: field_assign.field.node.clone(),
+                                struct_name: name.clone(),
+                            })
+                        }
+                    }
+                    found => Err(TypeMismatch {
+                        src: self.source.clone(),
+                        span: field_assign.receiver.span,
+                        found,
+                        expected: Type::Struct {
+                            name: "todo".to_string(),
+                            fields: vec![],
+                        },
+                    }),
+                }
+            }
+            Expr::FieldAccess(field_access) => {
+                let receiver_ty = self.infer_expr(&field_access.receiver)?;
+                let receiver_ty = self.lookup_type(&receiver_ty);
+
+                match receiver_ty {
+                    Type::Struct { name, fields } => {
+                        if let Some((_, field_ty)) = fields.iter().find(|(name, _)| *name == field_access.field.node) {
+                            self.type_env.insert(expr.type_id, field_ty.clone());
+                            Ok(TypeVar(expr.type_id))
+                        } else {
+                            Err(TypeInferrerError::UnknownField {
+                                src: self.source.clone(),
+                                span: field_access.field.span,
+                                field: field_access.field.node.clone(),
+                                struct_name: name.clone(),
+                            })
+                        }
+                    }
+                    found => Err(TypeMismatch {
+                        src: self.source.clone(),
+                        span: field_access.receiver.span,
+                        expected: Type::Struct {
+                            name: "todo".to_string(),
+                            fields: vec![],
+                        },
+                        found,
+                    }),
+                }
+            }
+            Expr::StructInit(struct_init) => {
+                let struct_type_id = self.var_env.lookup(&struct_init.name.node).unwrap();
+                let struct_type = self.lookup_type(&TypeVar(struct_type_id));
+
+                if let Type::Struct { name: _, fields } = struct_type.clone() {
+                    let struct_fields: HashMap<String, Type> = fields.into_iter().map(|(name, ty)| (name, ty)).collect();
+                    let mut seen_fields = HashSet::new();
+
+                    for (field_name, _) in &struct_init.fields {
+                        if !seen_fields.insert(field_name.node.clone()) {
+                            self.report(TypeInferrerError::DuplicateFieldInstantiation {
+                                src: self.source.clone(),
+                                span: field_name.span,
+                                name: field_name.node.clone(),
+                            });
+                        }
+                    }
+
+                    for (field_name, field_value) in &struct_init.fields {
+                        if !struct_fields.contains_key(&field_name.node) {
+                            self.report(TypeInferrerError::UnknownField {
+                                src: self.source.clone(),
+                                span: field_name.span,
+                                field: field_name.node.clone(),
+                                struct_name: struct_init.name.node.clone(),
+                            });
+                            continue;
+                        }
+                        let expected_type = struct_fields.get(&field_name.node).unwrap();
+                        let actual_type = self.infer_expr(field_value)?;
+                        self.unify(actual_type, expected_type.clone(), field_value.span)?;
+                    }
+
+                    for (field_name, _) in struct_fields {
+                        if !seen_fields.contains(&field_name) {
+                            self.report(TypeInferrerError::MissingField {
+                                src: self.source.clone(),
+                                span: struct_init.name.span,
+                                field: field_name,
+                                struct_name: struct_init.name.node.clone(),
+                            });
+                        }
+                    }
+                }
+
+                self.type_env.insert(expr.type_id, struct_type.clone());
+                Ok(TypeVar(expr.type_id))
+            }
             Expr::Literal(literal_expr) => {
                 let ty = match literal_expr {
                     LiteralExpr::Int(_) => Type::Int,
