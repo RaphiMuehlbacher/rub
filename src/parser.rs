@@ -23,24 +23,24 @@ pub struct ParserResult<'a> {
     pub ast: Program,
 }
 
-pub struct Parser<'a> {
-    tokens: Vec<Token<'a>>,
+pub struct Parser {
+    tokens: Vec<Token>,
     position: usize,
     errors: Vec<Report>,
     source: String,
     delimiter_stack: Vec<Delimiter>,
 }
 
-impl<'a> Parser<'a> {
-    fn current(&self) -> &Token<'a> {
+impl Parser {
+    fn current(&self) -> &Token {
         &self.tokens[self.position]
     }
 
-    fn peek(&self) -> &Token<'a> {
+    fn peek(&self) -> &Token {
         &self.tokens[self.position + 1]
     }
 
-    fn previous(&self) -> &Token<'a> {
+    fn previous(&self) -> &Token {
         &self.tokens[self.position - 1]
     }
 
@@ -96,7 +96,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl<'a> Parser<'a> {
+impl Parser {
     /// * `start` - Starting span (inclusive)
     /// * `end` - Ending span (inclusive)
     fn create_span(&self, start: SourceSpan, end: SourceSpan) -> SourceSpan {
@@ -113,7 +113,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl<'a> Parser<'a> {
+impl Parser {
     fn report(&mut self, error: Report) {
         self.errors.push(error);
     }
@@ -158,7 +158,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl<'a> Parser<'a> {
+impl Parser {
     fn eat_to_tokens(&mut self, tokens: &[TokenKind]) {
         while !self.at_eof() && !self.matches(tokens) {
             self.advance_position();
@@ -208,7 +208,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl<'a> Parser<'a> {
+impl Parser {
     /// current is the opening delimiter, end is the next token
     fn open_delimiter(&mut self, open_delim: TokenKind) -> ParseResult<()> {
         let current_token = self.current().clone();
@@ -269,8 +269,8 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(tokens: Vec<Token<'a>>, source: String) -> Self {
+impl Parser {
+    pub fn new(tokens: Vec<Token>, source: String) -> Self {
         Self {
             tokens,
             position: 0,

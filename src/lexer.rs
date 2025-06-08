@@ -3,74 +3,88 @@ use miette::{Report, SourceSpan};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
+    Delim(Delimiter),
+    Operator(Operator),
+    Keyword(Keyword),
+    Punctuation(Punctuation),
+    Ident(String),
+    Literal(Literal),
+    EOF,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Punctuation {
+    Comma,
+    Dot,
+    Semicolon,
+    Colon,
+    Arrow,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Literal {
+    Int(i64),
+    Float(f64),
+    String(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Delimiter {
     LeftParen,
     RightParen,
     LeftBrace,
     RightBrace,
     LeftBracket,
     RightBracket,
-    Comma,
-    Dot,
-    Minus,
-    Plus,
-    Semicolon,
-    Slash,
-    Star,
-    Bang,
-    BangEqual,
-    Equal,
-    EqualEqual,
-    Greater,
-    GreaterEqual,
-    Less,
-    LessEqual,
-    Colon,
-    Arrow,
-
-    String(String),
-    Ident(String),
-    Float(f64),
-    Int(i64),
-
-    And,
-    Else,
-    True,
-    False,
-    For,
-    Fn,
-    If,
-    Nil,
-    Or,
-    Return,
-    Let,
-    While,
-    Struct,
-
-    TypeInt,
-    TypeFloat,
-    TypeString,
-    TypeBool,
-    TypeNil,
-    TypeVec,
-
-    EOF,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Token<'a> {
+pub enum Operator {
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Equal,
+    EqualEqual,
+    Bang,
+    BangEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Keyword {
+    Let,
+    Fn,
+    If,
+    Else,
+    Return,
+    While,
+    For,
+    Struct,
+    True,
+    False,
+    Nil,
+    And,
+    Or,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Token {
     pub token_kind: TokenKind,
     pub span: SourceSpan,
-    pub literal: &'a str,
 }
 
 pub struct LexerResult<'a> {
     pub errors: &'a Vec<Report>,
-    pub tokens: Vec<Token<'a>>,
+    pub tokens: Vec<Token>,
 }
 
 pub struct Lexer<'a> {
     source: &'a str,
-    tokens: Vec<Token<'a>>,
+    tokens: Vec<Token>,
     errors: Vec<Report>,
     position: usize,
     start: usize,
@@ -95,24 +109,24 @@ impl<'a> Lexer<'a> {
             self.position += c.len_utf8();
 
             let token = match c {
-                '(' => self.create_token(TokenKind::LeftParen),
-                ')' => self.create_token(TokenKind::RightParen),
-                '{' => self.create_token(TokenKind::LeftBrace),
-                '}' => self.create_token(TokenKind::RightBrace),
-                '[' => self.create_token(TokenKind::LeftBracket),
-                ']' => self.create_token(TokenKind::RightBracket),
-                ',' => self.create_token(TokenKind::Comma),
-                '.' => self.create_token(TokenKind::Dot),
+                '(' => self.create_token(TokenKind::Delim(Delimiter::LeftParen)),
+                ')' => self.create_token(TokenKind::Delim(Delimiter::RightParen)),
+                '{' => self.create_token(TokenKind::Delim(Delimiter::LeftBrace)),
+                '}' => self.create_token(TokenKind::Delim(Delimiter::RightBrace)),
+                '[' => self.create_token(TokenKind::Delim(Delimiter::LeftBracket)),
+                ']' => self.create_token(TokenKind::Delim(Delimiter::RightBracket)),
+                ',' => self.create_token(TokenKind::Punctuation(Punctuation::Comma)),
+                '.' => self.create_token(TokenKind::Punctuation(Punctuation::Dot)),
+                ';' => self.create_token(TokenKind::Punctuation(Punctuation::Semicolon)),
+                ':' => self.create_token(TokenKind::Punctuation(Punctuation::Colon)),
                 '-' => {
                     if self.match_char('>') {
-                        self.create_token(TokenKind::Arrow)
+                        self.create_token(TokenKind::Punctuation(Punctuation::Arrow))
                     } else {
-                        self.create_token(TokenKind::Minus)
+                        self.create_token(TokenKind::Operator(Operator::Minus))
                     }
                 }
-                '+' => self.create_token(TokenKind::Plus),
-                ';' => self.create_token(TokenKind::Semicolon),
-                ':' => self.create_token(TokenKind::Colon),
+                '+' => self.create_token(TokenKind::Operator(Operator::Plus)),
                 '/' => {
                     if self.match_char('/') {
                         while self.position < self.source.len() && !self.match_char('\n') {
@@ -144,36 +158,36 @@ impl<'a> Lexer<'a> {
                         }
                         continue;
                     } else {
-                        self.create_token(TokenKind::Slash)
+                        self.create_token(TokenKind::Operator(Operator::Slash))
                     }
                 }
-                '*' => self.create_token(TokenKind::Star),
+                '*' => self.create_token(TokenKind::Operator(Operator::Star)),
                 '!' => {
                     if self.match_char('=') {
-                        self.create_token(TokenKind::BangEqual)
+                        self.create_token(TokenKind::Operator(Operator::BangEqual))
                     } else {
-                        self.create_token(TokenKind::Bang)
+                        self.create_token(TokenKind::Operator(Operator::Bang))
                     }
                 }
                 '=' => {
                     if self.match_char('=') {
-                        self.create_token(TokenKind::EqualEqual)
+                        self.create_token(TokenKind::Operator(Operator::EqualEqual))
                     } else {
-                        self.create_token(TokenKind::Equal)
+                        self.create_token(TokenKind::Operator(Operator::Equal))
                     }
                 }
                 '<' => {
                     if self.match_char('=') {
-                        self.create_token(TokenKind::LessEqual)
+                        self.create_token(TokenKind::Operator(Operator::LessEqual))
                     } else {
-                        self.create_token(TokenKind::Less)
+                        self.create_token(TokenKind::Operator(Operator::Less))
                     }
                 }
                 '>' => {
                     if self.match_char('=') {
-                        self.create_token(TokenKind::GreaterEqual)
+                        self.create_token(TokenKind::Operator(Operator::GreaterEqual))
                     } else {
-                        self.create_token(TokenKind::Greater)
+                        self.create_token(TokenKind::Operator(Operator::Greater))
                     }
                 }
                 '"' => {
@@ -182,7 +196,7 @@ impl<'a> Lexer<'a> {
                         Some(pos) => {
                             let end_offset = pos + 1;
                             self.position = self.start + end_offset + 1;
-                            self.create_token(TokenKind::String(rest[1..end_offset].to_string()))
+                            self.create_token(TokenKind::Literal(Literal::String(rest[1..end_offset].to_string())))
                         }
                         None => {
                             self.errors.push(
@@ -206,25 +220,19 @@ impl<'a> Lexer<'a> {
                     let literal = &self.source[self.start..self.position];
 
                     let kind = match literal {
-                        "and" => TokenKind::And,
-                        "else" => TokenKind::Else,
-                        "false" => TokenKind::False,
-                        "for" => TokenKind::For,
-                        "fn" => TokenKind::Fn,
-                        "if" => TokenKind::If,
-                        "nil" => TokenKind::Nil,
-                        "or" => TokenKind::Or,
-                        "return" => TokenKind::Return,
-                        "true" => TokenKind::True,
-                        "let" => TokenKind::Let,
-                        "while" => TokenKind::While,
-                        "struct" => TokenKind::Struct,
-                        "Float" => TokenKind::TypeFloat,
-                        "String" => TokenKind::TypeString,
-                        "Bool" => TokenKind::TypeBool,
-                        "Nil" => TokenKind::TypeNil,
-                        "Vec" => TokenKind::TypeVec,
-                        "Int" => TokenKind::TypeInt,
+                        "and" => TokenKind::Keyword(Keyword::And),
+                        "else" => TokenKind::Keyword(Keyword::Else),
+                        "false" => TokenKind::Keyword(Keyword::False),
+                        "for" => TokenKind::Keyword(Keyword::For),
+                        "fn" => TokenKind::Keyword(Keyword::Fn),
+                        "if" => TokenKind::Keyword(Keyword::If),
+                        "nil" => TokenKind::Keyword(Keyword::Nil),
+                        "or" => TokenKind::Keyword(Keyword::Or),
+                        "return" => TokenKind::Keyword(Keyword::Return),
+                        "true" => TokenKind::Keyword(Keyword::True),
+                        "let" => TokenKind::Keyword(Keyword::Let),
+                        "while" => TokenKind::Keyword(Keyword::While),
+                        "struct" => TokenKind::Keyword(Keyword::Struct),
                         _ => TokenKind::Ident(literal.to_string()),
                     };
 
@@ -242,16 +250,14 @@ impl<'a> Lexer<'a> {
 
                         self.position += second_part_offset;
                         Token {
-                            token_kind: TokenKind::Float(self.source[self.start..self.position].parse().unwrap()),
+                            token_kind: TokenKind::Literal(Literal::Float(self.source[self.start..self.position].parse().unwrap())),
                             span: SourceSpan::new(self.start.into(), self.position - self.start),
-                            literal: &self.source[self.start..self.position],
                         }
                     } else {
                         let literal = &rest[..first_part_offset];
                         Token {
-                            token_kind: TokenKind::Int(literal.parse().unwrap()),
+                            token_kind: TokenKind::Literal(Literal::Int(literal.parse().unwrap())),
                             span: SourceSpan::new(self.start.into(), self.position - self.start),
-                            literal,
                         }
                     }
                 }
@@ -274,7 +280,6 @@ impl<'a> Lexer<'a> {
         let eof_token = Token {
             token_kind: TokenKind::EOF,
             span: SourceSpan::from(self.source.len() - 1),
-            literal: "",
         };
         self.tokens.push(eof_token);
         LexerResult {
@@ -283,12 +288,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn create_token(&self, token_kind: TokenKind) -> Token<'a> {
-        let literal = &self.source[self.start..self.position];
+    fn create_token(&self, token_kind: TokenKind) -> Token {
         Token {
             token_kind,
             span: SourceSpan::new(self.start.into(), self.position - self.start),
-            literal,
         }
     }
 
