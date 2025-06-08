@@ -1,7 +1,7 @@
 use crate::MethodRegistry;
 use crate::ast::{
-    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, StructDeclStmt, Typed, TypedIdent,
-    UnaryOp, VarDeclStmt, WhileStmt,
+    AstNode, BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, StructDeclStmt,
+    TypedIdent, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::builtins::{clock_native, print_native};
 use crate::error::InterpreterError;
@@ -33,7 +33,7 @@ pub enum Function {
     UserFunction {
         name: Option<String>,
         params: Rc<Vec<TypedIdent>>,
-        body: Rc<Typed<BlockExpr>>,
+        body: Rc<AstNode<BlockExpr>>,
         env: Env,
     },
 }
@@ -256,12 +256,12 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn expr_stmt(&mut self, expr: &Typed<ExprStmt>) -> Result<(), InterpreterError> {
+    fn expr_stmt(&mut self, expr: &AstNode<ExprStmt>) -> Result<(), InterpreterError> {
         self.interpret_expr(&expr.node.expr)?;
         Ok(())
     }
 
-    fn var_decl(&mut self, var_decl: &Typed<VarDeclStmt>) -> Result<(), InterpreterError> {
+    fn var_decl(&mut self, var_decl: &AstNode<VarDeclStmt>) -> Result<(), InterpreterError> {
         if let Some(init) = &var_decl.node.initializer {
             let value = self.interpret_expr(&init)?;
             self.define_var(var_decl.node.ident.node.clone(), value);
@@ -272,11 +272,11 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn fun_decl(&mut self, fun_decl: &Typed<FunDeclStmt>) -> Result<(), InterpreterError> {
+    fn fun_decl(&mut self, fun_decl: &AstNode<FunDeclStmt>) -> Result<(), InterpreterError> {
         self.define_var(
-            fun_decl.node.ident.node.clone(),
+            fun_decl.node.name.node.clone(),
             Value::Function(Rc::new(UserFunction {
-                name: Some(fun_decl.node.ident.node.clone()),
+                name: Some(fun_decl.node.name.node.clone()),
                 params: Rc::new(fun_decl.node.params.clone()),
                 body: Rc::new(fun_decl.node.body.clone()),
                 env: self.var_env.clone(),
@@ -286,7 +286,7 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn while_stmt(&mut self, while_stmt: &Typed<WhileStmt>) -> Result<(), InterpreterError> {
+    fn while_stmt(&mut self, while_stmt: &AstNode<WhileStmt>) -> Result<(), InterpreterError> {
         let mut cond_value = self.interpret_expr(&while_stmt.node.condition)?.to_bool();
         while cond_value {
             self.interpret_stmts(&while_stmt.node.body.node.statements)?;
@@ -296,7 +296,7 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn return_stmt(&mut self, return_stmt: &Typed<ReturnStmt>) -> Result<(), InterpreterError> {
+    fn return_stmt(&mut self, return_stmt: &AstNode<ReturnStmt>) -> Result<(), InterpreterError> {
         let value = if let Some(expr) = &return_stmt.node.expr {
             self.interpret_expr(expr)?
         } else {
@@ -317,7 +317,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn interpret_expr(&mut self, expr: &Typed<Expr>) -> Result<Value, InterpreterError> {
+    fn interpret_expr(&mut self, expr: &AstNode<Expr>) -> Result<Value, InterpreterError> {
         match &expr.node {
             Expr::FieldAssign(field_assign) => {
                 let receiver = self.interpret_expr(&field_assign.receiver)?;
@@ -370,7 +370,7 @@ impl<'a> Interpreter<'a> {
             Expr::MethodCall(method_call) => {
                 let receiver = self.interpret_expr(&method_call.receiver)?;
                 let method_name = &method_call.method.node;
-                let receiver_ty = self.type_env.get(&method_call.receiver.type_id).expect("should work");
+                let receiver_ty = self.type_env.get(&method_call.receiver.node_id).expect("should work");
 
                 let mut args = vec![receiver];
                 for arg in &method_call.arguments {
@@ -404,7 +404,7 @@ impl<'a> Interpreter<'a> {
 
             Expr::Unary(unary) => {
                 let right = self.interpret_expr(&unary.expr)?;
-                let expr_type = self.type_env.get(&expr.type_id).unwrap();
+                let expr_type = self.type_env.get(&expr.node_id).unwrap();
 
                 match unary.op.node {
                     UnaryOp::Bang => Ok(Value::Bool(!right.to_bool())),
@@ -420,7 +420,7 @@ impl<'a> Interpreter<'a> {
                 let left = self.interpret_expr(&binary.left)?;
                 let right = self.interpret_expr(&binary.right)?;
 
-                let expr_type = self.type_env.get(&expr.type_id).unwrap();
+                let expr_type = self.type_env.get(&expr.node_id).unwrap();
 
                 match binary.op.node {
                     BinaryOp::Plus => match expr_type {
@@ -461,7 +461,7 @@ impl<'a> Interpreter<'a> {
                         _ => panic!(),
                     },
                     BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => {
-                        let operand_type = self.type_env.get(&binary.left.type_id).unwrap();
+                        let operand_type = self.type_env.get(&binary.left.node_id).unwrap();
                         match operand_type {
                             Type::Int => match binary.op.node {
                                 BinaryOp::Greater => Ok(Value::Bool(left.to_int() > right.to_int())),

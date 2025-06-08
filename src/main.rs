@@ -25,7 +25,7 @@ fn interpret(code: &str) {
         return;
     }
 
-    let mut parser = Parser::new(lex_result.tokens, code);
+    let mut parser = Parser::new(lex_result.tokens, code.to_string());
     let parse_result = parser.parse();
     time_log!(start, "Parsing");
 

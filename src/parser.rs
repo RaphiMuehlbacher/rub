@@ -2,9 +2,9 @@ use crate::ast::Expr::{Block, Call, Grouping, Lambda, Literal, Unary, Variable};
 use crate::ast::LiteralExpr::VecLiteral;
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
-    AssignExpr, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FieldAccessExpr, FieldAssignExpr, FunDeclStmt, Ident,
-    IfExpr, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt, StructInitExpr,
-    Typed, TypedIdent, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    AssignExpr, AstNode, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FieldAccessExpr, FieldAssignExpr, ForStmt,
+    FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt,
+    StructInitExpr, TypedIdent, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidStructName, InvalidVariableName, MissingBlock, MissingOperand,
@@ -27,7 +27,7 @@ pub struct Parser<'a> {
     tokens: Vec<Token<'a>>,
     position: usize,
     errors: Vec<Report>,
-    source: &'a str,
+    source: String,
     delimiter_stack: Vec<Delimiter>,
 }
 
@@ -270,7 +270,7 @@ impl<'a> Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(tokens: Vec<Token<'a>>, source: &'a str) -> Self {
+    pub fn new(tokens: Vec<Token<'a>>, source: String) -> Self {
         Self {
             tokens,
             position: 0,
@@ -339,7 +339,7 @@ impl<'a> Parser<'a> {
         let initializer = self.parse_var_initializer()?;
         self.expect_semicolon();
 
-        Ok(Stmt::VarDecl(Typed::new(
+        Ok(Stmt::VarDecl(AstNode::new(
             VarDeclStmt {
                 ident: variable_name,
                 initializer,
@@ -357,7 +357,7 @@ impl<'a> Parser<'a> {
             TokenKind::Ident(name) => {
                 let variable_span = variable_token.span;
                 self.advance_position();
-                Typed::new(name.clone(), variable_span)
+                AstNode::new(name.clone(), variable_span)
             }
             TokenKind::Float(_) | TokenKind::Int(_) => {
                 if self.next_is(TokenKind::Ident(String::new())) {
@@ -397,7 +397,7 @@ impl<'a> Parser<'a> {
         Ok(variable_name)
     }
 
-    fn parse_var_initializer(&mut self) -> ParseResult<Option<Typed<Expr>>> {
+    fn parse_var_initializer(&mut self) -> ParseResult<Option<AstNode<Expr>>> {
         let initializer = if self.consume(&[TokenKind::Equal]) {
             if self.consume(&[TokenKind::Semicolon]) {
                 return Err(ExpectedExpression {
@@ -407,7 +407,7 @@ impl<'a> Parser<'a> {
                 .into());
             }
             let expr_left_span = self.current().span;
-            Some(Typed::new(
+            Some(AstNode::new(
                 self.expression()?,
                 self.create_span(expr_left_span, self.previous().span),
             ))
@@ -449,12 +449,12 @@ impl<'a> Parser<'a> {
         };
         let body_right_span = self.previous().span;
 
-        Ok(Stmt::FunDecl(Typed::new(
+        Ok(Stmt::FunDecl(AstNode::new(
             FunDeclStmt {
-                ident: function_name,
+                name: function_name,
                 params: parameters,
                 generics,
-                body: Typed::new(body, self.create_span(body_left_span, body_right_span)),
+                body: AstNode::new(body, self.create_span(body_left_span, body_right_span)),
                 return_type,
             },
             self.create_span(fun_keyword_span, self.previous().span),
@@ -468,7 +468,7 @@ impl<'a> Parser<'a> {
         let struct_name = match &struct_token.token_kind {
             TokenKind::Ident(name) => {
                 self.advance_position();
-                Typed::new(name.clone(), struct_token.span)
+                AstNode::new(name.clone(), struct_token.span)
             }
             TokenKind::Float(_) | TokenKind::Int(_) => {
                 if self.next_is(TokenKind::Ident(String::new())) {
@@ -481,7 +481,7 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
-                    Typed::new("err_fun".to_string(), self.current().span)
+                    AstNode::new("err_fun".to_string(), self.current().span)
                 } else {
                     self.skip_to_next_paren();
                     self.report(
@@ -492,7 +492,7 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
-                    Typed::new("err fun".to_string(), self.current().span)
+                    AstNode::new("err fun".to_string(), self.current().span)
                 }
             }
             _ => {
@@ -515,7 +515,7 @@ impl<'a> Parser<'a> {
         self.open_delimiter(TokenKind::LeftBrace)?;
         let parameters = self.parse_typed_idents(TokenKind::RightBrace)?;
 
-        Ok(Stmt::StructDecl(Typed::new(
+        Ok(Stmt::StructDecl(AstNode::new(
             StructDeclStmt {
                 ident: struct_name,
                 fields: parameters,
@@ -524,16 +524,16 @@ impl<'a> Parser<'a> {
         )))
     }
 
-    fn parse_return_type(&mut self) -> ParseResult<Typed<Type>> {
+    fn parse_return_type(&mut self) -> ParseResult<AstNode<Type>> {
         if !self.consume(&[TokenKind::Arrow]) {
-            return Ok(Typed::new(Type::Nil, SourceSpan::from(0)));
+            return Ok(AstNode::new(Type::Nil, SourceSpan::from(0)));
         }
 
         let return_left_span = self.current().span;
         let ty = self.parse_type()?;
         let return_right_span = self.previous().span;
 
-        Ok(Typed::new(ty, self.create_span(return_left_span, return_right_span)))
+        Ok(AstNode::new(ty, self.create_span(return_left_span, return_right_span)))
     }
 
     /// current is function name, ends at '('
@@ -543,7 +543,7 @@ impl<'a> Parser<'a> {
         let function_name = match &function_token.token_kind {
             TokenKind::Ident(name) => {
                 self.advance_position();
-                Typed::new(name.clone(), function_token.span)
+                AstNode::new(name.clone(), function_token.span)
             }
             TokenKind::Float(_) | TokenKind::Int(_) => {
                 if self.next_is(TokenKind::Ident(String::new())) {
@@ -556,7 +556,7 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
-                    Typed::new("err_fun".to_string(), self.current().span)
+                    AstNode::new("err_fun".to_string(), self.current().span)
                 } else {
                     self.skip_to_next_paren();
                     self.report(
@@ -567,7 +567,7 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
-                    Typed::new("err fun".to_string(), self.current().span)
+                    AstNode::new("err fun".to_string(), self.current().span)
                 }
             }
             _ => {
@@ -595,7 +595,7 @@ impl<'a> Parser<'a> {
             match &self.current().token_kind {
                 TokenKind::Ident(name) => {
                     let span = self.current().span;
-                    generics.push(Typed::new(name.clone(), span));
+                    generics.push(AstNode::new(name.clone(), span));
                     self.advance_position();
 
                     if self.consume(&[TokenKind::Greater]) {
@@ -637,7 +637,7 @@ impl<'a> Parser<'a> {
     }
 
     /// current is `:` end is after type
-    fn parse_type_annotation(&mut self) -> ParseResult<Typed<Type>> {
+    fn parse_type_annotation(&mut self) -> ParseResult<AstNode<Type>> {
         if !self.consume(&[TokenKind::Colon]) {
             return Err(UnexpectedToken {
                 src: self.source.to_string(),
@@ -652,7 +652,7 @@ impl<'a> Parser<'a> {
         let ty = self.parse_type()?;
         let annotation_right_span = self.previous().span;
 
-        Ok(Typed::new(ty, self.create_span(annotation_left_span, annotation_right_span)))
+        Ok(AstNode::new(ty, self.create_span(annotation_left_span, annotation_right_span)))
     }
 
     /// current is the type annotation
@@ -759,7 +759,7 @@ impl<'a> Parser<'a> {
                 let type_annotation = self.parse_type_annotation()?;
 
                 Ok(TypedIdent {
-                    name: Typed::new(name.clone(), name_span),
+                    name: AstNode::new(name.clone(), name_span),
                     type_annotation,
                 })
             }
@@ -853,9 +853,9 @@ impl<'a> Parser<'a> {
             _ => self.expect_semicolon(),
         }
 
-        Ok(ExprStmtNode(Typed::new(
+        Ok(ExprStmtNode(AstNode::new(
             ExprStmt {
-                expr: Typed::new(value, self.create_span(expr_left_span, expr_right_span)),
+                expr: AstNode::new(value, self.create_span(expr_left_span, expr_right_span)),
             },
             self.create_span(left_span, self.previous().span),
         )))
@@ -886,10 +886,10 @@ impl<'a> Parser<'a> {
         if self.consume(&[TokenKind::Else]) {
             else_branch = if self.matches(&[TokenKind::If]) {
                 let if_expr = self.if_expr()?;
-                Some(Box::new(Typed::new(
+                Some(Box::new(AstNode::new(
                     BlockExpr {
                         statements: vec![],
-                        expr: Some(Box::new(Typed::new(
+                        expr: Some(Box::new(AstNode::new(
                             if_expr,
                             self.create_span(else_branch_left_span, self.previous().span),
                         ))),
@@ -898,7 +898,7 @@ impl<'a> Parser<'a> {
                 )))
             } else {
                 match self.block()? {
-                    Block(block) => Some(Box::new(Typed::new(
+                    Block(block) => Some(Box::new(AstNode::new(
                         block,
                         self.create_span(else_branch_left_span, self.previous().span),
                     ))),
@@ -914,8 +914,8 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Expr::If(IfExpr {
-            condition: Box::new(Typed::new(condition, self.create_span(condition_left_span, condition_right_span))),
-            then_branch: Typed::new(then_branch, self.create_span(then_branch_left_span, then_branch_right_span)),
+            condition: Box::new(AstNode::new(condition, self.create_span(condition_left_span, condition_right_span))),
+            then_branch: AstNode::new(then_branch, self.create_span(then_branch_left_span, then_branch_right_span)),
             else_branch,
         }))
     }
@@ -933,7 +933,7 @@ impl<'a> Parser<'a> {
             if let Ok(expr) = self.expression() {
                 if self.current_is(TokenKind::RightBrace) {
                     let span = self.create_span(self.previous().span, self.current().span);
-                    expression = Some(Box::new(Typed::new(expr, span)));
+                    expression = Some(Box::new(AstNode::new(expr, span)));
                     break;
                 }
             }
@@ -982,7 +982,7 @@ impl<'a> Parser<'a> {
         self.advance_position();
 
         let condition_span = self.current().span;
-        let condition = Typed::new(self.parse_condition()?, condition_span);
+        let condition = AstNode::new(self.parse_condition()?, condition_span);
 
         let block_left_span = self.current().span;
         let block = match self.block()? {
@@ -998,10 +998,10 @@ impl<'a> Parser<'a> {
 
         let block_right_span = self.previous().span;
 
-        Ok(While(Typed::new(
+        Ok(While(AstNode::new(
             WhileStmt {
                 condition,
-                body: Typed::new(block, self.create_span(block_left_span, block_right_span)),
+                body: AstNode::new(block, self.create_span(block_left_span, block_right_span)),
             },
             self.create_span(while_span, self.previous().span),
         )))
@@ -1009,7 +1009,7 @@ impl<'a> Parser<'a> {
 
     /// current is for, end is after block
     fn for_stmt(&mut self) -> ParseResult<Stmt> {
-        let for_span = self.current().span;
+        let left_for_span = self.current().span;
         self.advance_position();
 
         let initializer = if self.matches(&[TokenKind::Let]) {
@@ -1026,7 +1026,7 @@ impl<'a> Parser<'a> {
         } else {
             Literal(LiteralExpr::Bool(true))
         };
-        let condition = Typed::new(condition, condition_span);
+        let condition = AstNode::new(condition, condition_span);
 
         if !self.consume(&[TokenKind::Semicolon]) {
             let error = MissingSemicolon {
@@ -1038,7 +1038,7 @@ impl<'a> Parser<'a> {
 
         let inc_left_span = self.current().span;
         let increment = if !self.matches(&[TokenKind::LeftBrace]) {
-            Some(Typed::new(
+            Some(AstNode::new(
                 self.expression()?,
                 self.create_span(inc_left_span, self.previous().span),
             ))
@@ -1057,45 +1057,14 @@ impl<'a> Parser<'a> {
                 .into());
             }
         };
-        let body_right_span = self.previous().span;
-
-        let mut statements = vec![];
-
-        if let Some(init) = initializer {
-            statements.push(init);
-        }
-
-        let mut while_body_statements = Vec::new();
-        if let Some(inc) = increment {
-            while_body_statements.push(ExprStmtNode(Typed::new(
-                ExprStmt { expr: inc },
-                self.create_span(for_span, self.previous().span),
-            )));
-        }
-
-        let while_stmt = While(Typed::new(
-            WhileStmt {
+        Ok(Stmt::For(AstNode::new(
+            ForStmt {
                 condition,
-                body: Typed::new(
-                    BlockExpr {
-                        statements: while_body_statements,
-                        expr: body.expr,
-                    },
-                    self.create_span(body_left_span, body_right_span),
-                ),
+                initializer,
+                increment,
+                body: AstNode::new(body, self.create_span(body_left_span, self.previous().span)),
             },
-            self.create_span(for_span, self.previous().span),
-        ));
-        statements.push(while_stmt);
-
-        Ok(ExprStmtNode(Typed::new(
-            ExprStmt {
-                expr: Typed::new(
-                    Block(BlockExpr { statements, expr: None }),
-                    self.create_span(for_span, self.previous().span),
-                ),
-            },
-            self.create_span(for_span, self.previous().span),
+            self.create_span(left_for_span, self.previous().span),
         )))
     }
 
@@ -1113,7 +1082,7 @@ impl<'a> Parser<'a> {
                 }
                 .into());
             }
-            Some(Typed::new(
+            Some(AstNode::new(
                 self.expression()?,
                 self.create_span(left_expr_span, self.previous().span),
             ))
@@ -1122,7 +1091,7 @@ impl<'a> Parser<'a> {
         };
 
         self.expect_semicolon();
-        Ok(Return(Typed::new(
+        Ok(Return(AstNode::new(
             ReturnStmt { expr: value },
             self.create_span(left_return_span, self.previous().span),
         )))
@@ -1170,7 +1139,7 @@ impl<'a> Parser<'a> {
 
         Ok(Lambda(LambdaExpr {
             parameters,
-            body: Box::new(Typed::new(body, self.create_span(body_left_span, body_right_span))),
+            body: Box::new(AstNode::new(body, self.create_span(body_left_span, body_right_span))),
             return_type,
         }))
     }
@@ -1198,12 +1167,12 @@ impl<'a> Parser<'a> {
             return match expr {
                 Variable(name) => Ok(Expr::Assign(AssignExpr {
                     target: name,
-                    value: Box::new(Typed::new(value, self.create_span(left_assignment_span, self.previous().span))),
+                    value: Box::new(AstNode::new(value, self.create_span(left_assignment_span, self.previous().span))),
                 })),
                 Expr::FieldAccess(field_access) => Ok(Expr::FieldAssign(FieldAssignExpr {
                     receiver: field_access.receiver,
                     field: field_access.field,
-                    value: Box::new(Typed::new(value, self.create_span(left_result_span, self.previous().span))),
+                    value: Box::new(AstNode::new(value, self.create_span(left_result_span, self.previous().span))),
                 })),
                 _ => Err(ExpectedIdentifier {
                     src: self.source.to_string(),
@@ -1238,9 +1207,9 @@ impl<'a> Parser<'a> {
             let right = self.expect_expr(result, "right", operator_span)?;
 
             expr = Expr::Logical(LogicalExpr {
-                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
-                op: Typed::new(op, operator_span),
-                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+                left: Box::new(AstNode::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: AstNode::new(op, operator_span),
+                right: Box::new(AstNode::new(right, self.create_span(right_left_span, right_right_span))),
             })
         }
         Ok(expr)
@@ -1268,9 +1237,9 @@ impl<'a> Parser<'a> {
             let right = self.expect_expr(result, "right", operator_span)?;
 
             expr = Expr::Logical(LogicalExpr {
-                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
-                op: Typed::new(op, operator_span),
-                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+                left: Box::new(AstNode::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: AstNode::new(op, operator_span),
+                right: Box::new(AstNode::new(right, self.create_span(right_left_span, right_right_span))),
             })
         }
         Ok(expr)
@@ -1298,9 +1267,9 @@ impl<'a> Parser<'a> {
             let right = self.expect_expr(result, "right", operator_span)?;
 
             expr = Expr::Binary(BinaryExpr {
-                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
-                op: Typed::new(op, operator_span),
-                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+                left: Box::new(AstNode::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: AstNode::new(op, operator_span),
+                right: Box::new(AstNode::new(right, self.create_span(right_left_span, right_right_span))),
             })
         }
         Ok(expr)
@@ -1331,9 +1300,9 @@ impl<'a> Parser<'a> {
             let right = self.expect_expr(result, "right", operator_span)?;
 
             expr = Expr::Binary(BinaryExpr {
-                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
-                op: Typed::new(op, operator_span),
-                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+                left: Box::new(AstNode::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: AstNode::new(op, operator_span),
+                right: Box::new(AstNode::new(right, self.create_span(right_left_span, right_right_span))),
             })
         }
         Ok(expr)
@@ -1361,9 +1330,9 @@ impl<'a> Parser<'a> {
             let right = self.expect_expr(result, "right", operator_span)?;
 
             expr = Expr::Binary(BinaryExpr {
-                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
-                op: Typed::new(op, operator_span),
-                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+                left: Box::new(AstNode::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: AstNode::new(op, operator_span),
+                right: Box::new(AstNode::new(right, self.create_span(right_left_span, right_right_span))),
             })
         }
         Ok(expr)
@@ -1392,9 +1361,9 @@ impl<'a> Parser<'a> {
             let right = self.expect_expr(result, "right", operator_span)?;
 
             expr = Expr::Binary(BinaryExpr {
-                left: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
-                op: Typed::new(op, operator_span),
-                right: Box::new(Typed::new(right, self.create_span(right_left_span, right_right_span))),
+                left: Box::new(AstNode::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: AstNode::new(op, operator_span),
+                right: Box::new(AstNode::new(right, self.create_span(right_left_span, right_right_span))),
             })
         }
         Ok(expr)
@@ -1419,8 +1388,8 @@ impl<'a> Parser<'a> {
             let expr = self.expect_expr(result, "right", operator_span)?;
 
             Ok(Unary(UnaryExpr {
-                op: Typed::new(op, operator_span),
-                expr: Box::new(Typed::new(expr, self.create_span(expr_left_span, expr_right_span))),
+                op: AstNode::new(op, operator_span),
+                expr: Box::new(AstNode::new(expr, self.create_span(expr_left_span, expr_right_span))),
             }))
         } else {
             self.call()
@@ -1460,13 +1429,13 @@ impl<'a> Parser<'a> {
 
         if !self.matches(&[TokenKind::RightParen]) {
             let expr_left_span = self.current().span;
-            arguments.push(Typed::new(
+            arguments.push(AstNode::new(
                 self.expression()?,
                 self.create_span(expr_left_span, self.previous().span),
             ));
             while self.consume(&[TokenKind::Comma]) {
                 let expr_left_span = self.current().span;
-                arguments.push(Typed::new(
+                arguments.push(AstNode::new(
                     self.expression()?,
                     self.create_span(expr_left_span, self.previous().span),
                 ));
@@ -1476,7 +1445,7 @@ impl<'a> Parser<'a> {
         self.close_delimiter(self.current().token_kind.clone())?;
 
         Ok(Call(CallExpr {
-            callee: Box::new(Typed::new(callee, left_paren_span)),
+            callee: Box::new(AstNode::new(callee, left_paren_span)),
             arguments,
         }))
     }
@@ -1488,7 +1457,7 @@ impl<'a> Parser<'a> {
             TokenKind::Ident(name) => {
                 let span = self.current().span;
                 self.advance_position();
-                Typed::new(name, span)
+                AstNode::new(name, span)
             }
             _ => {
                 return Err(ExpectedIdentifier {
@@ -1505,13 +1474,13 @@ impl<'a> Parser<'a> {
 
             if !self.matches(&[TokenKind::RightParen]) {
                 let expr_left_span = self.current().span;
-                arguments.push(Typed::new(
+                arguments.push(AstNode::new(
                     self.expression()?,
                     self.create_span(expr_left_span, self.previous().span),
                 ));
                 while self.consume(&[TokenKind::Comma]) {
                     let expr_left_span = self.current().span;
-                    arguments.push(Typed::new(
+                    arguments.push(AstNode::new(
                         self.expression()?,
                         self.create_span(expr_left_span, self.previous().span),
                     ));
@@ -1520,14 +1489,14 @@ impl<'a> Parser<'a> {
 
             self.close_delimiter(TokenKind::RightParen)?;
             Ok(Expr::MethodCall(MethodCallExpr {
-                receiver: Box::new(Typed::new(receiver, self.previous().span)),
+                receiver: Box::new(AstNode::new(receiver, self.previous().span)),
                 method: field,
                 arguments,
             }))
         } else {
             // It's a field access
             Ok(Expr::FieldAccess(FieldAccessExpr {
-                receiver: Box::new(Typed::new(receiver, self.previous().span)),
+                receiver: Box::new(AstNode::new(receiver, self.previous().span)),
                 field,
             }))
         }
@@ -1553,7 +1522,7 @@ impl<'a> Parser<'a> {
 
                 if !self.matches(&[TokenKind::RightBracket]) {
                     let expr_left_span = self.current().span;
-                    elements.push(Typed::new(
+                    elements.push(AstNode::new(
                         self.expression()?,
                         self.create_span(expr_left_span, self.previous().span),
                     ));
@@ -1567,7 +1536,7 @@ impl<'a> Parser<'a> {
                             .into());
                         }
                         let expr_left_span = self.current().span;
-                        elements.push(Typed::new(
+                        elements.push(AstNode::new(
                             self.expression()?,
                             self.create_span(expr_left_span, self.previous().span),
                         ));
@@ -1604,7 +1573,7 @@ impl<'a> Parser<'a> {
 
                 self.close_delimiter(self.current().token_kind.clone())?;
 
-                Ok(Grouping(Box::new(Typed::new(
+                Ok(Grouping(Box::new(AstNode::new(
                     expr,
                     self.create_span(opening_paren_span, self.current().span),
                 ))))
@@ -1655,7 +1624,7 @@ impl<'a> Parser<'a> {
                             TokenKind::Ident(field_name) => {
                                 let span = self.current().span;
                                 self.advance_position();
-                                Typed::new(field_name, span)
+                                AstNode::new(field_name, span)
                             }
                             _ => {
                                 return Err(ExpectedIdentifier {
@@ -1681,7 +1650,7 @@ impl<'a> Parser<'a> {
 
                         fields.push((
                             field_name.clone(),
-                            Box::new(Typed::new(value, self.create_span(expr_left_span, expr_right_span))),
+                            Box::new(AstNode::new(value, self.create_span(expr_left_span, expr_right_span))),
                         ));
                         if !self.matches(&[TokenKind::RightBrace]) {
                             if !self.consume(&[TokenKind::Comma]) {
@@ -1699,11 +1668,11 @@ impl<'a> Parser<'a> {
                     self.consume(&[TokenKind::RightBrace]);
 
                     Ok(Expr::StructInit(StructInitExpr {
-                        name: Typed::new(string, name_span),
+                        name: AstNode::new(string, name_span),
                         fields,
                     }))
                 } else {
-                    Ok(Variable(Typed::new(string, name_span)))
+                    Ok(Variable(AstNode::new(string, name_span)))
                 }
             }
             TokenKind::EOF => Err(UnexpectedEOF {
