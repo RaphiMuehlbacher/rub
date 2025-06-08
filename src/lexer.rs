@@ -1,15 +1,89 @@
 use crate::error::LexError;
 use miette::{Report, SourceSpan};
+use std::fmt::{Display, Formatter, Result};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     Delim(Delimiter),
     Operator(Operator),
     Keyword(Keyword),
-    Punctuation(Punctuation),
+    Punct(Punctuation),
     Ident(String),
     Literal(Literal),
     EOF,
+}
+impl Display for TokenKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            TokenKind::Delim(d) => write!(
+                f,
+                "{}",
+                match d {
+                    Delimiter::LeftParen => "(",
+                    Delimiter::RightParen => ")",
+                    Delimiter::LeftBrace => "{",
+                    Delimiter::RightBrace => "}",
+                    Delimiter::LeftBracket => "[",
+                    Delimiter::RightBracket => "]",
+                }
+            ),
+            TokenKind::Operator(op) => write!(
+                f,
+                "{}",
+                match op {
+                    Operator::Plus => "+",
+                    Operator::Minus => "-",
+                    Operator::Star => "*",
+                    Operator::Slash => "/",
+                    Operator::Equal => "=",
+                    Operator::EqualEqual => "==",
+                    Operator::Bang => "!",
+                    Operator::BangEqual => "!=",
+                    Operator::Less => "<",
+                    Operator::LessEqual => "<=",
+                    Operator::Greater => ">",
+                    Operator::GreaterEqual => ">=",
+                }
+            ),
+            TokenKind::Keyword(k) => write!(
+                f,
+                "{}",
+                match k {
+                    Keyword::Let => "let",
+                    Keyword::Fn => "fn",
+                    Keyword::If => "if",
+                    Keyword::Else => "else",
+                    Keyword::Return => "return",
+                    Keyword::While => "while",
+                    Keyword::For => "for",
+                    Keyword::Struct => "struct",
+                    Keyword::True => "true",
+                    Keyword::False => "false",
+                    Keyword::Nil => "nil",
+                    Keyword::And => "and",
+                    Keyword::Or => "or",
+                }
+            ),
+            TokenKind::Punct(p) => write!(
+                f,
+                "{}",
+                match p {
+                    Punctuation::Comma => ",",
+                    Punctuation::Dot => ".",
+                    Punctuation::Semicolon => ";",
+                    Punctuation::Colon => ":",
+                    Punctuation::Arrow => "->",
+                }
+            ),
+            TokenKind::Ident(name) => write!(f, "{}", name),
+            TokenKind::Literal(lit) => match lit {
+                Literal::Int(i) => write!(f, "{}", i),
+                Literal::Float(fl) => write!(f, "{}", fl),
+                Literal::String(s) => write!(f, "\"{}\"", s),
+            },
+            TokenKind::EOF => write!(f, "EOF"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -115,13 +189,13 @@ impl<'a> Lexer<'a> {
                 '}' => self.create_token(TokenKind::Delim(Delimiter::RightBrace)),
                 '[' => self.create_token(TokenKind::Delim(Delimiter::LeftBracket)),
                 ']' => self.create_token(TokenKind::Delim(Delimiter::RightBracket)),
-                ',' => self.create_token(TokenKind::Punctuation(Punctuation::Comma)),
-                '.' => self.create_token(TokenKind::Punctuation(Punctuation::Dot)),
-                ';' => self.create_token(TokenKind::Punctuation(Punctuation::Semicolon)),
-                ':' => self.create_token(TokenKind::Punctuation(Punctuation::Colon)),
+                ',' => self.create_token(TokenKind::Punct(Punctuation::Comma)),
+                '.' => self.create_token(TokenKind::Punct(Punctuation::Dot)),
+                ';' => self.create_token(TokenKind::Punct(Punctuation::Semicolon)),
+                ':' => self.create_token(TokenKind::Punct(Punctuation::Colon)),
                 '-' => {
                     if self.match_char('>') {
-                        self.create_token(TokenKind::Punctuation(Punctuation::Arrow))
+                        self.create_token(TokenKind::Punct(Punctuation::Arrow))
                     } else {
                         self.create_token(TokenKind::Operator(Operator::Minus))
                     }

@@ -24,32 +24,20 @@ impl<T> AstNode<T> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnresolvedType {
-    Primitive(PrimitiveType),
-    Named(String),
+    /// Int, Bool, User, T
+    Named(Ident),
+
+    /// (Int, Bool) -> Bool
     Function {
         params: Vec<UnresolvedType>,
         return_type: Box<UnresolvedType>,
     },
-    /// Option<T>, Option<Int>, Result<A, B>
-    GenericApplication {
+
+    /// Option<T>, Vec<Int>, Result<A, B>
+    Generic {
         base: Box<UnresolvedType>,
         args: Vec<UnresolvedType>,
     },
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum PrimitiveType {
-    Nil,
-    Int,
-    Float,
-    Bool,
-    String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Delimiter {
-    pub delimiter: TokenKind,
-    pub span: SourceSpan,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -312,15 +312,13 @@ pub enum ResolverError {
 #[derive(Debug, Error, Diagnostic)]
 pub enum ParseError {
     #[error("Expected identifier")]
-    #[diagnostic(code(parser::expected_identifier), help("Expected {context} name here"))]
+    #[diagnostic(code(parser::expected_identifier), help("Expected an identifier"))]
     ExpectedIdentifier {
         #[source_code]
         src: String,
 
         #[label("expected identifier here")]
         span: SourceSpan,
-
-        context: String,
     },
 
     #[error("Expected block")]
@@ -462,9 +460,9 @@ pub enum ParseError {
         side: String,
     },
 
-    #[error("Invalid variable name: {message}")]
-    #[diagnostic(help("Only variables can be assignment targets"), code(parser::invalid_assignment_target))]
-    InvalidVariableName {
+    #[error("Invalid identifier, found '{found}'")]
+    #[diagnostic(help("{message}"), code(parser::invalid_identifier))]
+    InvalidIdentifier {
         #[source_code]
         src: String,
 
@@ -472,30 +470,7 @@ pub enum ParseError {
         span: SourceSpan,
 
         message: String,
-    },
-
-    #[error("Invalid function name: {message}")]
-    #[diagnostic(help("change the function name"), code(parser::invalid_function_name))]
-    InvalidFunctionName {
-        #[source_code]
-        src: String,
-
-        #[label("this function")]
-        span: SourceSpan,
-
-        message: String,
-    },
-
-    #[error("Invalid struct name: {message}")]
-    #[diagnostic(help("change the struct name"), code(parser::invalid_struct_name))]
-    InvalidStructName {
-        #[source_code]
-        src: String,
-
-        #[label("this struct")]
-        span: SourceSpan,
-
-        message: String,
+        found: String,
     },
 }
 
