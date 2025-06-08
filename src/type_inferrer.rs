@@ -3,8 +3,8 @@ use crate::ast::{
     AstNode, BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, Program, ReturnStmt, Stmt, StructDeclStmt, UnaryOp,
     VarDeclStmt, WhileStmt,
 };
+use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::{NonBooleanCondition, NotCallable, TypeMismatch, UnknownMethod, WrongArgumentCount};
-use crate::error::{ResolverError, TypeInferrerError};
 use crate::type_inferrer::Type::TypeVar;
 use miette::{Report, SourceOffset, SourceSpan};
 use std::collections::{HashMap, HashSet};
@@ -322,15 +322,15 @@ impl<'a> TypeInferrer<'a> {
     }
 
     fn infer_fun_decl(&mut self, fun_decl: &AstNode<FunDeclStmt>) -> Result<(), TypeInferrerError> {
-        let name = &fun_decl.node.name.node;
+        let name = &fun_decl.node.ident.node;
 
         let fn_type = Type::Function {
             params: fun_decl.node.params.iter().map(|p| p.type_annotation.node.clone()).collect(),
             return_ty: Box::new(fun_decl.node.return_type.node.clone()),
         };
 
-        self.type_env.insert(fun_decl.node.name.node_id, fn_type);
-        self.var_env.insert(name.clone(), fun_decl.node.name.node_id);
+        self.type_env.insert(fun_decl.node.ident.node_id, fn_type);
+        self.var_env.insert(name.clone(), fun_decl.node.ident.node_id);
 
         if fun_decl.node.generics.is_empty() {
             self.var_env.enter_scope();
@@ -348,7 +348,7 @@ impl<'a> TypeInferrer<'a> {
 
             if let Some(expr) = &fun_decl.node.body.node.expr {
                 let body_ty = self.infer_expr(expr)?;
-                self.unify(fun_decl.node.return_type.node.clone(), body_ty, fun_decl.node.name.span)?;
+                self.unify(fun_decl.node.return_type.node.clone(), body_ty, fun_decl.node.ident.span)?;
             } else if !fun_decl
                 .node
                 .body

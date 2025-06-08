@@ -274,9 +274,9 @@ impl<'a> Interpreter<'a> {
 
     fn fun_decl(&mut self, fun_decl: &AstNode<FunDeclStmt>) -> Result<(), InterpreterError> {
         self.define_var(
-            fun_decl.node.name.node.clone(),
+            fun_decl.node.ident.node.clone(),
             Value::Function(Rc::new(UserFunction {
-                name: Some(fun_decl.node.name.node.clone()),
+                name: Some(fun_decl.node.ident.node.clone()),
                 params: Rc::new(fun_decl.node.params.clone()),
                 body: Rc::new(fun_decl.node.body.clone()),
                 env: self.var_env.clone(),

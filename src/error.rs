@@ -250,6 +250,18 @@ pub enum ResolverError {
 
         name: String,
     },
+
+    #[error("Undefined type '{name}'")]
+    #[diagnostic(help("Make sure the type is declared before using it"), code(resolver::undefined_type))]
+    UndefinedType {
+        #[source_code]
+        src: String,
+
+        #[label("undefined type used here")]
+        span: SourceSpan,
+
+        name: String,
+    },
     #[error("Call to undefined function '{name}'")]
     #[diagnostic(code(resolver::undefined_function))]
     UndefinedFunction {

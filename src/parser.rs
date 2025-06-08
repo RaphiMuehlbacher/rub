@@ -407,7 +407,7 @@ impl Parser {
         let body_right_span = self.previous().span;
 
         Ok(Stmt::FunDecl(FunDeclStmt {
-            name: function_name,
+            ident: function_name,
             params: parameters,
             generics,
             body: AstNode::new(body, self.create_span(body_left_span, body_right_span)),
@@ -528,9 +528,17 @@ impl Parser {
         let mut param_types = vec![];
 
         if !self.matches(&[TokenKind::Delim(Delimiter::RightParen)]) {
-            param_types.push(self.parse_type()?);
+            let left_param_span = self.current().span;
+            param_types.push(AstNode::new(
+                self.parse_type()?,
+                self.create_span(left_param_span, self.previous().span),
+            ));
             while self.consume(&[TokenKind::Punct(Punctuation::Comma)]) {
-                param_types.push(self.parse_type()?);
+                let left_param_span = self.current().span;
+                param_types.push(AstNode::new(
+                    self.parse_type()?,
+                    self.create_span(left_param_span, self.previous().span),
+                ));
             }
         }
 

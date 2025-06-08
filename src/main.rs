@@ -37,11 +37,11 @@ fn interpret(code: &str) {
     }
 
     let mut resolver = Resolver::new(&parse_result.ast, code.to_string());
-    let resolving_errors = resolver.resolve();
+    let resolve_result = resolver.resolve();
     time_log!(start, "Resolving");
 
-    if !resolving_errors.is_empty() {
-        for error in resolving_errors {
+    if !resolve_result.errors.is_empty() {
+        for error in resolve_result.errors {
             println!("{:?}", error);
         }
         return;

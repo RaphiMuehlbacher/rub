@@ -29,14 +29,14 @@ pub enum UnresolvedType {
 
     /// (Int, Bool) -> Bool
     Function {
-        params: Vec<UnresolvedType>,
-        return_type: Box<UnresolvedType>,
+        params: Vec<AstNode<UnresolvedType>>,
+        return_type: Box<AstNode<UnresolvedType>>,
     },
 
     /// Option<T>, Vec<Int>, Result<A, B>
     Generic {
-        base: Box<UnresolvedType>,
-        args: Vec<UnresolvedType>,
+        base: Box<AstNode<UnresolvedType>>,
+        args: Vec<AstNode<UnresolvedType>>,
     },
 }
 
@@ -79,7 +79,7 @@ pub struct TypedIdent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDeclStmt {
-    pub name: Ident,
+    pub ident: Ident,
     pub params: Vec<TypedIdent>,
     pub body: AstNode<BlockExpr>,
     pub generics: Vec<Ident>,
