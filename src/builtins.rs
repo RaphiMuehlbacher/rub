@@ -1,6 +1,6 @@
 use crate::error::InterpreterError;
 use crate::error::RuntimeError::IndexOutOfBounds;
-use crate::interpreters::Value;
+use crate::interpreter::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn clock_native(_args: Vec<Value>) -> Result<Value, InterpreterError> {

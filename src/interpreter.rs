@@ -1,13 +1,14 @@
 use crate::MethodRegistry;
 use crate::ast::{
-    AstNode, BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, StructDeclStmt,
-    TypedIdent, UnaryOp, VarDeclStmt, WhileStmt,
+    AstNode, BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, TypedIdent, UnaryOp,
+    VarDeclStmt, WhileStmt,
 };
+
 use crate::builtins::{clock_native, print_native};
 use crate::error::InterpreterError;
 use crate::error::RuntimeError::DivisionByZero;
-use crate::interpreters::Function::{NativeFunction, UserFunction};
-use crate::type_inferrer::{Type, TypeVarId};
+use crate::interpreter::Function::{NativeFunction, UserFunction};
+use crate::ir::{ResolvedType, TypeVarId};
 use miette::Report;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
@@ -166,13 +167,13 @@ impl Environment {
 pub struct Interpreter<'a> {
     source: String,
     program: &'a Program,
-    type_env: &'a HashMap<TypeVarId, Type>,
+    type_env: &'a HashMap<TypeVarId, ResolvedType>,
     var_env: Env,
     method_registry: MethodRegistry,
 }
 
 impl<'a> Interpreter<'a> {
-    pub fn new(program: &'a Program, type_env: &'a HashMap<TypeVarId, Type>, source: String) -> Self {
+    pub fn new(program: &'a Program, type_env: &'a HashMap<TypeVarId, ResolvedType>, source: String) -> Self {
         let mut var_env = Environment::new();
         var_env
             .borrow_mut()
@@ -409,8 +410,8 @@ impl<'a> Interpreter<'a> {
                 match unary.op.node {
                     UnaryOp::Bang => Ok(Value::Bool(!right.to_bool())),
                     UnaryOp::Minus => match expr_type {
-                        Type::Int => Ok(Value::Int(-right.to_int())),
-                        Type::Float => Ok(Value::Float(-right.to_float())),
+                        ResolvedType::Int => Ok(Value::Int(-right.to_int())),
+                        ResolvedType::Float => Ok(Value::Float(-right.to_float())),
                         _ => panic!(),
                     },
                 }
@@ -424,9 +425,9 @@ impl<'a> Interpreter<'a> {
 
                 match binary.op.node {
                     BinaryOp::Plus => match expr_type {
-                        Type::Int => Ok(Value::Int(left.to_int() + right.to_int())),
-                        Type::Float => Ok(Value::Float(left.to_float() + right.to_float())),
-                        Type::String => {
+                        ResolvedType::Int => Ok(Value::Int(left.to_int() + right.to_int())),
+                        ResolvedType::Float => Ok(Value::Float(left.to_float() + right.to_float())),
+                        ResolvedType::String => {
                             let left_string = left.to_string();
                             let right_string = right.to_string();
                             let mut buffer = String::with_capacity(left_string.len() + right_string.len());
@@ -438,18 +439,18 @@ impl<'a> Interpreter<'a> {
                         _ => panic!("{:?}", expr_type),
                     },
                     BinaryOp::Minus => match expr_type {
-                        Type::Int => Ok(Value::Int(left.to_int() - right.to_int())),
-                        Type::Float => Ok(Value::Float(left.to_float() - right.to_float())),
+                        ResolvedType::Int => Ok(Value::Int(left.to_int() - right.to_int())),
+                        ResolvedType::Float => Ok(Value::Float(left.to_float() - right.to_float())),
                         _ => panic!(),
                     },
                     BinaryOp::Star => match expr_type {
-                        Type::Int => Ok(Value::Int(left.to_int() * right.to_int())),
-                        Type::Float => Ok(Value::Float(left.to_float() * right.to_float())),
+                        ResolvedType::Int => Ok(Value::Int(left.to_int() * right.to_int())),
+                        ResolvedType::Float => Ok(Value::Float(left.to_float() * right.to_float())),
                         _ => panic!(),
                     },
                     BinaryOp::Slash => match expr_type {
-                        Type::Int => Ok(Value::Int(left.to_int() / right.to_int())),
-                        Type::Float => {
+                        ResolvedType::Int => Ok(Value::Int(left.to_int() / right.to_int())),
+                        ResolvedType::Float => {
                             if right.to_float() == 0.0 {
                                 return Err(InterpreterError::RuntimeError(DivisionByZero {
                                     src: self.source.to_string(),
@@ -463,14 +464,14 @@ impl<'a> Interpreter<'a> {
                     BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => {
                         let operand_type = self.type_env.get(&binary.left.node_id).unwrap();
                         match operand_type {
-                            Type::Int => match binary.op.node {
+                            ResolvedType::Int => match binary.op.node {
                                 BinaryOp::Greater => Ok(Value::Bool(left.to_int() > right.to_int())),
                                 BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_int() >= right.to_int())),
                                 BinaryOp::Less => Ok(Value::Bool(left.to_int() < right.to_int())),
                                 BinaryOp::LessEqual => Ok(Value::Bool(left.to_int() <= right.to_int())),
                                 _ => unreachable!(),
                             },
-                            Type::Float => match binary.op.node {
+                            ResolvedType::Float => match binary.op.node {
                                 BinaryOp::Greater => Ok(Value::Bool(left.to_float() > right.to_float())),
                                 BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_float() >= right.to_float())),
                                 BinaryOp::Less => Ok(Value::Bool(left.to_float() < right.to_float())),

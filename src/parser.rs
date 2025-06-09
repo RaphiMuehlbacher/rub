@@ -420,7 +420,7 @@ impl Parser {
         self.advance_position();
 
         let struct_name = self.parse_identifier()?;
-        self.open_delimiter(TokenKind::Delim(Delimiter::LeftParen))?;
+        self.open_delimiter(TokenKind::Delim(Delimiter::LeftBrace))?;
         let parameters = self.parse_typed_idents(TokenKind::Delim(Delimiter::RightBrace))?;
 
         Ok(Stmt::StructDecl(StructDeclStmt {
@@ -554,7 +554,11 @@ impl Parser {
             .into());
         }
 
-        let return_type = Box::new(self.parse_type()?);
+        let left_return_span = self.current().span;
+        let return_type = Box::new(AstNode::new(
+            self.parse_type()?,
+            self.create_span(left_return_span, self.previous().span),
+        ));
         Ok(UnresolvedType::Function {
             params: param_types,
             return_type,
@@ -562,15 +566,26 @@ impl Parser {
     }
 
     fn parse_named_or_generic(&mut self) -> ParseResult<UnresolvedType> {
+        let left_base_span = self.current().span;
         let base = self.parse_identifier()?;
+        let right_base_span = self.previous().span;
+
         let base = UnresolvedType::Named(base);
 
         if self.consume(&[TokenKind::Operator(Operator::Less)]) {
             let mut args = vec![];
 
-            args.push(self.parse_type()?);
+            let left_arg_span = self.current().span;
+            args.push(AstNode::new(
+                self.parse_type()?,
+                self.create_span(left_arg_span, self.previous().span),
+            ));
             while self.consume(&[TokenKind::Punct(Punctuation::Comma)]) {
-                args.push(self.parse_type()?);
+                let left_arg_span = self.current().span;
+                args.push(AstNode::new(
+                    self.parse_type()?,
+                    self.create_span(left_arg_span, self.previous().span),
+                ));
             }
             if !self.consume(&[TokenKind::Operator(Operator::Greater)]) {
                 return Err(UnexpectedToken {
@@ -582,7 +597,7 @@ impl Parser {
                 .into());
             }
             Ok(UnresolvedType::Generic {
-                base: Box::new(base),
+                base: Box::new(AstNode::new(base, self.create_span(left_base_span, right_base_span))),
                 args,
             })
         } else {
@@ -974,7 +989,7 @@ impl Parser {
         let left_assignment_span = self.current().span;
         let expr = self.logic_or()?;
 
-        if self.consume(&[TokenKind::Operator(Operator::EqualEqual)]) {
+        if self.consume(&[TokenKind::Operator(Operator::Equal)]) {
             let equal_span = self.previous().span;
 
             let left_result_span = self.current().span;

@@ -2,5 +2,6 @@ struct Person {
     age: Int,
 }
 
-let p = Person {age: 3};
-print(p.age);
+let b: (Vec<Person>, Float) -> Bool = [1, 2];
+
+fn a<T>(a: Person) -> T {}

@@ -1,14 +1,14 @@
 use crate::TokenKind;
-use crate::interpreters::ControlFlow;
-use crate::type_inferrer::Type;
+// use crate::interpreter::ControlFlow;
+use crate::ir::ResolvedType;
 use miette::{Diagnostic, SourceSpan, diagnostic};
 use thiserror::Error;
 
-#[derive(Debug)]
-pub enum InterpreterError {
-    RuntimeError(RuntimeError),
-    ControlFlowError(ControlFlow),
-}
+// #[derive(Debug)]
+// pub enum InterpreterError {
+//     RuntimeError(RuntimeError),
+//     ControlFlowError(ControlFlow),
+// }
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum RuntimeError {
@@ -117,8 +117,8 @@ pub enum TypeInferrerError {
         #[label("mismatched type here")]
         span: SourceSpan,
 
-        expected: Type,
-        found: Type,
+        expected: ResolvedType,
+        found: ResolvedType,
     },
 
     #[error("Type annotations needed for '{name}'")]
@@ -156,7 +156,7 @@ pub enum TypeInferrerError {
         #[label("attempted to call non-function here")]
         span: SourceSpan,
 
-        found: Type,
+        found: ResolvedType,
     },
 
     #[error("Condition must be boolean")]
@@ -171,7 +171,7 @@ pub enum TypeInferrerError {
         #[label("non-boolean condition here")]
         span: SourceSpan,
 
-        found: Type,
+        found: ResolvedType,
     },
 
     #[error("Method '{method}' does not exist on type {base_type:?}")]
@@ -184,7 +184,7 @@ pub enum TypeInferrerError {
         span: SourceSpan,
 
         method: String,
-        base_type: Type,
+        base_type: ResolvedType,
     },
 }
 

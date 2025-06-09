@@ -1,5 +1,5 @@
-use rub::interpreters::Interpreter;
-use rub::{Lexer, Parser, Resolver, TypeInferrer};
+// use rub::interpreter::Interpreter;
+use rub::{Lexer, Parser, Resolver};
 use std::fs;
 use std::time::Instant;
 
@@ -46,25 +46,27 @@ fn interpret(code: &str) {
         }
         return;
     }
+    println!("{:?}", parse_result.ast);
+    println!("{:?}", resolve_result.resolution_map);
 
-    let mut type_inferrer = TypeInferrer::new(&parse_result.ast, code.to_string());
-    let type_inference_result = type_inferrer.infer();
-    time_log!(start, "Type Inference");
-
-    if !type_inference_result.errors.is_empty() {
-        for error in type_inference_result.errors {
-            println!("{:?}", error);
-        }
-        return;
-    }
-
-    // println!("{:?}", parse_result.ast);
-    let mut interpreter = Interpreter::new(&parse_result.ast, type_inference_result.type_env, code.to_string());
-    let error = interpreter.interpret().error;
-    if let Some(err) = error {
-        println!("{:?}", err);
-    }
-    time_log!(start, "Interpreting");
+    // let mut type_inferrer = TypeInferrer::new(&parse_result.ast, code.to_string());
+    // let type_inference_result = type_inferrer.infer();
+    // time_log!(start, "Type Inference");
+    //
+    // if !type_inference_result.errors.is_empty() {
+    //     for error in type_inference_result.errors {
+    //         println!("{:?}", error);
+    //     }
+    //     return;
+    // }
+    //
+    // // println!("{:?}", parse_result.ast);
+    // let mut interpreter = Interpreter::new(&parse_result.ast, type_inference_result.type_env, code.to_string());
+    // let error = interpreter.interpret().error;
+    // if let Some(err) = error {
+    //     println!("{:?}", err);
+    // }
+    // time_log!(start, "Interpreting");
 }
 
 fn main() {

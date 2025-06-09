@@ -5,7 +5,7 @@ use crate::error::ResolverError::{
     UninitializedVariable,
 };
 
-use crate::type_inferrer::Type;
+use crate::ir::ResolvedType;
 use miette::Report;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
@@ -19,14 +19,14 @@ pub enum Symbol {
 
 pub struct ResolverResult<'a> {
     pub errors: &'a Vec<Report>,
-    pub resolution_map: &'a HashMap<usize, Type>,
+    pub resolution_map: &'a HashMap<usize, ResolvedType>,
 }
 pub struct Resolver<'a> {
     source: String,
     program: &'a Program,
     errors: Vec<Report>,
     scopes: Vec<HashMap<String, Symbol>>,
-    resolution_map: HashMap<usize, Type>,
+    resolution_map: HashMap<usize, ResolvedType>,
     inside_fn: bool,
 }
 
@@ -134,16 +134,16 @@ impl<'a> Resolver<'a> {
         &mut self,
         unresolved_type: &AstNode<UnresolvedType>,
         generic_params: &HashSet<String>,
-    ) -> Result<Type, ResolverError> {
+    ) -> Result<ResolvedType, ResolverError> {
         let ty = match &unresolved_type.node {
             UnresolvedType::Named(ident) => match ident.node.as_str() {
-                "Int" => Type::Int,
-                "Float" => Type::Float,
-                "String" => Type::String,
-                "Bool" => Type::Bool,
-                name if generic_params.contains(name) => Type::Generic(name.to_string()),
+                "Int" => ResolvedType::Int,
+                "Float" => ResolvedType::Float,
+                "String" => ResolvedType::String,
+                "Bool" => ResolvedType::Bool,
+                name if generic_params.contains(name) => ResolvedType::Generic(name.to_string()),
                 name => match self.lookup_symbol(name) {
-                    Some(Symbol::Struct { fields }) => Type::Struct {
+                    Some(Symbol::Struct { fields }) => ResolvedType::Struct {
                         name: name.to_string(),
                         fields: fields
                             .clone()
@@ -169,7 +169,7 @@ impl<'a> Resolver<'a> {
                     .map(|p| self.resolve_unresolved_type(p, generic_params))
                     .collect::<Result<Vec<_>, ResolverError>>()?;
                 let resolved_return = Box::new(self.resolve_unresolved_type(return_type, generic_params)?);
-                Type::Function {
+                ResolvedType::Function {
                     params: resolved_params,
                     return_ty: resolved_return,
                 }
@@ -178,7 +178,7 @@ impl<'a> Resolver<'a> {
                 UnresolvedType::Named(ident) if ident.node == "Vec" => {
                     if let Some(first_arg) = args.first() {
                         let element_type = self.resolve_unresolved_type(first_arg, generic_params)?;
-                        Type::Vec(Box::new(element_type))
+                        ResolvedType::Vec(Box::new(element_type))
                     } else {
                         return Err(UndefinedType {
                             src: self.source.clone(),

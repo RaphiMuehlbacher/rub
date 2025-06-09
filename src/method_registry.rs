@@ -1,11 +1,11 @@
 use crate::builtins::{float_vec_sum_method, int_vec_sum_method, vec_first_method, vec_get_method, vec_len_method, vec_push_method};
 use crate::error::InterpreterError;
-use crate::interpreters::{Function, Value};
-use crate::type_inferrer::Type;
+use crate::interpreter::{Function, Value};
+use crate::ir::ResolvedType;
 use std::collections::HashMap;
 
 pub struct MethodRegistry {
-    methods: HashMap<Type, HashMap<String, (Type, Function)>>,
+    methods: HashMap<ResolvedType, HashMap<String, (ResolvedType, Function)>>,
 }
 
 impl MethodRegistry {
@@ -15,7 +15,7 @@ impl MethodRegistry {
         registry
     }
 
-    pub fn lookup_method(&self, base_type: &Type, method_name: &str) -> Option<&(Type, Function)> {
+    pub fn lookup_method(&self, base_type: &ResolvedType, method_name: &str) -> Option<&(ResolvedType, Function)> {
         if let Some(methods) = self.methods.get(base_type) {
             if let Some(method) = methods.get(method_name) {
                 return Some(method);
@@ -33,10 +33,10 @@ impl MethodRegistry {
         None
     }
 
-    fn can_monomorphize(&self, generic_type: &Type, concrete_type: &Type) -> bool {
+    fn can_monomorphize(&self, generic_type: &ResolvedType, concrete_type: &ResolvedType) -> bool {
         match (generic_type, concrete_type) {
-            (Type::Vec(gen_inner), Type::Vec(_)) => {
-                matches!(gen_inner.as_ref(), Type::Generic(_))
+            (ResolvedType::Vec(gen_inner), ResolvedType::Vec(_)) => {
+                matches!(gen_inner.as_ref(), ResolvedType::Generic(_))
             }
             _ => false,
         }
@@ -44,13 +44,13 @@ impl MethodRegistry {
 
     fn create_method(
         &mut self,
-        base_type: &Type,
+        base_type: &ResolvedType,
         method_name: &str,
-        params: Vec<Type>,
-        return_ty: Type,
+        params: Vec<ResolvedType>,
+        return_ty: ResolvedType,
         method: fn(Vec<Value>) -> Result<Value, InterpreterError>,
     ) {
-        let method_type = Type::Function {
+        let method_type = ResolvedType::Function {
             params,
             return_ty: Box::new(return_ty),
         };
@@ -62,27 +62,33 @@ impl MethodRegistry {
     }
 
     fn register_vec_methods(&mut self) {
-        let vec_float_ty = Type::Vec(Box::new(Type::Float));
-        let vec_int_ty = Type::Vec(Box::new(Type::Int));
-        let vec_generic_ty = Type::Vec(Box::new(Type::Generic("T".to_string())));
+        let vec_float_ty = ResolvedType::Vec(Box::new(ResolvedType::Float));
+        let vec_int_ty = ResolvedType::Vec(Box::new(ResolvedType::Int));
+        let vec_generic_ty = ResolvedType::Vec(Box::new(ResolvedType::Generic("T".to_string())));
 
-        self.create_method(&vec_generic_ty, "len", vec![], Type::Int, vec_len_method);
-        self.create_method(&vec_generic_ty, "first", vec![], Type::Generic("T".to_string()), vec_first_method);
-        self.create_method(&vec_float_ty, "sum", vec![], Type::Float, float_vec_sum_method);
-        self.create_method(&vec_int_ty, "sum", vec![], Type::Int, int_vec_sum_method);
+        self.create_method(&vec_generic_ty, "len", vec![], ResolvedType::Int, vec_len_method);
+        self.create_method(
+            &vec_generic_ty,
+            "first",
+            vec![],
+            ResolvedType::Generic("T".to_string()),
+            vec_first_method,
+        );
+        self.create_method(&vec_float_ty, "sum", vec![], ResolvedType::Float, float_vec_sum_method);
+        self.create_method(&vec_int_ty, "sum", vec![], ResolvedType::Int, int_vec_sum_method);
         self.create_method(
             &vec_generic_ty,
             "push",
-            vec![Type::Generic("T".to_string())],
-            Type::Nil,
+            vec![ResolvedType::Generic("T".to_string())],
+            ResolvedType::Nil,
             vec_push_method,
         );
 
         self.create_method(
             &vec_generic_ty,
             "get",
-            vec![Type::Int],
-            Type::Generic("T".to_string()),
+            vec![ResolvedType::Int],
+            ResolvedType::Generic("T".to_string()),
             vec_get_method,
         );
     }
