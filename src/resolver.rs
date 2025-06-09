@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, Expr, Ident, Program, Stmt, TypedIdent, UnresolvedType};
+use crate::ast::{AstNode, AstProgram, Expr, Ident, Stmt, TypedIdent, UnresolvedType};
 use crate::error::ResolverError;
 use crate::error::ResolverError::{
     DuplicateLambdaParameter, DuplicateParameter, ReturnOutsideFunction, UndefinedFunction, UndefinedType, UndefinedVariable,
@@ -21,9 +21,10 @@ pub struct ResolverResult<'a> {
     pub errors: &'a Vec<Report>,
     pub resolution_map: &'a HashMap<usize, ResolvedType>,
 }
+
 pub struct Resolver<'a> {
     source: String,
-    program: &'a Program,
+    program: &'a AstProgram,
     errors: Vec<Report>,
     scopes: Vec<HashMap<String, Symbol>>,
     resolution_map: HashMap<usize, ResolvedType>,
@@ -31,7 +32,7 @@ pub struct Resolver<'a> {
 }
 
 impl<'a> Resolver<'a> {
-    pub fn new(ast: &'a Program, source: String) -> Self {
+    pub fn new(program: &'a AstProgram, source: String) -> Self {
         let mut var_env = HashMap::new();
         var_env.insert(
             "clock".to_string(),
@@ -50,7 +51,7 @@ impl<'a> Resolver<'a> {
 
         Self {
             source,
-            program: ast,
+            program,
             errors: vec![],
             scopes: vec![var_env],
             resolution_map: HashMap::new(),
@@ -94,7 +95,7 @@ impl<'a> Resolver<'a> {
         match stmt {
             Stmt::FunDecl(fun_decl) => {
                 let name = &fun_decl.ident.node;
-                if let Some(_) = self.curr_scope().get(name) {
+                if self.curr_scope().get(name).is_some() {
                     self.report(ResolverError::DuplicateFunction {
                         src: self.source.to_string(),
                         span: fun_decl.ident.span,
@@ -112,7 +113,7 @@ impl<'a> Resolver<'a> {
             }
             Stmt::StructDecl(struct_decl) => {
                 let name = &struct_decl.ident.node;
-                if let Some(_) = self.curr_scope().get(name) {
+                if self.curr_scope().get(name).is_some() {
                     self.report(ResolverError::DuplicateStruct {
                         src: self.source.clone(),
                         span: struct_decl.ident.span,
@@ -336,11 +337,10 @@ impl<'a> Resolver<'a> {
                         span: struct_init.name.span,
                         name: struct_init.name.node.clone(),
                     });
-                    return;
                 }
                 Some(Symbol::Struct { fields: _ }) => {
                     for (_, value) in &struct_init.fields {
-                        self.resolve_expr(&value);
+                        self.resolve_expr(value);
                     }
                 }
                 Some(_) => {
@@ -425,7 +425,7 @@ impl<'a> Resolver<'a> {
             }
             Expr::Call(call) => {
                 if let Expr::Variable(ident) = &call.callee.deref().node {
-                    if let None = self.lookup_symbol(&ident.node) {
+                    if self.lookup_symbol(&ident.node).is_none() {
                         self.report(UndefinedFunction {
                             src: self.source.clone(),
                             span: ident.span,

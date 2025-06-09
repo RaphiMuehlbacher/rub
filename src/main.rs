@@ -14,7 +14,7 @@ fn interpret(code: &str) {
     #[cfg(feature = "timing")]
     let start = Instant::now();
 
-    let mut lexer = Lexer::new(&code);
+    let mut lexer = Lexer::new(code);
     let lex_result = lexer.lex();
     time_log!(start, "Lexing");
 
@@ -71,7 +71,7 @@ fn interpret(code: &str) {
 
 fn main() {
     let mut path = "source.rub".to_string();
-    let source = fs::read_to_string(&mut path).expect(format!("Error reading file {}", path).as_str());
+    let source = fs::read_to_string(&mut path).unwrap_or_else(|_| panic!("Error reading file {}", path));
     let source = format!("{} ", source);
     interpret(&source);
 }

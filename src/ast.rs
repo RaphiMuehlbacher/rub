@@ -40,7 +40,7 @@ pub enum UnresolvedType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Program {
+pub struct AstProgram {
     pub statements: Vec<AstNode<Stmt>>,
     pub span: SourceSpan,
 }

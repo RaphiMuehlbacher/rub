@@ -48,7 +48,7 @@ impl<T> IrNode<T> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Program {
+pub struct IrProgram {
     pub statements: Vec<IrNode<Stmt>>,
     pub span: SourceSpan,
 }

@@ -1,7 +1,7 @@
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
-    AssignExpr, AstNode, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Expr, ExprStmt, FieldAccessExpr, FieldAssignExpr, ForStmt, FunDeclStmt,
-    Ident, IfExpr, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt,
+    AssignExpr, AstNode, AstProgram, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Expr, ExprStmt, FieldAccessExpr, FieldAssignExpr, ForStmt,
+    FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, MethodCallExpr, ReturnStmt, Stmt, StructDeclStmt,
     StructInitExpr, TypedIdent, UnaryExpr, UnaryOp, UnresolvedType, VarDeclStmt, WhileStmt,
 };
 use crate::error::ParseError;
@@ -17,7 +17,7 @@ type ParseResult<T> = Result<T, ParseError>;
 
 pub struct ParserResult<'a> {
     pub errors: &'a Vec<Report>,
-    pub ast: Program,
+    pub ast: AstProgram,
 }
 
 pub struct Parser {
@@ -124,19 +124,16 @@ impl Parser {
                 src: self.source.to_string(),
                 span: next_span,
             };
-            self.report(error.into());
+            self.report(error);
             self.skip_to_next_stmt();
         }
     }
 
     fn expect_expr(&self, result: ParseResult<Expr>, side: &str, span: SourceSpan) -> ParseResult<Expr> {
-        result.map_err(|_| {
-            MissingOperand {
-                src: self.source.to_string(),
-                span,
-                side: side.to_string(),
-            }
-            .into()
+        result.map_err(|_| MissingOperand {
+            src: self.source.to_string(),
+            span,
+            side: side.to_string(),
         })
     }
 }
@@ -191,8 +188,7 @@ impl Parser {
                     span: current_token.span,
                     found: current_token.token_kind,
                     expected: "an opening delimiter".to_string(),
-                }
-                .into())
+                })
             }
         }
     }
@@ -210,8 +206,7 @@ impl Parser {
                 src: self.source.to_string(),
                 span: self.previous().span,
                 delimiter: close_delim,
-            }
-            .into());
+            });
         }
 
         let last_delimiter = self.delimiter_stack.pop().unwrap();
@@ -253,7 +248,7 @@ impl Parser {
         let mut statements = vec![];
         if self.at_eof() {
             return ParserResult {
-                ast: Program {
+                ast: AstProgram {
                     statements,
                     span: self.create_span(left_program_span, self.current().span),
                 },
@@ -276,7 +271,7 @@ impl Parser {
         }
 
         ParserResult {
-            ast: Program {
+            ast: AstProgram {
                 statements,
                 span: self.create_span(left_program_span, self.current().span),
             },
@@ -331,11 +326,7 @@ impl Parser {
                         src: self.source.to_string(),
                         span: self.create_span(ident_token.span, self.current().span),
                         message: "identifiers cannot start with a number".to_string(),
-                        found: format!(
-                            "{}{}",
-                            self.previous().token_kind.to_string(),
-                            self.current().token_kind.to_string()
-                        ),
+                        found: format!("{}{}", self.previous().token_kind, self.current().token_kind),
                     })
                 } else {
                     self.report(ExpectedIdentifier {
