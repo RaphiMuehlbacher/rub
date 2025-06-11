@@ -1,7 +1,6 @@
 struct Person {
-    age: Int,
+    friend: Vec<Person>,
 }
 
-let b: (Vec<Person>, Float) -> Bool = [1, 2];
 
-fn a<T>(a: Person) -> T {}
+

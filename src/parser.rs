@@ -9,6 +9,7 @@ use crate::error::ParseError::{
     ExpectedExpression, ExpectedIdentifier, InvalidIdentifier, MissingBlock, MissingOperand, MissingSemicolon, RedundantParenthesis,
     RedundantSemicolon, UnclosedDelimiter, UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken, UnmatchedDelimiter,
 };
+use crate::lexer::Delimiter::{LeftParen, RightParen};
 use crate::lexer::{Delimiter, Keyword, Literal, Operator, Punctuation};
 use crate::{Token, TokenKind};
 use miette::{Report, SourceOffset, SourceSpan};
@@ -843,6 +844,7 @@ impl Parser {
     /// current is for, end is after block
     fn for_stmt(&mut self) -> ParseResult<Stmt> {
         self.advance_position();
+        self.open_delimiter(TokenKind::Delim(LeftParen))?;
 
         let left_initializer_span = self.current().span;
         let initializer = if self.matches(&[TokenKind::Keyword(Keyword::Let)]) {
@@ -885,6 +887,7 @@ impl Parser {
             None
         };
 
+        self.close_delimiter(TokenKind::Delim(RightParen))?;
         let body_left_span = self.current().span;
         let body = match self.block()? {
             Expr::Block(block) => block,

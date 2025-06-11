@@ -9,16 +9,14 @@ pub struct AstLowererResult<'a> {
     pub ir_program: IrProgram,
 }
 pub struct AstLowerer<'a> {
-    source: String,
     ast_program: &'a AstProgram,
     errors: Vec<Report>,
-    resolution_map: HashMap<usize, ResolvedType>,
+    resolution_map: &'a HashMap<usize, ResolvedType>,
 }
 
 impl<'a> AstLowerer<'a> {
-    pub fn new(ast_program: &'a AstProgram, source: String, resolution_map: HashMap<usize, ResolvedType>) -> Self {
+    pub fn new(ast_program: &'a AstProgram, resolution_map: &'a HashMap<usize, ResolvedType>) -> Self {
         Self {
-            source,
             errors: vec![],
             ast_program,
             resolution_map,
@@ -162,21 +160,144 @@ impl<'a> AstLowerer<'a> {
 
     fn lower_expr(&mut self, expr: &AstNode<ast::Expr>) -> IrNode<ir::Expr> {
         match &expr.node {
-            ast::Expr::Literal(literal_expr) => {}
-            ast::Expr::Unary(unary_expr) => {}
-            ast::Expr::Binary(binary_expr) => {}
-            ast::Expr::Grouping(grouping) => {}
-            ast::Expr::Variable(variable) => {}
-            ast::Expr::Assign(assign_expr) => {}
-            ast::Expr::Logical(logical_expr) => {}
-            ast::Expr::Call(call_expr) => {}
-            ast::Expr::Lambda(lambda_expr) => {}
-            ast::Expr::Block(block) => {}
-            ast::Expr::If(if_expr) => {}
-            ast::Expr::MethodCall(method_call) => {}
-            ast::Expr::StructInit(struct_init) => {}
-            ast::Expr::FieldAccess(field_access) => {}
-            ast::Expr::FieldAssign(field_assign) => {}
+            ast::Expr::Literal(literal_expr) => {
+                let lit = match literal_expr {
+                    ast::LiteralExpr::Nil => ir::LiteralExpr::Nil,
+                    ast::LiteralExpr::Float(f) => ir::LiteralExpr::Float(*f),
+                    ast::LiteralExpr::Int(i) => ir::LiteralExpr::Int(*i),
+                    ast::LiteralExpr::String(s) => ir::LiteralExpr::String(s.clone()),
+                    ast::LiteralExpr::Bool(b) => ir::LiteralExpr::Bool(*b),
+                    ast::LiteralExpr::VecLiteral(v) => ir::LiteralExpr::VecLiteral(v.iter().map(|e| self.lower_expr(e)).collect()),
+                };
+                IrNode::new(ir::Expr::Literal(lit), expr.span)
+            }
+            ast::Expr::Unary(unary_expr) => {
+                let op = match unary_expr.op.node {
+                    ast::UnaryOp::Minus => ir::UnaryOp::Minus,
+                    ast::UnaryOp::Bang => ir::UnaryOp::Bang,
+                };
+                IrNode::new(
+                    ir::Expr::Unary(ir::UnaryExpr {
+                        op: IrNode::new(op, unary_expr.op.span),
+                        expr: Box::from(self.lower_expr(&unary_expr.expr)),
+                    }),
+                    expr.span,
+                )
+            }
+            ast::Expr::Binary(binary_expr) => {
+                let op = match binary_expr.op.node {
+                    ast::BinaryOp::Minus => ir::BinaryOp::Minus,
+                    ast::BinaryOp::Plus => ir::BinaryOp::Plus,
+                    ast::BinaryOp::Star => ir::BinaryOp::Star,
+                    ast::BinaryOp::Slash => ir::BinaryOp::Slash,
+                    ast::BinaryOp::Greater => ir::BinaryOp::Greater,
+                    ast::BinaryOp::GreaterEqual => ir::BinaryOp::GreaterEqual,
+                    ast::BinaryOp::Less => ir::BinaryOp::Less,
+                    ast::BinaryOp::LessEqual => ir::BinaryOp::LessEqual,
+                    ast::BinaryOp::EqualEqual => ir::BinaryOp::EqualEqual,
+                    ast::BinaryOp::BangEqual => ir::BinaryOp::BangEqual,
+                };
+
+                IrNode::new(
+                    ir::Expr::Binary(ir::BinaryExpr {
+                        op: IrNode::new(op, binary_expr.op.span),
+                        left: Box::new(self.lower_expr(&binary_expr.left)),
+                        right: Box::new(self.lower_expr(&binary_expr.right)),
+                    }),
+                    expr.span,
+                )
+            }
+            ast::Expr::Grouping(grouping) => IrNode::new(ir::Expr::Grouping(Box::new(self.lower_expr(grouping))), expr.span),
+            ast::Expr::Variable(variable) => IrNode::new(ir::Expr::Variable(IrNode::new(variable.node.clone(), variable.span)), expr.span),
+            ast::Expr::Assign(assign_expr) => IrNode::new(
+                ir::Expr::Assign(ir::AssignExpr {
+                    target: IrNode::new(assign_expr.target.node.clone(), assign_expr.target.span),
+                    value: Box::new(self.lower_expr(&assign_expr.value)),
+                }),
+                expr.span,
+            ),
+            ast::Expr::Logical(logical_expr) => {
+                let op = match logical_expr.op.node {
+                    ast::LogicalOp::And => ir::LogicalOp::And,
+                    ast::LogicalOp::Or => ir::LogicalOp::Or,
+                };
+                IrNode::new(
+                    ir::Expr::Logical(ir::LogicalExpr {
+                        op: IrNode::new(op, logical_expr.op.span),
+                        left: Box::new(self.lower_expr(&logical_expr.left)),
+                        right: Box::new(self.lower_expr(&logical_expr.right)),
+                    }),
+                    expr.span,
+                )
+            }
+            ast::Expr::Call(call_expr) => IrNode::new(
+                ir::Expr::Call(ir::CallExpr {
+                    callee: Box::new(self.lower_expr(&call_expr.callee)),
+                    arguments: call_expr.arguments.iter().map(|arg| self.lower_expr(arg)).collect(),
+                }),
+                expr.span,
+            ),
+            ast::Expr::Lambda(lambda_expr) => IrNode::new(
+                ir::Expr::Lambda(ir::LambdaExpr {
+                    parameters: lambda_expr
+                        .parameters
+                        .iter()
+                        .map(|p| ir::TypedIdent {
+                            name: IrNode::new(p.name.node.clone(), p.name.span),
+                            type_annotation: self.lower_type(&p.type_annotation),
+                        })
+                        .collect(),
+                    body: Box::new(self.lower_block_expr(&lambda_expr.body)),
+                    return_type: self.lower_type(&lambda_expr.return_type),
+                }),
+                expr.span,
+            ),
+            ast::Expr::Block(block) => IrNode::new(
+                ir::Expr::Block(self.lower_block_expr(&AstNode::new(block.clone(), expr.span)).node),
+                expr.span,
+            ),
+            ast::Expr::If(if_expr) => IrNode::new(
+                ir::Expr::If(ir::IfExpr {
+                    condition: Box::new(self.lower_expr(&if_expr.condition)),
+                    then_branch: self.lower_block_expr(&if_expr.then_branch),
+                    else_branch: if_expr.else_branch.as_ref().map(|else_branch| self.lower_block_expr(else_branch)),
+                }),
+                expr.span,
+            ),
+            ast::Expr::MethodCall(method_call) => IrNode::new(
+                ir::Expr::MethodCall(ir::MethodCallExpr {
+                    receiver: Box::new(self.lower_expr(&method_call.receiver)),
+                    method: IrNode::new(method_call.method.node.clone(), method_call.method.span),
+                    arguments: method_call.arguments.iter().map(|arg| self.lower_expr(arg)).collect(),
+                }),
+                expr.span,
+            ),
+            ast::Expr::StructInit(struct_init) => IrNode::new(
+                ir::Expr::StructInit(ir::StructInitExpr {
+                    name: IrNode::new(struct_init.name.node.clone(), struct_init.name.span),
+                    fields: struct_init
+                        .fields
+                        .iter()
+                        .map(|(name, value)| (IrNode::new(name.node.clone(), name.span), self.lower_expr(value)))
+                        .collect(),
+                }),
+                expr.span,
+            ),
+            ast::Expr::FieldAccess(field_access) => IrNode::new(
+                ir::Expr::FieldAccess(ir::FieldAccessExpr {
+                    receiver: Box::new(self.lower_expr(&field_access.receiver)),
+                    field: IrNode::new(field_access.field.node.clone(), field_access.field.span),
+                }),
+                expr.span,
+            ),
+            ast::Expr::FieldAssign(field_assign) => IrNode::new(
+                ir::Expr::FieldAssign(ir::FieldAssignExpr {
+                    receiver: Box::new(self.lower_expr(&field_assign.receiver)),
+                    field: IrNode::new(field_assign.field.node.clone(), field_assign.field.span),
+                    value: Box::new(self.lower_expr(&field_assign.value)),
+                }),
+                expr.span,
+            ),
         }
     }
 

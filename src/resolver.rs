@@ -142,6 +142,7 @@ impl<'a> Resolver<'a> {
                 "Float" => ResolvedType::Float,
                 "String" => ResolvedType::String,
                 "Bool" => ResolvedType::Bool,
+                "Nil" => ResolvedType::Nil,
                 name if generic_params.contains(name) => ResolvedType::Generic(name.to_string()),
                 name => match self.lookup_symbol(name) {
                     Some(Symbol::Struct { fields }) => ResolvedType::Struct {
@@ -284,6 +285,15 @@ impl<'a> Resolver<'a> {
                         fields: struct_decl.fields.clone(),
                     },
                 );
+
+                for field in &struct_decl.fields {
+                    match self.resolve_unresolved_type(&field.type_annotation, &HashSet::new()) {
+                        Ok(resolved_type) => {
+                            self.resolution_map.insert(field.type_annotation.node_id, resolved_type);
+                        }
+                        Err(err) => self.report(err),
+                    }
+                }
             }
             Stmt::While(while_stmt) => {
                 self.resolve_expr(&while_stmt.condition);

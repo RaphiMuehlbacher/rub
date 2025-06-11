@@ -1,4 +1,5 @@
 // use rub::interpreter::Interpreter;
+use rub::ast_lowerer::AstLowerer;
 use rub::{Lexer, Parser, Resolver};
 use std::fs;
 use std::time::Instant;
@@ -46,8 +47,13 @@ fn interpret(code: &str) {
         }
         return;
     }
+    let mut ast_lowerer = AstLowerer::new(&parse_result.ast, resolve_result.resolution_map);
+    let ast_lowerer_result = ast_lowerer.lower();
+    time_log!(start, "Lowering");
+
     println!("{:?}", parse_result.ast);
     println!("{:?}", resolve_result.resolution_map);
+    println!("{:?}", ast_lowerer_result.ir_program);
 
     // let mut type_inferrer = TypeInferrer::new(&parse_result.ast, code.to_string());
     // let type_inference_result = type_inferrer.infer();
