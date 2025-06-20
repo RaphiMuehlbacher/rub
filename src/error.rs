@@ -1,14 +1,6 @@
 use crate::TokenKind;
-// use crate::interpreter::ControlFlow;
-use crate::ir::ResolvedType;
 use miette::{Diagnostic, SourceSpan, diagnostic};
 use thiserror::Error;
-
-// #[derive(Debug)]
-// pub enum InterpreterError {
-//     RuntimeError(RuntimeError),
-//     ControlFlowError(ControlFlow),
-// }
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum RuntimeError {
@@ -108,7 +100,7 @@ pub enum TypeInferrerError {
         field: String,
         struct_name: String,
     },
-    #[error("Type mismatch: expected {expected:?}, found {found:?}")]
+    #[error("Type mismatch: expected {expected}, found {found}")]
     #[diagnostic(help("The types don't match"), code(type_inferrer::type_mismatch))]
     TypeMismatch {
         #[source_code]
@@ -117,8 +109,8 @@ pub enum TypeInferrerError {
         #[label("mismatched type here")]
         span: SourceSpan,
 
-        expected: ResolvedType,
-        found: ResolvedType,
+        expected: String,
+        found: String,
     },
 
     #[error("Type annotations needed for '{name}'")]
@@ -144,7 +136,7 @@ pub enum TypeInferrerError {
         expected: usize,
         found: usize,
     },
-    #[error("Cannot call non-function type '{found:?}'")]
+    #[error("Cannot call non-function type '{found}'")]
     #[diagnostic(
         help("This value is not callable - only functions can be called"),
         code(type_inferrer::not_callable)
@@ -156,10 +148,10 @@ pub enum TypeInferrerError {
         #[label("attempted to call non-function here")]
         span: SourceSpan,
 
-        found: ResolvedType,
+        found: String,
     },
 
-    #[error("Condition must be boolean")]
+    #[error("Condition must be boolean, found {found}")]
     #[diagnostic(
         help("If conditions, while loops, and other conditionals require boolean expressions"),
         code(type_inferrer::non_boolean_condition)
@@ -171,10 +163,10 @@ pub enum TypeInferrerError {
         #[label("non-boolean condition here")]
         span: SourceSpan,
 
-        found: ResolvedType,
+        found: String,
     },
 
-    #[error("Method '{method}' does not exist on type {base_type:?}")]
+    #[error("Method '{method}' does not exist on type {base_type}")]
     #[diagnostic(help("This type doesn't have the requested method"), code(type_inferrer::unknown_method))]
     UnknownMethod {
         #[source_code]
@@ -184,7 +176,7 @@ pub enum TypeInferrerError {
         span: SourceSpan,
 
         method: String,
-        base_type: ResolvedType,
+        base_type: String,
     },
 }
 

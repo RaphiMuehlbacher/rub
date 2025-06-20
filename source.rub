@@ -1,6 +1,9 @@
 struct Person {
-    friend: Vec<Person>,
+    name: String,
 }
 
+let p = Person { name: "hi" };
 
-
+struct Other {
+    friend: Person,
+}

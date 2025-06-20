@@ -1,25 +1,27 @@
 use crate::ast::{AstNode, AstProgram, UnresolvedType};
-use crate::ir::{IrNode, IrProgram, ResolvedType};
+use crate::ir::{DefMap, IrNode, IrProgram, ResolutionMap};
 use crate::{ast, ir};
 use miette::Report;
-use std::collections::HashMap;
 
 pub struct AstLowererResult<'a> {
     pub errors: &'a Vec<Report>,
     pub ir_program: IrProgram,
 }
+
 pub struct AstLowerer<'a> {
     ast_program: &'a AstProgram,
     errors: Vec<Report>,
-    resolution_map: &'a HashMap<usize, ResolvedType>,
+    resolution_map: &'a ResolutionMap,
+    def_map: &'a DefMap,
 }
 
 impl<'a> AstLowerer<'a> {
-    pub fn new(ast_program: &'a AstProgram, resolution_map: &'a HashMap<usize, ResolvedType>) -> Self {
+    pub fn new(ast_program: &'a AstProgram, resolution_map: &'a ResolutionMap, def_map: &'a DefMap) -> Self {
         Self {
             errors: vec![],
             ast_program,
             resolution_map,
+            def_map,
         }
     }
 
@@ -49,7 +51,8 @@ impl<'a> AstLowerer<'a> {
             ast::Stmt::VarDecl(var_decl) => {
                 let name = IrNode::new(var_decl.ident.node.clone(), var_decl.ident.span);
                 let initializer = var_decl.initializer.as_ref().map(|init| self.lower_expr(init));
-                let type_annotation = var_decl.type_annotation.as_ref().map(|ty| self.lower_type(ty));
+                let type_annotation = var_decl.type_annotation.as_ref().map(|ty| self.resolution_map.get(ty.node_id));
+
                 IrNode::new(
                     ir::Stmt::VarDecl(ir::VarDeclStmt {
                         ident: name,
@@ -66,12 +69,12 @@ impl<'a> AstLowerer<'a> {
                     .iter()
                     .map(|p| ir::TypedIdent {
                         name: ir::Ident::new(p.name.node.clone(), p.name.span),
-                        type_annotation: self.lower_type(&p.type_annotation),
+                        type_annotation: self.resolution_map.get(p.type_annotation.node_id),
                     })
                     .collect();
                 let generics = fun_decl.generics.iter().map(|g| IrNode::new(g.node.clone(), g.span)).collect();
                 let body = self.lower_block_expr(&fun_decl.body);
-                let return_type = self.lower_type(&fun_decl.return_type);
+                let return_type = self.resolution_map.get(fun_decl.return_type.node_id);
 
                 IrNode::new(
                     ir::Stmt::FunDecl(ir::FunDeclStmt {
@@ -86,12 +89,17 @@ impl<'a> AstLowerer<'a> {
             }
             ast::Stmt::StructDecl(struct_decl) => {
                 let name = IrNode::new(struct_decl.ident.node.clone(), struct_decl.ident.span);
+
                 let fields = struct_decl
                     .fields
                     .iter()
-                    .map(|f| ir::TypedIdent {
-                        name: IrNode::new(f.name.node.clone(), f.name.span),
-                        type_annotation: self.lower_type(&f.type_annotation),
+                    .map(|f| {
+                        let annotation_def_id = self.resolution_map.get(f.type_annotation.node_id);
+
+                        ir::TypedIdent {
+                            name: IrNode::new(f.name.node.clone(), f.name.span),
+                            type_annotation: annotation_def_id,
+                        }
                     })
                     .collect();
 
@@ -244,11 +252,11 @@ impl<'a> AstLowerer<'a> {
                         .iter()
                         .map(|p| ir::TypedIdent {
                             name: IrNode::new(p.name.node.clone(), p.name.span),
-                            type_annotation: self.lower_type(&p.type_annotation),
+                            type_annotation: self.resolution_map.get(p.type_annotation.node_id),
                         })
                         .collect(),
                     body: Box::new(self.lower_block_expr(&lambda_expr.body)),
-                    return_type: self.lower_type(&lambda_expr.return_type),
+                    return_type: self.resolution_map.get(lambda_expr.return_type.node_id),
                 }),
                 expr.span,
             ),
@@ -309,9 +317,5 @@ impl<'a> AstLowerer<'a> {
             },
             block.span,
         )
-    }
-
-    fn lower_type(&mut self, ty: &AstNode<UnresolvedType>) -> IrNode<ResolvedType> {
-        IrNode::new(self.resolution_map.get(&ty.node_id).unwrap().clone(), ty.span)
     }
 }

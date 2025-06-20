@@ -5,7 +5,7 @@ use crate::error::ResolverError::{
     UninitializedVariable,
 };
 
-use crate::ir::ResolvedType;
+use crate::ir::{DefId, DefKind, DefMap, Definition, ResolutionMap, ScopeId, ScopeTree};
 use miette::Report;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
@@ -19,16 +19,21 @@ pub enum Symbol {
 
 pub struct ResolverResult<'a> {
     pub errors: &'a Vec<Report>,
-    pub resolution_map: &'a HashMap<usize, ResolvedType>,
+    pub resolution_map: &'a ResolutionMap,
+    pub def_map: &'a DefMap,
 }
 
 pub struct Resolver<'a> {
     source: String,
     program: &'a AstProgram,
     errors: Vec<Report>,
-    scopes: Vec<HashMap<String, Symbol>>,
-    resolution_map: HashMap<usize, ResolvedType>,
+    var_env: Vec<HashMap<String, Symbol>>,
     inside_fn: bool,
+
+    def_map: DefMap,
+    resolution_map: ResolutionMap,
+    scope_tree: ScopeTree,
+    current_scope: ScopeId,
 }
 
 impl<'a> Resolver<'a> {
@@ -53,9 +58,12 @@ impl<'a> Resolver<'a> {
             source,
             program,
             errors: vec![],
-            scopes: vec![var_env],
-            resolution_map: HashMap::new(),
+            var_env: vec![var_env],
             inside_fn: false,
+            resolution_map: ResolutionMap::new(),
+            def_map: DefMap::with_builtins(),
+            scope_tree: ScopeTree::with_builtins(),
+            current_scope: 0,
         }
     }
 
@@ -71,6 +79,29 @@ impl<'a> Resolver<'a> {
         ResolverResult {
             errors: &self.errors,
             resolution_map: &self.resolution_map,
+            def_map: &self.def_map,
+        }
+    }
+
+    fn resolve_unresolved_type(&mut self, ty: &AstNode<UnresolvedType>) {
+        match &ty.node {
+            UnresolvedType::Named(ident) => {
+                let def_id = self.scope_tree.resolve_name(self.current_scope, &ident.node).unwrap();
+                self.resolution_map.insert(ty.node_id, def_id);
+            }
+
+            UnresolvedType::Function { params, return_type } => {
+                for param in params {
+                    self.resolve_unresolved_type(param);
+                }
+                self.resolve_unresolved_type(return_type);
+            }
+            UnresolvedType::Generic { base, args } => {
+                self.resolve_unresolved_type(base);
+                for arg in args {
+                    self.resolve_unresolved_type(arg);
+                }
+            }
         }
     }
 
@@ -79,7 +110,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn lookup_symbol(&self, key: &str) -> Option<&Symbol> {
-        for scope in self.scopes.iter().rev() {
+        for scope in self.var_env.iter().rev() {
             if let Some(symbol) = scope.get(key) {
                 return Some(symbol);
             }
@@ -88,14 +119,54 @@ impl<'a> Resolver<'a> {
     }
 
     fn curr_scope(&mut self) -> &mut HashMap<String, Symbol> {
-        self.scopes.last_mut().unwrap()
+        self.var_env.last_mut().unwrap()
+    }
+
+    fn enter_scope(&mut self) {
+        let new_scope = self.scope_tree.new_scope(self.current_scope);
+        self.current_scope = new_scope;
+    }
+
+    fn exit_scope(&mut self) {
+        self.current_scope = self.scope_tree.scopes[&self.current_scope].parent.unwrap();
     }
 
     fn declare_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::FunDecl(fun_decl) => {
                 let name = &fun_decl.ident.node;
-                if self.curr_scope().get(name).is_some() {
+
+                let function_def_id = self
+                    .def_map
+                    .insert(name, DefKind::Function, self.current_scope, fun_decl.ident.span, None);
+                self.scope_tree.insert_symbol(self.current_scope, name, function_def_id);
+
+                self.enter_scope();
+
+                for param in &fun_decl.params {
+                    let param_def_id = self.def_map.insert(
+                        &param.name.node,
+                        DefKind::Parameter,
+                        self.current_scope,
+                        param.name.span,
+                        Some(function_def_id),
+                    );
+                    self.scope_tree.insert_symbol(self.current_scope, &param.name.node, param_def_id);
+                    self.resolve_unresolved_type(&param.type_annotation);
+                }
+                self.resolve_unresolved_type(&fun_decl.return_type);
+                self.exit_scope();
+                if self
+                    .curr_scope()
+                    .insert(
+                        name.clone(),
+                        Symbol::Function {
+                            params: fun_decl.params.clone(),
+                            generics: fun_decl.generics.clone(),
+                        },
+                    )
+                    .is_some()
+                {
                     self.report(ResolverError::DuplicateFunction {
                         src: self.source.to_string(),
                         span: fun_decl.ident.span,
@@ -103,120 +174,70 @@ impl<'a> Resolver<'a> {
                     });
                     return;
                 }
-                self.curr_scope().insert(
-                    name.clone(),
-                    Symbol::Function {
-                        params: fun_decl.params.clone(),
-                        generics: fun_decl.generics.clone(),
-                    },
-                );
             }
             Stmt::StructDecl(struct_decl) => {
                 let name = &struct_decl.ident.node;
-                if self.curr_scope().get(name).is_some() {
+
+                let struct_def_id = self
+                    .def_map
+                    .insert(name, DefKind::Struct, self.current_scope, struct_decl.ident.span, None);
+
+                self.scope_tree.insert_symbol(self.current_scope, name, struct_def_id);
+                self.enter_scope();
+
+                for field in &struct_decl.fields {
+                    let field_def_id = self.def_map.insert(
+                        &field.name.node,
+                        DefKind::Field,
+                        self.current_scope,
+                        field.name.span,
+                        Some(struct_def_id),
+                    );
+                    self.scope_tree.insert_symbol(self.current_scope, &field.name.node, field_def_id);
+                    self.resolve_unresolved_type(&field.type_annotation);
+                }
+
+                self.exit_scope();
+
+                if self
+                    .curr_scope()
+                    .insert(
+                        name.clone(),
+                        Symbol::Struct {
+                            fields: struct_decl.fields.clone(),
+                        },
+                    )
+                    .is_some()
+                {
                     self.report(ResolverError::DuplicateStruct {
                         src: self.source.clone(),
                         span: struct_decl.ident.span,
                         name: name.clone(),
                     })
                 }
-                self.curr_scope().insert(
-                    name.clone(),
-                    Symbol::Struct {
-                        fields: struct_decl.fields.clone(),
-                    },
-                );
             }
             _ => {}
         }
     }
-
-    fn resolve_unresolved_type(
-        &mut self,
-        unresolved_type: &AstNode<UnresolvedType>,
-        generic_params: &HashSet<String>,
-    ) -> Result<ResolvedType, ResolverError> {
-        let ty = match &unresolved_type.node {
-            UnresolvedType::Named(ident) => match ident.node.as_str() {
-                "Int" => ResolvedType::Int,
-                "Float" => ResolvedType::Float,
-                "String" => ResolvedType::String,
-                "Bool" => ResolvedType::Bool,
-                "Nil" => ResolvedType::Nil,
-                name if generic_params.contains(name) => ResolvedType::Generic(name.to_string()),
-                name => match self.lookup_symbol(name) {
-                    Some(Symbol::Struct { fields }) => ResolvedType::Struct {
-                        name: name.to_string(),
-                        fields: fields
-                            .clone()
-                            .iter()
-                            .map(|f| {
-                                let resolved = self.resolve_unresolved_type(&f.type_annotation, generic_params)?;
-                                Ok((f.name.node.clone(), resolved))
-                            })
-                            .collect::<Result<Vec<_>, ResolverError>>()?,
-                    },
-                    _ => {
-                        return Err(UndefinedType {
-                            src: self.source.to_string(),
-                            span: unresolved_type.span,
-                            name: name.to_string(),
-                        });
-                    }
-                },
-            },
-            UnresolvedType::Function { params, return_type } => {
-                let resolved_params = params
-                    .iter()
-                    .map(|p| self.resolve_unresolved_type(p, generic_params))
-                    .collect::<Result<Vec<_>, ResolverError>>()?;
-                let resolved_return = Box::new(self.resolve_unresolved_type(return_type, generic_params)?);
-                ResolvedType::Function {
-                    params: resolved_params,
-                    return_ty: resolved_return,
-                }
-            }
-            UnresolvedType::Generic { base, args } => match &base.node {
-                UnresolvedType::Named(ident) if ident.node == "Vec" => {
-                    if let Some(first_arg) = args.first() {
-                        let element_type = self.resolve_unresolved_type(first_arg, generic_params)?;
-                        ResolvedType::Vec(Box::new(element_type))
-                    } else {
-                        return Err(UndefinedType {
-                            src: self.source.clone(),
-                            span: base.span,
-                            name: "Vec".to_string(),
-                        });
-                    }
-                }
-                _ => {
-                    let base_type = self.resolve_unresolved_type(base, generic_params)?;
-                    return Err(UndefinedType {
-                        src: self.source.clone(),
-                        span: base.span,
-                        name: format!("{:?}", base_type),
-                    });
-                }
-            },
-        };
-        Ok(ty)
-    }
-
     fn resolve_stmt(&mut self, stmt: &AstNode<Stmt>) {
         match &stmt.node {
             Stmt::ExprStmtNode(expr_stmt) => self.resolve_expr(&expr_stmt.expr),
             Stmt::VarDecl(var_decl) => {
-                if let Some(init) = &var_decl.initializer {
-                    self.resolve_expr(init);
-                }
+                let var_def = self.def_map.insert(
+                    &var_decl.ident.node,
+                    DefKind::Variable,
+                    self.current_scope,
+                    var_decl.ident.span,
+                    None,
+                );
+                self.scope_tree.insert_symbol(self.current_scope, &var_decl.ident.node, var_def);
 
                 if let Some(annotation) = &var_decl.type_annotation {
-                    match self.resolve_unresolved_type(annotation, &HashSet::new()) {
-                        Ok(resolved_type) => {
-                            self.resolution_map.insert(var_decl.ident.node_id, resolved_type);
-                        }
-                        Err(err) => self.report(err),
-                    }
+                    self.resolve_unresolved_type(annotation);
+                }
+
+                if let Some(init) = &var_decl.initializer {
+                    self.resolve_expr(init);
                 }
 
                 self.curr_scope().insert(
@@ -227,6 +248,18 @@ impl<'a> Resolver<'a> {
                 );
             }
             Stmt::FunDecl(fun_decl) => {
+                let function_def_id = self.def_map.insert(
+                    &fun_decl.ident.node,
+                    DefKind::Function,
+                    self.current_scope,
+                    fun_decl.ident.span,
+                    None,
+                );
+                self.scope_tree
+                    .insert_symbol(self.current_scope, &fun_decl.ident.node, function_def_id);
+
+                self.enter_scope();
+
                 self.curr_scope().insert(
                     fun_decl.ident.node.clone(),
                     Symbol::Function {
@@ -235,7 +268,7 @@ impl<'a> Resolver<'a> {
                     },
                 );
 
-                self.scopes.push(HashMap::new());
+                self.var_env.push(HashMap::new());
 
                 let generic_params: HashSet<String> = fun_decl.generics.iter().map(|g| g.node.clone()).collect();
                 let mut seen_params = HashSet::new();
@@ -251,23 +284,21 @@ impl<'a> Resolver<'a> {
                         continue;
                     }
 
-                    match self.resolve_unresolved_type(&param.type_annotation, &generic_params) {
-                        Ok(resolved_type) => {
-                            self.resolution_map.insert(param.type_annotation.node_id, resolved_type);
-                        }
-                        Err(err) => self.report(err),
-                    }
+                    let param_def_id = self.def_map.insert(
+                        param_name,
+                        DefKind::Parameter,
+                        self.current_scope,
+                        param.name.span,
+                        Some(function_def_id),
+                    );
+                    self.scope_tree.insert_symbol(self.current_scope, &param.name.node, param_def_id);
 
+                    self.resolve_unresolved_type(&param.type_annotation);
                     self.curr_scope()
                         .insert(param.name.node.clone(), Symbol::Variable { initialized: true });
                 }
 
-                match self.resolve_unresolved_type(&fun_decl.return_type, &generic_params) {
-                    Ok(resolved_type) => {
-                        self.resolution_map.insert(fun_decl.return_type.node_id, resolved_type);
-                    }
-                    Err(err) => self.report(err),
-                }
+                self.resolve_unresolved_type(&fun_decl.return_type);
 
                 let prev_inside_fn = self.inside_fn;
                 self.inside_fn = true;
@@ -275,7 +306,8 @@ impl<'a> Resolver<'a> {
                     self.resolve_stmt(stmt);
                 }
                 self.inside_fn = prev_inside_fn;
-                self.scopes.pop();
+                self.var_env.pop();
+                self.exit_scope();
             }
             Stmt::StructDecl(struct_decl) => {
                 let name = struct_decl.ident.node.clone();
@@ -287,12 +319,7 @@ impl<'a> Resolver<'a> {
                 );
 
                 for field in &struct_decl.fields {
-                    match self.resolve_unresolved_type(&field.type_annotation, &HashSet::new()) {
-                        Ok(resolved_type) => {
-                            self.resolution_map.insert(field.type_annotation.node_id, resolved_type);
-                        }
-                        Err(err) => self.report(err),
-                    }
+                    self.resolve_unresolved_type(&field.type_annotation);
                 }
             }
             Stmt::While(while_stmt) => {
@@ -324,11 +351,11 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_stmts(&mut self, stmts: &Vec<AstNode<Stmt>>) {
-        self.scopes.push(HashMap::new());
+        self.var_env.push(HashMap::new());
         for stmt in stmts {
             self.resolve_stmt(stmt);
         }
-        self.scopes.pop();
+        self.var_env.pop();
     }
 
     fn resolve_expr(&mut self, expr: &AstNode<Expr>) {
@@ -363,7 +390,7 @@ impl<'a> Resolver<'a> {
             },
             Expr::Literal(_) => {}
             Expr::Block(block) => {
-                self.scopes.push(HashMap::new());
+                self.var_env.push(HashMap::new());
                 for stmt in &block.statements {
                     self.resolve_stmt(stmt);
                 }
@@ -371,7 +398,7 @@ impl<'a> Resolver<'a> {
                     self.resolve_expr(expr)
                 }
 
-                self.scopes.pop();
+                self.var_env.pop();
             }
             Expr::If(if_expr) => {
                 self.resolve_expr(&if_expr.condition);
@@ -418,7 +445,7 @@ impl<'a> Resolver<'a> {
                         name: assign.target.node.clone(),
                     }),
                     Some(_) => {
-                        for scope in self.scopes.iter_mut().rev() {
+                        for scope in self.var_env.iter_mut().rev() {
                             if let Some(symbol) = scope.get_mut(&assign.target.node) {
                                 *symbol = Symbol::Variable { initialized: true };
                                 break;
@@ -448,7 +475,7 @@ impl<'a> Resolver<'a> {
                 }
             }
             Expr::Lambda(lambda) => {
-                self.scopes.push(HashMap::new());
+                self.var_env.push(HashMap::new());
                 for param in &lambda.parameters {
                     if self.curr_scope().get(param.name.node.as_str()).is_some() {
                         self.report(DuplicateLambdaParameter {
@@ -467,7 +494,7 @@ impl<'a> Resolver<'a> {
                     self.resolve_stmt(stmt);
                 }
                 self.inside_fn = prev_inside_fn;
-                self.scopes.pop();
+                self.var_env.pop();
             }
         }
     }

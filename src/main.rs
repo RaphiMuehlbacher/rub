@@ -1,6 +1,9 @@
-// use rub::interpreter::Interpreter;
 use rub::ast_lowerer::AstLowerer;
+// use rub::interpreter::Interpreter;
+use rub::ir::DefMap;
+// use rub::{Lexer, MethodRegistry, Parser, Resolver, TypeInferrer};
 use rub::{Lexer, Parser, Resolver};
+use std::collections::HashMap;
 use std::fs;
 use std::time::Instant;
 
@@ -39,6 +42,7 @@ fn interpret(code: &str) {
 
     let mut resolver = Resolver::new(&parse_result.ast, code.to_string());
     let resolve_result = resolver.resolve();
+    let resolution_map = resolve_result.resolution_map.clone();
     time_log!(start, "Resolving");
 
     if !resolve_result.errors.is_empty() {
@@ -47,15 +51,23 @@ fn interpret(code: &str) {
         }
         return;
     }
-    let mut ast_lowerer = AstLowerer::new(&parse_result.ast, resolve_result.resolution_map);
+    let mut ast_lowerer = AstLowerer::new(&parse_result.ast, &resolution_map, &resolve_result.def_map);
     let ast_lowerer_result = ast_lowerer.lower();
     time_log!(start, "Lowering");
 
-    println!("{:?}", parse_result.ast);
-    println!("{:?}", resolve_result.resolution_map);
-    println!("{:?}", ast_lowerer_result.ir_program);
+    println!("Resolution Map: {:?}\n", resolve_result.resolution_map);
+    println!("Def Map: {:?}\n", resolve_result.def_map);
 
-    // let mut type_inferrer = TypeInferrer::new(&parse_result.ast, code.to_string());
+    // let mut defs_for_registry = defs.clone();
+    // let method_registry = MethodRegistry::new(&mut defs_for_registry);
+    //
+    // let mut defs_for_type = defs.clone();
+    // let mut type_inferrer = TypeInferrer::new(
+    //     &ast_lowerer_result.ir_program,
+    //     &mut defs_for_type,
+    //     &method_registry,
+    //     code.to_string(),
+    // );
     // let type_inference_result = type_inferrer.infer();
     // time_log!(start, "Type Inference");
     //
@@ -66,8 +78,14 @@ fn interpret(code: &str) {
     //     return;
     // }
     //
-    // // println!("{:?}", parse_result.ast);
-    // let mut interpreter = Interpreter::new(&parse_result.ast, type_inference_result.type_env, code.to_string());
+    // let mut defs_for_interpreting = defs.clone();
+    // let mut interpreter = Interpreter::new(
+    //     &ast_lowerer_result.ir_program,
+    //     type_inference_result.type_env,
+    //     &mut defs_for_interpreting,
+    //     &method_registry,
+    //     code.to_string(),
+    // );
     // let error = interpreter.interpret().error;
     // if let Some(err) = error {
     //     println!("{:?}", err);

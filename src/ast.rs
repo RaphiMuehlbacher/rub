@@ -1,15 +1,17 @@
 use miette::SourceSpan;
 
+pub type AstId = usize;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AstNode<T> {
     pub node: T,
     pub span: SourceSpan,
-    pub node_id: usize,
+    pub node_id: AstId,
 }
 
 impl<T> AstNode<T> {
     pub fn new(node: T, span: SourceSpan) -> Self {
-        static mut NODE_ID: usize = 1;
+        static mut NODE_ID: AstId = 1;
 
         let node_id = unsafe {
             let id = NODE_ID;

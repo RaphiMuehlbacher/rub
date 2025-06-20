@@ -1,16 +1,20 @@
 use crate::builtins::{float_vec_sum_method, int_vec_sum_method, vec_first_method, vec_get_method, vec_len_method, vec_push_method};
 use crate::error::InterpreterError;
 use crate::interpreter::{Function, Value};
-use crate::ir::ResolvedType;
+use crate::ir::{DefMap, FunctionDef, ResolvedType};
 use std::collections::HashMap;
 
-pub struct MethodRegistry {
+pub struct MethodRegistry<'a> {
+    defs: &'a mut DefMap,
     methods: HashMap<ResolvedType, HashMap<String, (ResolvedType, Function)>>,
 }
 
-impl MethodRegistry {
-    pub fn new() -> Self {
-        let mut registry = Self { methods: HashMap::new() };
+impl<'a> MethodRegistry<'a> {
+    pub fn new(defs: &'a mut DefMap) -> Self {
+        let mut registry = Self {
+            methods: HashMap::new(),
+            defs,
+        };
         registry.register_methods();
         registry
     }
@@ -50,10 +54,13 @@ impl MethodRegistry {
         return_ty: ResolvedType,
         method: fn(Vec<Value>) -> Result<Value, InterpreterError>,
     ) {
-        let method_type = ResolvedType::Function {
+        let method_def = FunctionDef {
             params,
             return_ty: Box::new(return_ty),
         };
+        let def_id = self.defs.fresh_function_id();
+        self.defs.functions.insert(def_id, method_def);
+        let method_type = ResolvedType::Function { def_id };
 
         self.methods
             .entry(base_type.clone())

@@ -2,14 +2,10 @@ use crate::MethodRegistry;
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::{NonBooleanCondition, NotCallable, TypeMismatch, UnknownMethod, WrongArgumentCount};
 use crate::ir::ResolvedType::TypeVar;
-use crate::ir::{
-    BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, IrNode, LiteralExpr, Program, ReturnStmt, Stmt, StructDeclStmt, UnaryOp, VarDeclStmt,
-    WhileStmt,
-};
+use crate::ir::{BinaryOp, BlockExpr, DefMap, Expr, FunctionDef, IrNode, IrProgram, LiteralExpr, Stmt, StructDef, UnaryOp};
 use crate::ir::{ResolvedType, TypeVarId};
 use miette::{Report, SourceOffset, SourceSpan};
 use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
 use std::ops::Deref;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -47,13 +43,14 @@ impl VarEnv {
 }
 
 pub struct TypeInferrer<'a> {
-    program: &'a Program,
+    program: &'a IrProgram,
     source: String,
     errors: Vec<Report>,
     current_function_return_ty: Option<ResolvedType>,
     pub var_env: VarEnv,
     pub type_env: HashMap<TypeVarId, ResolvedType>,
-    method_registry: MethodRegistry,
+    method_registry: &'a MethodRegistry<'a>,
+    defs: &'a mut DefMap,
 }
 
 pub struct TypeInferenceResult<'a> {
@@ -62,9 +59,7 @@ pub struct TypeInferenceResult<'a> {
 }
 
 impl<'a> TypeInferrer<'a> {
-    pub fn new(ast: &'a Program, source: String) -> Self {
-        let method_registry = MethodRegistry::new();
-
+    pub fn new(ast: &'a IrProgram, defs: &'a mut DefMap, method_registry: &'a MethodRegistry, source: String) -> Self {
         Self {
             program: ast,
             source,
@@ -73,6 +68,7 @@ impl<'a> TypeInferrer<'a> {
             var_env: VarEnv::new(),
             type_env: HashMap::new(),
             method_registry,
+            defs,
         }
     }
 
@@ -86,6 +82,13 @@ impl<'a> TypeInferrer<'a> {
                     let resolved = self.lookup_type(&inner);
                     self.type_env.insert(*id, resolved.clone());
                     resolved
+                } else {
+                    ty.clone()
+                }
+            }
+            ResolvedType::TypeVar(id) => {
+                if let Some(inner) = self.type_env.get(id).cloned() {
+                    self.lookup_type(&inner)
                 } else {
                     ty.clone()
                 }
@@ -104,16 +107,18 @@ impl<'a> TypeInferrer<'a> {
         match t {
             ResolvedType::Float | ResolvedType::Bool | ResolvedType::String | ResolvedType::Nil | ResolvedType::Int => t,
             ResolvedType::Generic(ref name) => substitutions.get(name).cloned().unwrap_or(t),
-            ResolvedType::Function { params, return_ty } => {
-                let new_params = params.iter().map(|p| self.substitute(p, substitutions)).collect();
-                let new_return = self.substitute(&return_ty, substitutions);
-
-                ResolvedType::Function {
-                    params: new_params,
-                    return_ty: Box::new(new_return),
-                }
+            ResolvedType::Function { def_id } => {
+                let fn_ty = self.defs.functions.get(&def_id).unwrap();
+                todo!()
+                // let new_params = fn_ty.params.iter().map(|p| self.substitute(p, substitutions)).collect();
+                // let new_return = self.substitute(&fn_ty.return_ty, substitutions);
+                //
+                // ResolvedType::Function {
+                //     params: new_params,
+                //     return_ty: Box::new(new_return),
+                // }
             }
-            ResolvedType::Struct { name, fields } => todo!(),
+            ResolvedType::Struct { def_id } => todo!(),
             ResolvedType::Vec(elem_ty) => {
                 let new_elem = self.substitute(elem_ty.deref(), substitutions);
                 match new_elem {
@@ -153,8 +158,11 @@ impl<'a> TypeInferrer<'a> {
                 Ok(ResolvedType::Vec(Box::new(unified_elem)))
             }
 
-            (ResolvedType::Struct { name: name1, fields: f1 }, ResolvedType::Struct { name: name2, fields: f2 }) => {
-                if name1 != name2 {
+            (ResolvedType::Struct { def_id: def_id1 }, ResolvedType::Struct { def_id: def_id2 }) => {
+                let struct_type1 = self.defs.structs.get(&def_id1).unwrap();
+                let struct_type2 = self.defs.structs.get(&def_id2).unwrap();
+
+                if struct_type1.name != struct_type2.name {
                     return Err(TypeMismatch {
                         src: self.source.clone(),
                         span,
@@ -162,27 +170,36 @@ impl<'a> TypeInferrer<'a> {
                         found: self.lookup_type(&expected),
                     });
                 }
-                for (field1, field2) in f1.iter().zip(f2.iter()) {
+                for (field1, field2) in struct_type1.fields.clone().iter().zip(struct_type2.fields.clone().iter()) {
                     self.unify(field1.1.clone(), field2.1.clone(), span)?;
                 }
-                Ok(ResolvedType::Struct { name: name1, fields: f1 })
+                Ok(ResolvedType::Struct { def_id: def_id1 })
             }
-            (ResolvedType::Function { params: p1, return_ty: r1 }, ResolvedType::Function { params: p2, return_ty: r2 }) => {
-                if p1.len() != p2.len() {
+            (ResolvedType::Function { def_id: def_id1 }, ResolvedType::Function { def_id: def_id2 }) => {
+                let fn_ty1 = self.defs.functions.get(&def_id1).unwrap().clone();
+                let fn_ty2 = self.defs.functions.get(&def_id2).unwrap().clone();
+
+                if fn_ty1.params.len() != fn_ty2.params.len() {
                     return Err(TypeMismatch {
                         src: self.source.clone(),
                         span,
-                        expected: ResolvedType::Function { params: p1, return_ty: r1 },
-                        found: ResolvedType::Function { params: p2, return_ty: r2 },
+                        expected: ResolvedType::Function { def_id: def_id1 },
+                        found: ResolvedType::Function { def_id: def_id2 },
                     });
                 }
 
-                for (param1, param2) in p1.iter().zip(p2.iter()) {
+                let params1 = fn_ty1.params.clone();
+                let params2 = fn_ty2.params.clone();
+                let return_ty1 = *fn_ty1.return_ty.clone();
+                let return_ty2 = *fn_ty2.return_ty.clone();
+
+                for (param1, param2) in params1.iter().zip(params2.iter()) {
                     self.unify(param1.clone(), param2.clone(), span)?;
                 }
 
-                self.unify(*r1.clone(), *r2, span)?;
-                Ok(ResolvedType::Function { params: p1, return_ty: r1 })
+                self.unify(return_ty1, return_ty2, span)?;
+
+                Ok(ResolvedType::Function { def_id: def_id1 })
             }
 
             (ty, TypeVar(id)) | (TypeVar(id), ty) => {
@@ -200,11 +217,7 @@ impl<'a> TypeInferrer<'a> {
     }
 
     pub fn infer(&mut self) -> TypeInferenceResult {
-        self.declare_native_functions();
-
-        for stmt in &self.program.statements {
-            self.declare_stmt(stmt);
-        }
+        // self.declare_native_functions();
 
         for stmt in &self.program.statements {
             if let Err(err) = self.infer_stmt(stmt) {
@@ -226,163 +239,142 @@ impl<'a> TypeInferrer<'a> {
         typed.ir_id
     }
 
-    fn declare_native_functions(&mut self) {
-        let clock_type = ResolvedType::Function {
-            params: vec![],
-            return_ty: Box::new(ResolvedType::Float),
-        };
+    // fn declare_native_functions(&mut self) {
+    //     let clock_type = ResolvedType::Function {
+    //         params: vec![],
+    //         return_ty: Box::new(ResolvedType::Float),
+    //     };
+    //
+    //     let clock_type_id = self.fresh_type_var();
+    //     self.type_env.insert(clock_type_id, clock_type);
+    //     self.var_env.insert("clock".to_string(), clock_type_id);
+    //
+    //     let print_type = ResolvedType::Function {
+    //         params: vec![ResolvedType::Generic("T".to_string())],
+    //         return_ty: Box::new(ResolvedType::Nil),
+    //     };
+    //     let print_type_id = self.fresh_type_var();
+    //     self.type_env.insert(print_type_id, print_type);
+    //     self.var_env.insert("print".to_string(), print_type_id);
+    // }
 
-        let clock_type_id = self.fresh_type_var();
-        self.type_env.insert(clock_type_id, clock_type);
-        self.var_env.insert("clock".to_string(), clock_type_id);
-
-        let print_type = ResolvedType::Function {
-            params: vec![ResolvedType::Generic("T".to_string())],
-            return_ty: Box::new(ResolvedType::Nil),
-        };
-        let print_type_id = self.fresh_type_var();
-        self.type_env.insert(print_type_id, print_type);
-        self.var_env.insert("print".to_string(), print_type_id);
-    }
-
-    fn declare_stmt(&mut self, stmt: &Stmt) {
-        match stmt {
-            Stmt::FunDecl(fun_decl) => {
-                let name = &fun_decl.node.ident.node;
-
-                let fn_type = ResolvedType::Function {
-                    params: fun_decl.params.iter().map(|p| p.type_annotation.node.clone()).collect(),
-                    return_ty: Box::new(fun_decl.node.return_type.node.clone()),
-                };
-
-                self.type_env.insert(fun_decl.node.ident.ir_id, fn_type);
-                self.var_env.insert(name.clone(), fun_decl.node.ident.ir_id);
+    fn infer_stmt(&mut self, stmt: &IrNode<Stmt>) -> Result<(), TypeInferrerError> {
+        match &stmt.node {
+            Stmt::ExprStmtNode(expr_stmt) => {
+                self.infer_expr(&expr_stmt.expr)?;
+                Ok(())
             }
-            _ => {}
-        }
-    }
+            Stmt::VarDecl(var_decl) => {
+                let var_decl_id = var_decl.ident.ir_id.clone();
+                self.var_env.insert(var_decl.ident.node.clone(), var_decl_id);
 
-    fn infer_stmt(&mut self, stmt: &Stmt) -> Result<(), TypeInferrerError> {
-        match stmt {
-            Stmt::ExprStmtNode(expr_stmt) => self.infer_expr_stmt(expr_stmt),
-            Stmt::VarDecl(var_decl) => self.infer_var_decl(var_decl),
-            Stmt::FunDecl(fun_decl) => self.infer_fun_decl(fun_decl),
-            Stmt::StructDecl(struct_decl) => self.infer_struct_decl(struct_decl),
-            Stmt::While(while_stmt) => self.infer_while_stmt(while_stmt),
-            Stmt::Return(return_stmt) => self.infer_return_stmt(return_stmt),
-        }
-    }
+                if let Some(type_annotation) = &var_decl.type_annotation {
+                    self.type_env.insert(var_decl_id, type_annotation.node.clone());
+                }
+                if let Some(init) = &var_decl.initializer {
+                    let init_type = match &init.node {
+                        Expr::Literal(LiteralExpr::VecLiteral(elements)) if elements.is_empty() => {
+                            if let Some(type_annotation) = &var_decl.type_annotation {
+                                type_annotation.node.clone()
+                            } else {
+                                return Err(TypeInferrerError::CannotInferType {
+                                    src: self.source.clone(),
+                                    span: stmt.span,
+                                    name: "Vec".to_string(),
+                                });
+                            }
+                        }
+                        _ => self.infer_expr(init)?,
+                    };
+                    self.unify(TypeVar(var_decl_id), init_type, var_decl.ident.span)?;
+                }
 
-    fn infer_expr_stmt(&mut self, expr_stmt: &IrNode<ExprStmt>) -> Result<(), TypeInferrerError> {
-        self.infer_expr(&expr_stmt.node.expr)?;
-        Ok(())
-    }
+                Ok(())
+            }
+            Stmt::FunDecl(fun_decl) => {
+                if fun_decl.generics.is_empty() {
+                    self.var_env.enter_scope();
 
-    fn infer_var_decl(&mut self, var_decl: &IrNode<VarDeclStmt>) -> Result<(), TypeInferrerError> {
-        let var_decl_id = var_decl.node.ident.ir_id.clone();
-        self.var_env.insert(var_decl.node.ident.node.clone(), var_decl_id);
+                    for param in &fun_decl.params {
+                        let param_id = param.name.ir_id;
+                        self.type_env.insert(param_id, param.type_annotation.node.clone());
+                        self.var_env.insert(param.name.node.clone(), param_id);
+                    }
 
-        if let Some(type_annotation) = &var_decl.node.type_annotation {
-            self.type_env.insert(var_decl_id, type_annotation.node.clone());
-        }
-        if let Some(init) = &var_decl.node.initializer {
-            let init_type = match &init.node {
-                Expr::Literal(LiteralExpr::VecLiteral(elements)) if elements.is_empty() => {
-                    if let Some(type_annotation) = &var_decl.node.type_annotation {
-                        type_annotation.node.clone()
-                    } else {
-                        return Err(TypeInferrerError::CannotInferType {
+                    let old_ret_ty = self.current_function_return_ty.clone();
+                    self.current_function_return_ty = Some(fun_decl.return_type.node.clone());
+
+                    self.infer_stmts(&fun_decl.body.node.statements)?;
+
+                    if let Some(expr) = &fun_decl.body.node.expr {
+                        let body_ty = self.infer_expr(expr)?;
+                        self.unify(fun_decl.return_type.node.clone(), body_ty, fun_decl.ident.span)?;
+                    } else if !fun_decl
+                        .body
+                        .node
+                        .statements
+                        .iter()
+                        .any(|stmt| matches!(stmt.node, Stmt::Return(_)))
+                    {
+                        self.unify(fun_decl.return_type.node.clone(), ResolvedType::Nil, fun_decl.return_type.span)?;
+                    }
+
+                    self.current_function_return_ty = old_ret_ty;
+                    self.var_env.exit_scope()
+                }
+                Ok(())
+            }
+            Stmt::StructDecl(struct_decl) => {
+                let mut seen_fields = HashSet::new();
+
+                for field in &struct_decl.fields {
+                    if !seen_fields.insert(field.name.node.clone()) {
+                        self.report(TypeInferrerError::DuplicateFieldDeclaration {
                             src: self.source.clone(),
-                            span: var_decl.span,
-                            name: "Vec".to_string(),
+                            name: field.name.node.clone(),
+                            span: field.name.span,
                         });
                     }
                 }
-                _ => self.infer_expr(init)?,
-            };
-            self.unify(TypeVar(var_decl_id), init_type, var_decl.node.ident.span)?;
-        }
 
-        Ok(())
-    }
-
-    fn infer_fun_decl(&mut self, fun_decl: &IrNode<FunDeclStmt>) -> Result<(), TypeInferrerError> {
-        let name = &fun_decl.node.ident.node;
-
-        let fn_type = ResolvedType::Function {
-            params: fun_decl.node.params.iter().map(|p| p.type_annotation.node.clone()).collect(),
-            return_ty: Box::new(fun_decl.node.return_type.node.clone()),
-        };
-
-        self.type_env.insert(fun_decl.node.ident.ir_id, fn_type);
-        self.var_env.insert(name.clone(), fun_decl.node.ident.ir_id);
-
-        if fun_decl.node.generics.is_empty() {
-            self.var_env.enter_scope();
-
-            for param in &fun_decl.node.params {
-                let param_id = param.name.ir_id;
-                self.type_env.insert(param_id, param.type_annotation.node.clone());
-                self.var_env.insert(param.name.node.clone(), param_id);
+                Ok(())
             }
+            Stmt::While(while_stmt) => {
+                let condition_ty = self.infer_expr(&while_stmt.condition)?;
 
-            let old_ret_ty = self.current_function_return_ty.clone();
-            self.current_function_return_ty = Some(fun_decl.node.return_type.node.clone());
+                match self.lookup_type(&condition_ty) {
+                    ResolvedType::Bool => Ok(()),
+                    found => Err(NonBooleanCondition {
+                        src: self.source.clone(),
+                        span: while_stmt.condition.span,
+                        found,
+                    }),
+                }?;
+                self.infer_stmts(&while_stmt.body.node.statements)?;
 
-            self.infer_stmts(&fun_decl.node.body.node.statements)?;
-
-            if let Some(expr) = &fun_decl.node.body.node.expr {
-                let body_ty = self.infer_expr(expr)?;
-                self.unify(fun_decl.node.return_type.node.clone(), body_ty, fun_decl.node.ident.span)?;
-            } else if !fun_decl
-                .node
-                .body
-                .node
-                .statements
-                .iter()
-                .any(|stmt| matches!(stmt, Stmt::Return(_)))
-            {
-                self.unify(
-                    fun_decl.node.return_type.node.clone(),
-                    ResolvedType::Nil,
-                    fun_decl.node.return_type.span,
-                )?;
+                Ok(())
             }
+            Stmt::Return(return_stmt) => {
+                if let Some(ret_expr) = &return_stmt.expr {
+                    let ret_id = self.infer_expr(ret_expr)?;
+                    let ret_ty = self.lookup_type(&ret_id);
 
-            self.current_function_return_ty = old_ret_ty;
-            self.var_env.exit_scope()
-        }
-        Ok(())
-    }
+                    if let Some(expected_ty) = &self.current_function_return_ty {
+                        self.unify(ret_ty, expected_ty.clone(), ret_expr.span)?;
+                    }
+                } else {
+                    let ret_ty = ResolvedType::Nil;
+                    if let Some(expected_ty) = &self.current_function_return_ty {
+                        self.unify(ret_ty, expected_ty.clone(), stmt.span)?;
+                    }
+                }
 
-    fn infer_struct_decl(&mut self, struct_decl: &IrNode<StructDeclStmt>) -> Result<(), TypeInferrerError> {
-        let mut seen_fields = HashSet::new();
-        for field in &struct_decl.node.fields {
-            if !seen_fields.insert(field.name.node.clone()) {
-                self.report(TypeInferrerError::DuplicateFieldDeclaration {
-                    src: self.source.clone(),
-                    name: field.name.node.clone(),
-                    span: field.name.span,
-                });
+                Ok(())
             }
         }
-
-        let struct_type = ResolvedType::Struct {
-            name: struct_decl.node.ident.node.clone(),
-            fields: struct_decl
-                .node
-                .fields
-                .iter()
-                .map(|f| (f.name.node.clone(), f.type_annotation.node.clone()))
-                .collect(),
-        };
-
-        self.type_env.insert(struct_decl.ir_id, struct_type);
-        self.var_env.insert(struct_decl.node.ident.node.clone(), struct_decl.ir_id);
-        Ok(())
     }
 
-    fn infer_stmts(&mut self, stmts: &Vec<Stmt>) -> Result<(), TypeInferrerError> {
+    fn infer_stmts(&mut self, stmts: &Vec<IrNode<Stmt>>) -> Result<(), TypeInferrerError> {
         self.var_env.enter_scope();
 
         for stmt in stmts {
@@ -409,40 +401,6 @@ impl<'a> TypeInferrer<'a> {
 
         self.var_env.exit_scope();
         return_ty
-    }
-
-    fn infer_while_stmt(&mut self, while_stmt: &IrNode<WhileStmt>) -> Result<(), TypeInferrerError> {
-        let condition_ty = self.infer_expr(&while_stmt.node.condition)?;
-
-        match self.lookup_type(&condition_ty) {
-            ResolvedType::Bool => Ok(()),
-            found => Err(NonBooleanCondition {
-                src: self.source.clone(),
-                span: while_stmt.node.condition.span,
-                found,
-            }),
-        }?;
-        self.infer_stmts(&while_stmt.node.body.node.statements)?;
-
-        Ok(())
-    }
-
-    fn infer_return_stmt(&mut self, return_stmt: &IrNode<ReturnStmt>) -> Result<(), TypeInferrerError> {
-        if let Some(ret_expr) = &return_stmt.node.expr {
-            let ret_id = self.infer_expr(ret_expr)?;
-            let ret_ty = self.lookup_type(&ret_id);
-
-            if let Some(expected_ty) = &self.current_function_return_ty {
-                self.unify(ret_ty, expected_ty.clone(), ret_expr.span)?;
-            }
-        } else {
-            let ret_ty = ResolvedType::Nil;
-            if let Some(expected_ty) = &self.current_function_return_ty {
-                self.unify(ret_ty, expected_ty.clone(), return_stmt.span)?;
-            }
-        }
-
-        Ok(())
     }
 
     fn collect_substitutions(&self, param_ty: &ResolvedType, arg_ty: &ResolvedType, substitutions: &mut HashMap<String, ResolvedType>) {
@@ -503,8 +461,9 @@ impl<'a> TypeInferrer<'a> {
                 let value_ty = self.infer_expr(&field_assign.value)?;
 
                 match receiver_ty {
-                    ResolvedType::Struct { name, fields } => {
-                        if let Some((_, field_ty)) = fields.iter().find(|(name, _)| *name == field_assign.field.node) {
+                    ResolvedType::Struct { def_id } => {
+                        let struct_ty = self.defs.structs.get(&def_id).unwrap();
+                        if let Some((_, field_ty)) = struct_ty.fields.clone().iter().find(|(name, _)| *name == field_assign.field.node) {
                             self.unify(value_ty, field_ty.clone(), field_assign.value.span)?;
 
                             self.type_env.insert(expr.ir_id, field_ty.clone());
@@ -514,7 +473,7 @@ impl<'a> TypeInferrer<'a> {
                                 src: self.source.clone(),
                                 span: field_assign.field.span,
                                 field: field_assign.field.node.clone(),
-                                struct_name: name.clone(),
+                                struct_name: struct_ty.name.clone(),
                             })
                         }
                     }
@@ -522,10 +481,7 @@ impl<'a> TypeInferrer<'a> {
                         src: self.source.clone(),
                         span: field_assign.receiver.span,
                         found,
-                        expected: ResolvedType::Struct {
-                            name: "todo".to_string(),
-                            fields: vec![],
-                        },
+                        expected: todo!(),
                     }),
                 }
             }
@@ -534,8 +490,9 @@ impl<'a> TypeInferrer<'a> {
                 let receiver_ty = self.lookup_type(&receiver_ty);
 
                 match receiver_ty {
-                    ResolvedType::Struct { name, fields } => {
-                        if let Some((_, field_ty)) = fields.iter().find(|(name, _)| *name == field_access.field.node) {
+                    ResolvedType::Struct { def_id } => {
+                        let struct_ty = self.defs.structs.get(&def_id).unwrap();
+                        if let Some((_, field_ty)) = struct_ty.fields.iter().find(|(name, _)| *name == field_access.field.node) {
                             self.type_env.insert(expr.ir_id, field_ty.clone());
                             Ok(TypeVar(expr.ir_id))
                         } else {
@@ -543,17 +500,14 @@ impl<'a> TypeInferrer<'a> {
                                 src: self.source.clone(),
                                 span: field_access.field.span,
                                 field: field_access.field.node.clone(),
-                                struct_name: name.clone(),
+                                struct_name: struct_ty.name.clone(),
                             })
                         }
                     }
                     found => Err(TypeMismatch {
                         src: self.source.clone(),
                         span: field_access.receiver.span,
-                        expected: ResolvedType::Struct {
-                            name: "todo".to_string(),
-                            fields: vec![],
-                        },
+                        expected: todo!(),
                         found,
                     }),
                 }
@@ -562,8 +516,11 @@ impl<'a> TypeInferrer<'a> {
                 let struct_type_id = self.var_env.lookup(&struct_init.name.node).unwrap();
                 let struct_type = self.lookup_type(&TypeVar(struct_type_id));
 
-                if let ResolvedType::Struct { name: _, fields } = struct_type.clone() {
-                    let struct_fields: HashMap<String, ResolvedType> = fields.into_iter().map(|(name, ty)| (name, ty)).collect();
+                if let ResolvedType::Struct { def_id } = struct_type.clone() {
+                    let struct_ty = self.defs.structs.get(&def_id).unwrap();
+
+                    let struct_fields: HashMap<String, ResolvedType> =
+                        struct_ty.fields.clone().into_iter().map(|(name, ty)| (name, ty)).collect();
                     let mut seen_fields = HashSet::new();
 
                     for (field_name, _) in &struct_init.fields {
@@ -667,12 +624,17 @@ impl<'a> TypeInferrer<'a> {
 
                 if let Some((method_ty, _)) = self.method_registry.lookup_method(&receiver_ty, &method_call.method.node).cloned() {
                     match method_ty {
-                        ResolvedType::Function { params, return_ty } => {
-                            if params.len() != method_call.arguments.len() {
+                        ResolvedType::Function { def_id } => {
+                            let fn_ty = self.defs.functions.get(&def_id).unwrap();
+
+                            let params = fn_ty.params.clone();
+                            let return_ty = fn_ty.return_ty.clone();
+
+                            if fn_ty.params.len() != method_call.arguments.len() {
                                 return Err(WrongArgumentCount {
                                     src: self.source.clone(),
                                     span: method_call.method.span,
-                                    expected: params.len(),
+                                    expected: fn_ty.params.len(),
                                     found: method_call.arguments.len(),
                                 });
                             }
@@ -823,37 +785,41 @@ impl<'a> TypeInferrer<'a> {
                 let callee_ty = self.lookup_type(&callee_ty);
 
                 match callee_ty {
-                    ResolvedType::Function { params, return_ty } => {
+                    ResolvedType::Function { def_id } => {
+                        let fn_ty = self.defs.functions.get(&def_id).unwrap();
+                        let params = fn_ty.params.clone();
+                        let return_ty = fn_ty.return_ty.clone();
+
                         let substitutions = self.handle_parameters(&params, &call_expr.arguments, call_expr.callee.span)?;
 
                         self.var_env.enter_scope();
 
                         if let Expr::Variable(var) = &call_expr.callee.node {
                             if let Some(fn_decl) = self.program.statements.iter().find(|stmt| {
-                                if let Stmt::FunDecl(fd) = stmt {
-                                    fd.node.ident.node == var.node
+                                if let Stmt::FunDecl(fd) = &stmt.node {
+                                    fd.ident.node == var.node
                                 } else {
                                     false
                                 }
                             }) {
-                                if let Stmt::FunDecl(fd) = fn_decl {
-                                    for (param, param_ty) in fd.node.params.iter().zip(params.iter()) {
+                                if let Stmt::FunDecl(fd) = &fn_decl.node {
+                                    for (param, param_ty) in fd.params.iter().zip(params.iter()) {
                                         let substituted_ty = self.substitute(param_ty, &substitutions);
                                         self.type_env.insert(param.name.ir_id, substituted_ty);
                                         self.var_env.insert(param.name.node.clone(), param.name.ir_id);
                                     }
 
-                                    let substituted_return = self.substitute(&fd.node.return_type.node, &substitutions);
+                                    let substituted_return = self.substitute(&fd.return_type.node, &substitutions);
                                     let old_return_ty = self.current_function_return_ty.clone();
                                     self.current_function_return_ty = Some(substituted_return.clone());
 
-                                    self.infer_stmts(&fd.node.body.node.statements)?;
+                                    self.infer_stmts(&fd.body.node.statements)?;
 
-                                    if let Some(expr) = &fd.node.body.node.expr {
+                                    if let Some(expr) = &fd.body.node.expr {
                                         let body_ty = self.infer_expr(expr)?;
-                                        self.unify(fd.node.return_type.node.clone(), body_ty, fd.node.ident.span)?;
-                                    } else if !fd.node.body.node.statements.iter().any(|stmt| matches!(stmt, Stmt::Return(_))) {
-                                        self.unify(ResolvedType::Nil, fd.node.return_type.node.clone(), fd.node.return_type.span)?;
+                                        self.unify(fd.return_type.node.clone(), body_ty, fd.ident.span)?;
+                                    } else if !fd.body.node.statements.iter().any(|stmt| matches!(stmt.node, Stmt::Return(_))) {
+                                        self.unify(ResolvedType::Nil, fd.return_type.node.clone(), fd.return_type.span)?;
                                     }
                                     self.current_function_return_ty = old_return_ty;
                                 }
@@ -874,38 +840,39 @@ impl<'a> TypeInferrer<'a> {
                 }
             }
             Expr::Lambda(lambda) => {
-                self.var_env.enter_scope();
-
-                let param_types: Vec<ResolvedType> = lambda.parameters.iter().map(|p| p.type_annotation.node.clone()).collect();
-
-                let fn_type = ResolvedType::Function {
-                    params: param_types.clone(),
-                    return_ty: Box::new(lambda.return_type.node.clone()),
-                };
-
-                self.type_env.insert(expr.ir_id, fn_type.clone());
-
-                for param in &lambda.parameters {
-                    let param_id = param.name.ir_id;
-                    self.type_env.insert(param_id, param.type_annotation.node.clone());
-                    self.var_env.insert(param.name.node.clone(), param_id);
-                }
-
-                let old_ret_ty = self.current_function_return_ty.clone();
-                self.current_function_return_ty = Some(lambda.return_type.node.clone());
-
-                self.infer_stmts(&lambda.body.node.statements)?;
-
-                if let Some(expr) = &lambda.body.node.expr {
-                    let body_ty = self.infer_expr(expr)?;
-                    self.unify(lambda.return_type.node.clone(), body_ty, expr.span)?;
-                } else if !lambda.body.node.statements.iter().any(|stmt| matches!(stmt, Stmt::Return(_))) {
-                    self.unify(ResolvedType::Nil, lambda.return_type.node.clone(), lambda.return_type.span)?;
-                }
-
-                self.current_function_return_ty = old_ret_ty;
-                self.var_env.exit_scope();
-                Ok(TypeVar(expr.ir_id))
+                // self.var_env.enter_scope();
+                //
+                // let param_types: Vec<ResolvedType> = lambda.parameters.iter().map(|p| p.type_annotation.node.clone()).collect();
+                //
+                // let fn_type = ResolvedType::Function {
+                //     params: param_types.clone(),
+                //     return_ty: Box::new(lambda.return_type.node.clone()),
+                // };
+                //
+                // self.type_env.insert(expr.ir_id, fn_type.clone());
+                //
+                // for param in &lambda.parameters {
+                //     let param_id = param.name.ir_id;
+                //     self.type_env.insert(param_id, param.type_annotation.node.clone());
+                //     self.var_env.insert(param.name.node.clone(), param_id);
+                // }
+                //
+                // let old_ret_ty = self.current_function_return_ty.clone();
+                // self.current_function_return_ty = Some(lambda.return_type.node.clone());
+                //
+                // self.infer_stmts(&lambda.body.node.statements)?;
+                //
+                // if let Some(expr) = &lambda.body.node.expr {
+                //     let body_ty = self.infer_expr(expr)?;
+                //     self.unify(lambda.return_type.node.clone(), body_ty, expr.span)?;
+                // } else if !lambda.body.node.statements.iter().any(|stmt| matches!(stmt.node, Stmt::Return(_))) {
+                //     self.unify(ResolvedType::Nil, lambda.return_type.node.clone(), lambda.return_type.span)?;
+                // }
+                //
+                // self.current_function_return_ty = old_ret_ty;
+                // self.var_env.exit_scope();
+                // Ok(TypeVar(expr.ir_id))
+                todo!()
             }
         }
     }

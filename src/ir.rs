@@ -1,25 +1,196 @@
+use crate::ast::AstId;
 use miette::SourceSpan;
+use std::collections::HashMap;
 
 pub type TypeVarId = usize;
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq)]
-pub enum ResolvedType {
-    Int,
-    Float,
-    Bool,
-    String,
-    Nil,
-    Function {
-        params: Vec<ResolvedType>,
-        return_ty: Box<ResolvedType>,
-    },
-    Struct {
-        name: String,
-        fields: Vec<(String, ResolvedType)>,
-    },
-    Vec(Box<ResolvedType>),
-    TypeVar(TypeVarId),
-    Generic(String),
+#[derive(Debug, Clone, PartialEq)]
+pub enum DefKind {
+    Struct,
+    Function,
+    Parameter,
+    Field,
+    Variable,
+    Builtin,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Definition {
+    id: DefId,
+    name: String,
+    kind: DefKind,
+    scope: ScopeId,
+    span: SourceSpan,
+    parent: Option<DefId>,
+}
+
+impl Definition {
+    pub fn builtin(id: DefId, name: &str) -> Self {
+        Self {
+            id,
+            name: name.to_string(),
+            kind: DefKind::Builtin,
+            scope: 0,
+            span: SourceSpan::from(0),
+            parent: None,
+        }
+    }
+}
+
+pub type ScopeId = usize;
+pub type DefId = usize;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DefMap {
+    pub next_def_id: DefId,
+    pub defs: HashMap<DefId, Definition>,
+    pub name_to_def: HashMap<(ScopeId, String), DefId>,
+}
+
+impl DefMap {
+    pub fn new() -> Self {
+        Self {
+            next_def_id: 1,
+            defs: HashMap::new(),
+            name_to_def: HashMap::new(),
+        }
+    }
+    pub fn with_builtins() -> Self {
+        let mut defs = HashMap::new();
+        defs.insert(0, Definition::builtin(0, "Int"));
+        defs.insert(1, Definition::builtin(1, "Float"));
+        defs.insert(2, Definition::builtin(1, "String"));
+        defs.insert(3, Definition::builtin(1, "Bool"));
+        defs.insert(4, Definition::builtin(1, "Nil"));
+
+        let mut name_to_def = HashMap::new();
+        name_to_def.insert((0, "Int".to_string()), 0);
+        name_to_def.insert((0, "Float".to_string()), 1);
+        name_to_def.insert((0, "String".to_string()), 2);
+        name_to_def.insert((0, "Bool".to_string()), 3);
+        name_to_def.insert((0, "Nil".to_string()), 4);
+
+        Self {
+            next_def_id: 5,
+            defs,
+            name_to_def,
+        }
+    }
+    pub fn insert(&mut self, name: &str, kind: DefKind, scope: ScopeId, span: SourceSpan, parent: Option<DefId>) -> DefId {
+        let id = self.next_def_id;
+        self.next_def_id += 1;
+        let def = Definition {
+            id,
+            name: name.to_string(),
+            kind,
+            scope,
+            span,
+            parent,
+        };
+        self.defs.insert(id, def);
+        self.name_to_def.insert((scope, name.to_string()), id);
+        id
+    }
+
+    pub fn get_def(&self, id: DefId) -> Option<&Definition> {
+        self.defs.get(&id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Scope {
+    pub id: ScopeId,
+    pub parent: Option<ScopeId>,
+    pub symbols: HashMap<String, DefId>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScopeTree {
+    pub scopes: HashMap<ScopeId, Scope>,
+    next_id: ScopeId,
+}
+
+impl ScopeTree {
+    pub fn new() -> Self {
+        Self {
+            scopes: HashMap::new(),
+            next_id: 1,
+        }
+    }
+
+    pub fn with_builtins() -> Self {
+        let mut scopes = HashMap::new();
+        let mut symbols = HashMap::new();
+        symbols.insert("Int".to_string(), 0);
+        symbols.insert("Float".to_string(), 1);
+        symbols.insert("String".to_string(), 2);
+        symbols.insert("Bool".to_string(), 3);
+        symbols.insert("Nil".to_string(), 4);
+        let global_scope = Scope {
+            id: 0,
+            parent: None,
+            symbols,
+        };
+        scopes.insert(0, global_scope);
+
+        Self { next_id: 1, scopes }
+    }
+
+    pub fn new_scope(&mut self, parent: ScopeId) -> ScopeId {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.scopes.insert(
+            id,
+            Scope {
+                id,
+                parent: Some(parent),
+                symbols: HashMap::new(),
+            },
+        );
+        id
+    }
+
+    pub fn insert_symbol(&mut self, scope_id: ScopeId, name: &str, def_id: DefId) {
+        if let Some(scope) = self.scopes.get_mut(&scope_id) {
+            scope.symbols.insert(name.to_string(), def_id);
+        }
+    }
+
+    pub fn resolve_name(&self, start_scope: ScopeId, name: &str) -> Option<DefId> {
+        let mut current = Some(start_scope);
+        while let Some(scope_id) = current {
+            if let Some(scope) = self.scopes.get(&scope_id) {
+                if let Some(def_id) = scope.symbols.get(name) {
+                    return Some(*def_id);
+                }
+                current = scope.parent
+            } else {
+                break;
+            }
+        }
+        None
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolutionMap {
+    resolutions: HashMap<AstId, DefId>,
+}
+
+impl ResolutionMap {
+    pub fn new() -> Self {
+        Self {
+            resolutions: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, node_id: AstId, def_id: DefId) {
+        self.resolutions.insert(node_id, def_id);
+    }
+
+    pub fn get(&self, node_id: AstId) -> DefId {
+        *self.resolutions.get(&node_id).unwrap()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -74,13 +245,13 @@ pub struct ExprStmt {
 pub struct VarDeclStmt {
     pub ident: Ident,
     pub initializer: Option<IrNode<Expr>>,
-    pub type_annotation: Option<IrNode<ResolvedType>>,
+    pub type_annotation: Option<DefId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedIdent {
     pub name: Ident,
-    pub type_annotation: IrNode<ResolvedType>,
+    pub type_annotation: DefId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,7 +260,7 @@ pub struct FunDeclStmt {
     pub params: Vec<TypedIdent>,
     pub body: IrNode<BlockExpr>,
     pub generics: Vec<Ident>,
-    pub return_type: IrNode<ResolvedType>,
+    pub return_type: DefId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -164,7 +335,7 @@ pub struct CallExpr {
 pub struct LambdaExpr {
     pub parameters: Vec<TypedIdent>,
     pub body: Box<IrNode<BlockExpr>>,
-    pub return_type: IrNode<ResolvedType>,
+    pub return_type: DefId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
