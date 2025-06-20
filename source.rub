@@ -1,9 +1,13 @@
 struct Person {
-    name: String,
+    a: Person,
 }
 
-let p = Person { name: "hi" };
-
-struct Other {
-    friend: Person,
+fn a(b: (Vec<Int>) -> Int) -> Int {
+    return b(4);
 }
+
+fn b(a: Int) -> Int {
+    return a + 1;
+}
+
+print(a(b));

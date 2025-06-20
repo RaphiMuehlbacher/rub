@@ -5,7 +5,7 @@ use crate::error::ResolverError::{
     UninitializedVariable,
 };
 
-use crate::ir::{DefId, DefKind, DefMap, Definition, ResolutionMap, ScopeId, ScopeTree};
+use crate::ir::{DefKind, DefMap, ResolutionMap, ScopeId, ScopeTree};
 use miette::Report;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
@@ -85,10 +85,16 @@ impl<'a> Resolver<'a> {
 
     fn resolve_unresolved_type(&mut self, ty: &AstNode<UnresolvedType>) {
         match &ty.node {
-            UnresolvedType::Named(ident) => {
-                let def_id = self.scope_tree.resolve_name(self.current_scope, &ident.node).unwrap();
-                self.resolution_map.insert(ty.node_id, def_id);
-            }
+            UnresolvedType::Named(ident) => match self.scope_tree.resolve_name(self.current_scope, &ident.node) {
+                None => self.report(UndefinedType {
+                    src: self.source.clone(),
+                    span: ident.span,
+                    name: ident.node.clone(),
+                }),
+                Some(def_id) => {
+                    self.resolution_map.insert(ty.node_id, def_id);
+                }
+            },
 
             UnresolvedType::Function { params, return_type } => {
                 for param in params {
@@ -138,24 +144,9 @@ impl<'a> Resolver<'a> {
 
                 let function_def_id = self
                     .def_map
-                    .insert(name, DefKind::Function, self.current_scope, fun_decl.ident.span, None);
+                    .insert(name, DefKind::Function, self.current_scope, fun_decl.ident.span, None, vec![]);
                 self.scope_tree.insert_symbol(self.current_scope, name, function_def_id);
 
-                self.enter_scope();
-
-                for param in &fun_decl.params {
-                    let param_def_id = self.def_map.insert(
-                        &param.name.node,
-                        DefKind::Parameter,
-                        self.current_scope,
-                        param.name.span,
-                        Some(function_def_id),
-                    );
-                    self.scope_tree.insert_symbol(self.current_scope, &param.name.node, param_def_id);
-                    self.resolve_unresolved_type(&param.type_annotation);
-                }
-                self.resolve_unresolved_type(&fun_decl.return_type);
-                self.exit_scope();
                 if self
                     .curr_scope()
                     .insert(
@@ -180,25 +171,9 @@ impl<'a> Resolver<'a> {
 
                 let struct_def_id = self
                     .def_map
-                    .insert(name, DefKind::Struct, self.current_scope, struct_decl.ident.span, None);
+                    .insert(name, DefKind::Struct, self.current_scope, struct_decl.ident.span, None, vec![]);
 
                 self.scope_tree.insert_symbol(self.current_scope, name, struct_def_id);
-                self.enter_scope();
-
-                for field in &struct_decl.fields {
-                    let field_def_id = self.def_map.insert(
-                        &field.name.node,
-                        DefKind::Field,
-                        self.current_scope,
-                        field.name.span,
-                        Some(struct_def_id),
-                    );
-                    self.scope_tree.insert_symbol(self.current_scope, &field.name.node, field_def_id);
-                    self.resolve_unresolved_type(&field.type_annotation);
-                }
-
-                self.exit_scope();
-
                 if self
                     .curr_scope()
                     .insert(
@@ -229,6 +204,7 @@ impl<'a> Resolver<'a> {
                     self.current_scope,
                     var_decl.ident.span,
                     None,
+                    vec![],
                 );
                 self.scope_tree.insert_symbol(self.current_scope, &var_decl.ident.node, var_def);
 
@@ -248,13 +224,7 @@ impl<'a> Resolver<'a> {
                 );
             }
             Stmt::FunDecl(fun_decl) => {
-                let function_def_id = self.def_map.insert(
-                    &fun_decl.ident.node,
-                    DefKind::Function,
-                    self.current_scope,
-                    fun_decl.ident.span,
-                    None,
-                );
+                let function_def_id = self.def_map.allocate_id();
                 self.scope_tree
                     .insert_symbol(self.current_scope, &fun_decl.ident.node, function_def_id);
 
@@ -270,7 +240,28 @@ impl<'a> Resolver<'a> {
 
                 self.var_env.push(HashMap::new());
 
-                let generic_params: HashSet<String> = fun_decl.generics.iter().map(|g| g.node.clone()).collect();
+                let mut generic_param_ids = vec![];
+                for generic_param in &fun_decl.generics {
+                    let def_id_t = self.def_map.insert(
+                        &generic_param.node,
+                        DefKind::TypeParam,
+                        self.current_scope,
+                        generic_param.span,
+                        Some(function_def_id),
+                        vec![],
+                    );
+                    self.scope_tree.insert_symbol(self.current_scope, &generic_param.node, def_id_t);
+                    generic_param_ids.push(def_id_t);
+                }
+                self.def_map.insert(
+                    &fun_decl.ident.node,
+                    DefKind::Function,
+                    self.current_scope,
+                    fun_decl.ident.span,
+                    None,
+                    generic_param_ids,
+                );
+
                 let mut seen_params = HashSet::new();
 
                 for param in &fun_decl.params {
@@ -290,6 +281,7 @@ impl<'a> Resolver<'a> {
                         self.current_scope,
                         param.name.span,
                         Some(function_def_id),
+                        vec![],
                     );
                     self.scope_tree.insert_symbol(self.current_scope, &param.name.node, param_def_id);
 

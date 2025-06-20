@@ -51,12 +51,14 @@ fn interpret(code: &str) {
         }
         return;
     }
+
     let mut ast_lowerer = AstLowerer::new(&parse_result.ast, &resolution_map, &resolve_result.def_map);
     let ast_lowerer_result = ast_lowerer.lower();
     time_log!(start, "Lowering");
 
+    // println!("Ast: {:?}\n", parse_result.ast);
     println!("Resolution Map: {:?}\n", resolve_result.resolution_map);
-    println!("Def Map: {:?}\n", resolve_result.def_map);
+    // println!("Def Map: {:?}\n", resolve_result.def_map);
 
     // let mut defs_for_registry = defs.clone();
     // let method_registry = MethodRegistry::new(&mut defs_for_registry);

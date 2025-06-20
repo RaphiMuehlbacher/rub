@@ -1,5 +1,5 @@
-use crate::ast::{AstNode, AstProgram, UnresolvedType};
-use crate::ir::{DefMap, IrNode, IrProgram, ResolutionMap};
+use crate::ast::{AstNode, AstProgram};
+use crate::ir::{DefMap, IrNode, IrProgram, ResolutionMap, ResolvedType};
 use crate::{ast, ir};
 use miette::Report;
 
@@ -51,7 +51,7 @@ impl<'a> AstLowerer<'a> {
             ast::Stmt::VarDecl(var_decl) => {
                 let name = IrNode::new(var_decl.ident.node.clone(), var_decl.ident.span);
                 let initializer = var_decl.initializer.as_ref().map(|init| self.lower_expr(init));
-                let type_annotation = var_decl.type_annotation.as_ref().map(|ty| self.resolution_map.get(ty.node_id));
+                let type_annotation = var_decl.type_annotation.as_ref().map(|ty| self.lower_type(ty));
 
                 IrNode::new(
                     ir::Stmt::VarDecl(ir::VarDeclStmt {
@@ -69,12 +69,12 @@ impl<'a> AstLowerer<'a> {
                     .iter()
                     .map(|p| ir::TypedIdent {
                         name: ir::Ident::new(p.name.node.clone(), p.name.span),
-                        type_annotation: self.resolution_map.get(p.type_annotation.node_id),
+                        type_annotation: self.lower_type(&p.type_annotation),
                     })
                     .collect();
                 let generics = fun_decl.generics.iter().map(|g| IrNode::new(g.node.clone(), g.span)).collect();
                 let body = self.lower_block_expr(&fun_decl.body);
-                let return_type = self.resolution_map.get(fun_decl.return_type.node_id);
+                let return_type = self.lower_type(&fun_decl.return_type);
 
                 IrNode::new(
                     ir::Stmt::FunDecl(ir::FunDeclStmt {
@@ -94,11 +94,11 @@ impl<'a> AstLowerer<'a> {
                     .fields
                     .iter()
                     .map(|f| {
-                        let annotation_def_id = self.resolution_map.get(f.type_annotation.node_id);
+                        let annotation = self.lower_type(&f.type_annotation);
 
                         ir::TypedIdent {
                             name: IrNode::new(f.name.node.clone(), f.name.span),
-                            type_annotation: annotation_def_id,
+                            type_annotation: annotation,
                         }
                     })
                     .collect();
@@ -252,11 +252,11 @@ impl<'a> AstLowerer<'a> {
                         .iter()
                         .map(|p| ir::TypedIdent {
                             name: IrNode::new(p.name.node.clone(), p.name.span),
-                            type_annotation: self.resolution_map.get(p.type_annotation.node_id),
+                            type_annotation: self.lower_type(&p.type_annotation),
                         })
                         .collect(),
                     body: Box::new(self.lower_block_expr(&lambda_expr.body)),
-                    return_type: self.resolution_map.get(lambda_expr.return_type.node_id),
+                    return_type: self.lower_type(&lambda_expr.return_type),
                 }),
                 expr.span,
             ),
@@ -317,5 +317,33 @@ impl<'a> AstLowerer<'a> {
             },
             block.span,
         )
+    }
+
+    fn lower_type(&mut self, ty: &AstNode<ast::UnresolvedType>) -> ResolvedType {
+        match &ty.node {
+            ast::UnresolvedType::Named(_) => {
+                let def_id = self.resolution_map.get(ty.node_id);
+                ResolvedType::Named(def_id)
+            }
+            ast::UnresolvedType::Function { params, return_type } => {
+                let param_types = params.iter().map(|p| self.lower_type(p)).collect();
+                let return_type = Box::new(self.lower_type(return_type));
+                ResolvedType::Function {
+                    params: param_types,
+                    return_type,
+                }
+            }
+            ast::UnresolvedType::Generic { base, args } => {
+                let base_type = self.lower_type(base);
+                let arg_types = args.iter().map(|a| self.lower_type(a)).collect();
+                match base_type {
+                    ResolvedType::Named(def_id) => ResolvedType::Generic {
+                        base: def_id,
+                        args: arg_types,
+                    },
+                    _ => panic!(),
+                }
+            }
+        }
     }
 }

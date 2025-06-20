@@ -11,6 +11,7 @@ pub enum DefKind {
     Parameter,
     Field,
     Variable,
+    TypeParam,
     Builtin,
 }
 
@@ -21,17 +22,19 @@ pub struct Definition {
     kind: DefKind,
     scope: ScopeId,
     span: SourceSpan,
+    type_params: Vec<DefId>,
     parent: Option<DefId>,
 }
 
 impl Definition {
-    pub fn builtin(id: DefId, name: &str) -> Self {
+    pub fn builtin(id: DefId, name: &str, type_params: Vec<DefId>) -> Self {
         Self {
             id,
             name: name.to_string(),
             kind: DefKind::Builtin,
             scope: 0,
             span: SourceSpan::from(0),
+            type_params,
             parent: None,
         }
     }
@@ -57,11 +60,26 @@ impl DefMap {
     }
     pub fn with_builtins() -> Self {
         let mut defs = HashMap::new();
-        defs.insert(0, Definition::builtin(0, "Int"));
-        defs.insert(1, Definition::builtin(1, "Float"));
-        defs.insert(2, Definition::builtin(1, "String"));
-        defs.insert(3, Definition::builtin(1, "Bool"));
-        defs.insert(4, Definition::builtin(1, "Nil"));
+        defs.insert(0, Definition::builtin(0, "Int", vec![]));
+        defs.insert(1, Definition::builtin(1, "Float", vec![]));
+        defs.insert(2, Definition::builtin(2, "String", vec![]));
+        defs.insert(3, Definition::builtin(3, "Bool", vec![]));
+        defs.insert(4, Definition::builtin(4, "Nil", vec![]));
+        let def_vec_id = 5;
+        let def_t_id = 6;
+        defs.insert(
+            def_t_id,
+            Definition {
+                id: def_t_id,
+                name: "T".to_string(),
+                parent: Some(def_vec_id),
+                kind: DefKind::TypeParam,
+                scope: 0,
+                span: SourceSpan::from(0),
+                type_params: vec![],
+            },
+        );
+        defs.insert(def_vec_id, Definition::builtin(5, "Vec", vec![def_t_id]));
 
         let mut name_to_def = HashMap::new();
         name_to_def.insert((0, "Int".to_string()), 0);
@@ -69,14 +87,46 @@ impl DefMap {
         name_to_def.insert((0, "String".to_string()), 2);
         name_to_def.insert((0, "Bool".to_string()), 3);
         name_to_def.insert((0, "Nil".to_string()), 4);
+        name_to_def.insert((0, "Vec".to_string()), def_vec_id);
 
         Self {
-            next_def_id: 5,
+            next_def_id: 6,
             defs,
             name_to_def,
         }
     }
-    pub fn insert(&mut self, name: &str, kind: DefKind, scope: ScopeId, span: SourceSpan, parent: Option<DefId>) -> DefId {
+
+    pub fn insert_with_id(
+        &mut self,
+        id: DefId,
+        name: &str,
+        kind: DefKind,
+        scope: ScopeId,
+        span: SourceSpan,
+        parent: Option<DefId>,
+        type_params: Vec<DefId>,
+    ) {
+        let def = Definition {
+            id,
+            name: name.to_string(),
+            kind,
+            scope,
+            span,
+            parent,
+            type_params,
+        };
+        self.defs.insert(id, def);
+        self.name_to_def.insert((scope, name.to_string()), id);
+    }
+    pub fn insert(
+        &mut self,
+        name: &str,
+        kind: DefKind,
+        scope: ScopeId,
+        span: SourceSpan,
+        parent: Option<DefId>,
+        type_params: Vec<DefId>,
+    ) -> DefId {
         let id = self.next_def_id;
         self.next_def_id += 1;
         let def = Definition {
@@ -86,9 +136,16 @@ impl DefMap {
             scope,
             span,
             parent,
+            type_params,
         };
         self.defs.insert(id, def);
         self.name_to_def.insert((scope, name.to_string()), id);
+        id
+    }
+
+    pub fn allocate_id(&mut self) -> DefId {
+        let id = self.next_def_id;
+        self.next_def_id += 1;
         id
     }
 
@@ -121,11 +178,14 @@ impl ScopeTree {
     pub fn with_builtins() -> Self {
         let mut scopes = HashMap::new();
         let mut symbols = HashMap::new();
+
         symbols.insert("Int".to_string(), 0);
         symbols.insert("Float".to_string(), 1);
         symbols.insert("String".to_string(), 2);
         symbols.insert("Bool".to_string(), 3);
         symbols.insert("Nil".to_string(), 4);
+        symbols.insert("Vec".to_string(), 5);
+
         let global_scope = Scope {
             id: 0,
             parent: None,
@@ -219,6 +279,19 @@ impl<T> IrNode<T> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedType {
+    Named(DefId),
+    Function {
+        params: Vec<ResolvedType>,
+        return_type: Box<ResolvedType>,
+    },
+    Generic {
+        base: DefId,
+        args: Vec<ResolvedType>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct IrProgram {
     pub statements: Vec<IrNode<Stmt>>,
     pub span: SourceSpan,
@@ -245,13 +318,13 @@ pub struct ExprStmt {
 pub struct VarDeclStmt {
     pub ident: Ident,
     pub initializer: Option<IrNode<Expr>>,
-    pub type_annotation: Option<DefId>,
+    pub type_annotation: Option<ResolvedType>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedIdent {
     pub name: Ident,
-    pub type_annotation: DefId,
+    pub type_annotation: ResolvedType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -260,7 +333,7 @@ pub struct FunDeclStmt {
     pub params: Vec<TypedIdent>,
     pub body: IrNode<BlockExpr>,
     pub generics: Vec<Ident>,
-    pub return_type: DefId,
+    pub return_type: ResolvedType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -335,7 +408,7 @@ pub struct CallExpr {
 pub struct LambdaExpr {
     pub parameters: Vec<TypedIdent>,
     pub body: Box<IrNode<BlockExpr>>,
-    pub return_type: DefId,
+    pub return_type: ResolvedType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
