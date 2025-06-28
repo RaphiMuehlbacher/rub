@@ -68,6 +68,7 @@ impl<'a> AstLowerer<'a> {
             ast::Stmt::FunDecl(fun_decl) => {
                 let def_id = self.scope_tree.resolve_name(self.current_scope, &fun_decl.ident.node).unwrap();
                 let def = self.def_map.defs.get(&def_id).unwrap();
+
                 let old_scope = self.current_scope;
                 self.current_scope = def.scope;
 
@@ -79,11 +80,13 @@ impl<'a> AstLowerer<'a> {
                         type_annotation: self.lower_type(&p.type_annotation),
                     })
                     .collect();
+
                 let generics = fun_decl
                     .generics
                     .iter()
                     .map(|g| ir::Ident::from_ast(&g, self.scope_tree, self.current_scope))
                     .collect();
+
                 let body = self.lower_block_expr(&fun_decl.body);
                 let return_type = self.lower_type(&fun_decl.return_type);
 

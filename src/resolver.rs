@@ -5,7 +5,7 @@ use crate::error::ResolverError::{
     UninitializedVariable,
 };
 
-use crate::ir::{DefKind, DefMap, ResolutionMap, ScopeId, ScopeTree};
+use crate::ir::{DefId, DefKind, DefMap, ResolutionMap, ScopeId, ScopeTree};
 use miette::Report;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
@@ -176,7 +176,7 @@ impl<'a> Resolver<'a> {
                     DefKind::Struct,
                     self.current_scope,
                     struct_decl.ident.span,
-                    Some(self.current_scope),
+                    None,
                     vec![],
                 );
 
@@ -224,7 +224,18 @@ impl<'a> Resolver<'a> {
                 );
             }
             Stmt::FunDecl(fun_decl) => {
-                let function_def_id = self.def_map.allocate_id();
+                let function_def_id = match self.scope_tree.resolve_name(self.current_scope, &fun_decl.ident.node) {
+                    None => self.def_map.insert(
+                        &fun_decl.ident.node,
+                        DefKind::Function,
+                        self.current_scope,
+                        fun_decl.ident.span,
+                        None,
+                        vec![],
+                    ),
+                    Some(def_id) => def_id,
+                };
+
                 self.scope_tree
                     .insert_symbol(self.current_scope, &fun_decl.ident.node, function_def_id);
 
@@ -253,7 +264,8 @@ impl<'a> Resolver<'a> {
                     self.scope_tree.insert_symbol(self.current_scope, &generic_param.node, def_id_t);
                     generic_param_ids.push(def_id_t);
                 }
-                self.def_map.insert(
+                self.def_map.insert_with_id(
+                    function_def_id,
                     &fun_decl.ident.node,
                     DefKind::Function,
                     self.current_scope,
@@ -309,7 +321,7 @@ impl<'a> Resolver<'a> {
                         DefKind::Struct,
                         self.current_scope,
                         struct_decl.ident.span,
-                        Some(self.current_scope),
+                        None,
                         vec![],
                     ),
                 };

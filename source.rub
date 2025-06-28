@@ -1,10 +1,9 @@
 struct Person {
-    animal: Animal,
-}
-
-struct Animal {
     age: Float,
 }
+let p1 = Person { age: 3.0 };
+fn p_function(p: Person) -> Float {
+    return p.age;
+}
 
-let a = Animal {age: 3.0};
-let p = Person {animal: a};
+p_function(p1);
