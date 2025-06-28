@@ -1,6 +1,6 @@
 use rub::ast_lowerer::AstLowerer;
 // use rub::interpreter::Interpreter;
-use rub::{Lexer, MethodRegistry, Parser, Resolver};
+use rub::{Lexer, Parser, Resolver, TypeInferrer};
 use std::fs;
 use std::time::Instant;
 
@@ -39,7 +39,6 @@ fn interpret(code: &str) {
 
     let mut resolver = Resolver::new(&parse_result.ast, code.to_string());
     let resolve_result = resolver.resolve();
-    let a = resolve_result.def_map;
     time_log!(start, "Resolving");
 
     if !resolve_result.errors.is_empty() {
@@ -49,28 +48,27 @@ fn interpret(code: &str) {
         return;
     }
 
-    let mut ast_lowerer = AstLowerer::new(&parse_result.ast, resolve_result.resolution_map);
+    let mut ast_lowerer = AstLowerer::new(
+        &parse_result.ast,
+        resolve_result.resolution_map,
+        resolve_result.scope_tree,
+        resolve_result.def_map,
+    );
     let ast_lowerer_result = ast_lowerer.lower();
     time_log!(start, "Lowering");
 
-    let method_registry = MethodRegistry::new(resolve_result.def_map);
+    // let method_registry = MethodRegistry::new(resolve_result.def_map);
     //
-    // let mut defs_for_type = defs.clone();
-    // let mut type_inferrer = TypeInferrer::new(
-    //     &ast_lowerer_result.ir_program,
-    //     &mut defs_for_type,
-    //     &method_registry,
-    //     code.to_string(),
-    // );
-    // let type_inference_result = type_inferrer.infer();
-    // time_log!(start, "Type Inference");
-    //
-    // if !type_inference_result.errors.is_empty() {
-    //     for error in type_inference_result.errors {
-    //         println!("{:?}", error);
-    //     }
-    //     return;
-    // }
+    let mut type_inferrer = TypeInferrer::new(&ast_lowerer_result.ir_program, &resolve_result.def_map, code.to_string());
+    let type_inference_result = type_inferrer.infer();
+    time_log!(start, "Type Inference");
+
+    if !type_inference_result.errors.is_empty() {
+        for error in type_inference_result.errors {
+            println!("{:?}", error);
+        }
+        return;
+    }
     //
     // let mut defs_for_interpreting = defs.clone();
     // let mut interpreter = Interpreter::new(

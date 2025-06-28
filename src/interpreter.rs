@@ -5,10 +5,8 @@ use crate::ir::{
 };
 
 use crate::builtins::{clock_native, print_native};
-use crate::error::InterpreterError;
 use crate::error::RuntimeError::DivisionByZero;
 use crate::interpreter::Function::{NativeFunction, UserFunction};
-use crate::ir::TypeVarId;
 use miette::Report;
 use std::cell::RefCell;
 use std::cmp::PartialEq;

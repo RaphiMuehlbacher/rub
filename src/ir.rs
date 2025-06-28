@@ -49,12 +49,6 @@ pub struct DefMap {
 }
 
 impl DefMap {
-    pub fn new() -> Self {
-        Self {
-            next_def_id: 1,
-            defs: HashMap::new(),
-        }
-    }
     pub fn with_builtins() -> Self {
         let mut defs = HashMap::new();
         defs.insert(0, Definition::builtin(0, "Int", vec![]));
@@ -78,7 +72,7 @@ impl DefMap {
         );
         defs.insert(def_vec_id, Definition::builtin(5, "Vec", vec![def_t_id]));
 
-        Self { next_def_id: 6, defs }
+        Self { next_def_id: 7, defs }
     }
 
     pub fn insert_with_id(
@@ -123,7 +117,6 @@ impl DefMap {
             type_params,
         };
         self.defs.insert(id, def);
-        self.name_to_def.insert((scope, name.to_string()), id);
         id
     }
 
@@ -307,8 +300,12 @@ impl Ident {
         }
     }
 
-    pub fn from_ast(ident: &ast::AstNode<String>, resolution_map: &ResolutionMap) -> Self {
-        Ident::new(&ident.node, ident.span, resolution_map.get(ident.node_id))
+    pub fn from_ast(ident: &ast::AstNode<String>, scope_tree: &ScopeTree, current_scope: ScopeId) -> Self {
+        Ident::new(
+            &ident.node,
+            ident.span,
+            scope_tree.resolve_name(current_scope, &ident.node).unwrap(),
+        )
     }
 }
 
@@ -443,13 +440,13 @@ pub struct StructInitExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldAccessExpr {
     pub receiver: Box<IrNode<Expr>>,
-    pub field: Ident,
+    pub field: IrNode<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldAssignExpr {
     pub receiver: Box<IrNode<Expr>>,
-    pub field: Ident,
+    pub field: IrNode<String>,
     pub value: Box<IrNode<Expr>>,
 }
 

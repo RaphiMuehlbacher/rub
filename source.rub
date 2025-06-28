@@ -1,5 +1,10 @@
 struct Person {
-    a: String,
+    animal: Animal,
 }
 
-let a = Person { a: "hi"};
+struct Animal {
+    age: Float,
+}
+
+let a = Animal {age: 3.0};
+let p = Person {animal: a};

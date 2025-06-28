@@ -21,6 +21,7 @@ pub struct ResolverResult<'a> {
     pub errors: &'a Vec<Report>,
     pub resolution_map: &'a ResolutionMap,
     pub def_map: &'a mut DefMap,
+    pub scope_tree: &'a mut ScopeTree,
 }
 
 pub struct Resolver<'a> {
@@ -68,6 +69,8 @@ impl<'a> Resolver<'a> {
     }
 
     pub fn resolve(&mut self) -> ResolverResult {
+        self.enter_scope();
+
         for stmt in &self.program.statements {
             self.declare_stmt(&stmt.node);
         }
@@ -80,6 +83,7 @@ impl<'a> Resolver<'a> {
             errors: &self.errors,
             resolution_map: &self.resolution_map,
             def_map: &mut self.def_map,
+            scope_tree: &mut self.scope_tree,
         }
     }
 
@@ -167,33 +171,29 @@ impl<'a> Resolver<'a> {
                 }
             }
             Stmt::StructDecl(struct_decl) => {
-                let name = &struct_decl.ident.node;
+                let struct_def_id = self.def_map.insert(
+                    &struct_decl.ident.node,
+                    DefKind::Struct,
+                    self.current_scope,
+                    struct_decl.ident.span,
+                    Some(self.current_scope),
+                    vec![],
+                );
 
-                let struct_def_id = self
-                    .def_map
-                    .insert(name, DefKind::Struct, self.current_scope, struct_decl.ident.span, None, vec![]);
+                self.scope_tree
+                    .insert_symbol(self.current_scope, &struct_decl.ident.node, struct_def_id);
 
-                self.scope_tree.insert_symbol(self.current_scope, name, struct_def_id);
-                if self
-                    .curr_scope()
-                    .insert(
-                        name.clone(),
-                        Symbol::Struct {
-                            fields: struct_decl.fields.clone(),
-                        },
-                    )
-                    .is_some()
-                {
-                    self.report(ResolverError::DuplicateStruct {
-                        src: self.source.clone(),
-                        span: struct_decl.ident.span,
-                        name: name.clone(),
-                    })
-                }
+                self.curr_scope().insert(
+                    struct_decl.ident.node.clone(),
+                    Symbol::Struct {
+                        fields: struct_decl.fields.clone(),
+                    },
+                );
             }
             _ => {}
         }
     }
+
     fn resolve_stmt(&mut self, stmt: &AstNode<Stmt>) {
         match &stmt.node {
             Stmt::ExprStmtNode(expr_stmt) => self.resolve_expr(&expr_stmt.expr),
@@ -302,15 +302,37 @@ impl<'a> Resolver<'a> {
                 self.exit_scope();
             }
             Stmt::StructDecl(struct_decl) => {
-                let name = struct_decl.ident.node.clone();
+                let struct_def_id = match self.scope_tree.resolve_name(self.current_scope, &struct_decl.ident.node) {
+                    Some(def_id) => def_id,
+                    None => self.def_map.insert(
+                        &struct_decl.ident.node,
+                        DefKind::Struct,
+                        self.current_scope,
+                        struct_decl.ident.span,
+                        Some(self.current_scope),
+                        vec![],
+                    ),
+                };
+
+                self.scope_tree
+                    .insert_symbol(self.current_scope, &struct_decl.ident.node, struct_def_id);
+
                 self.curr_scope().insert(
-                    name.clone(),
+                    struct_decl.ident.node.clone(),
                     Symbol::Struct {
                         fields: struct_decl.fields.clone(),
                     },
                 );
 
                 for field in &struct_decl.fields {
+                    self.def_map.insert(
+                        &field.name.node,
+                        DefKind::Field,
+                        self.current_scope,
+                        field.name.span,
+                        Some(struct_def_id),
+                        vec![],
+                    );
                     self.resolve_unresolved_type(&field.type_annotation);
                 }
             }

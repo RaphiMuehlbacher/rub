@@ -1,5 +1,5 @@
-use crate::error::InterpreterError;
 use crate::error::RuntimeError::IndexOutOfBounds;
+use crate::interpreter::InterpreterError;
 use crate::interpreter::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 

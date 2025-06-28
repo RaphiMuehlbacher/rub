@@ -1,5 +1,5 @@
 use crate::ast::{AstNode, AstProgram};
-use crate::ir::{IrNode, IrProgram, ResolutionMap, ResolvedType};
+use crate::ir::{DefMap, Definition, IrNode, IrProgram, ResolutionMap, ResolvedType, ScopeId, ScopeTree};
 use crate::{ast, ir};
 use miette::Report;
 
@@ -12,14 +12,20 @@ pub struct AstLowerer<'a> {
     ast_program: &'a AstProgram,
     errors: Vec<Report>,
     resolution_map: &'a ResolutionMap,
+    scope_tree: &'a mut ScopeTree,
+    def_map: &'a DefMap,
+    current_scope: ScopeId,
 }
 
 impl<'a> AstLowerer<'a> {
-    pub fn new(ast_program: &'a AstProgram, resolution_map: &'a ResolutionMap) -> Self {
+    pub fn new(ast_program: &'a AstProgram, resolution_map: &'a ResolutionMap, scope_tree: &'a mut ScopeTree, def_map: &'a DefMap) -> Self {
         Self {
             errors: vec![],
             ast_program,
             resolution_map,
+            scope_tree,
+            def_map,
+            current_scope: 1,
         }
     }
 
@@ -52,7 +58,7 @@ impl<'a> AstLowerer<'a> {
 
                 IrNode::new(
                     ir::Stmt::VarDecl(ir::VarDeclStmt {
-                        ident: ir::Ident::from_ast(&var_decl.ident, self.resolution_map),
+                        ident: ir::Ident::from_ast(&var_decl.ident, self.scope_tree, self.current_scope),
                         initializer,
                         type_annotation,
                     }),
@@ -60,25 +66,32 @@ impl<'a> AstLowerer<'a> {
                 )
             }
             ast::Stmt::FunDecl(fun_decl) => {
+                let def_id = self.scope_tree.resolve_name(self.current_scope, &fun_decl.ident.node).unwrap();
+                let def = self.def_map.defs.get(&def_id).unwrap();
+                let old_scope = self.current_scope;
+                self.current_scope = def.scope;
+
                 let params = fun_decl
                     .params
                     .iter()
                     .map(|p| ir::TypedIdent {
-                        name: ir::Ident::from_ast(&p.name, self.resolution_map),
+                        name: ir::Ident::from_ast(&p.name, self.scope_tree, self.current_scope),
                         type_annotation: self.lower_type(&p.type_annotation),
                     })
                     .collect();
                 let generics = fun_decl
                     .generics
                     .iter()
-                    .map(|g| ir::Ident::from_ast(&g, self.resolution_map))
+                    .map(|g| ir::Ident::from_ast(&g, self.scope_tree, self.current_scope))
                     .collect();
                 let body = self.lower_block_expr(&fun_decl.body);
                 let return_type = self.lower_type(&fun_decl.return_type);
 
+                self.current_scope = old_scope;
+
                 IrNode::new(
                     ir::Stmt::FunDecl(ir::FunDeclStmt {
-                        ident: ir::Ident::from_ast(&fun_decl.ident, self.resolution_map),
+                        ident: ir::Ident::from_ast(&fun_decl.ident, self.scope_tree, self.current_scope),
                         params,
                         body,
                         generics,
@@ -88,22 +101,32 @@ impl<'a> AstLowerer<'a> {
                 )
             }
             ast::Stmt::StructDecl(struct_decl) => {
+                let def_id = self.scope_tree.resolve_name(self.current_scope, &struct_decl.ident.node).unwrap();
+                let def = self.def_map.defs.get(&def_id).unwrap();
+
+                let old_scope = self.current_scope;
+                self.current_scope = def.scope;
+
+                let field_defs: Vec<&Definition> = self.def_map.defs.values().filter(|f| f.parent == Some(def_id)).collect();
+
                 let fields = struct_decl
                     .fields
                     .iter()
                     .map(|f| {
                         let annotation = self.lower_type(&f.type_annotation);
+                        let field_def_id = field_defs.iter().find(|fd| f.name.node == fd.name).unwrap();
 
                         ir::TypedIdent {
-                            name: ir::Ident::from_ast(&f.name, self.resolution_map),
+                            name: ir::Ident::new(&f.name.node, f.name.span, field_def_id.id),
                             type_annotation: annotation,
                         }
                     })
                     .collect();
 
+                self.current_scope = old_scope;
                 IrNode::new(
                     ir::Stmt::StructDecl(ir::StructDeclStmt {
-                        ident: ir::Ident::from_ast(&struct_decl.ident, self.resolution_map),
+                        ident: ir::Ident::from_ast(&struct_decl.ident, self.scope_tree, self.current_scope),
                         fields,
                     }),
                     stmt.span,
@@ -220,10 +243,13 @@ impl<'a> AstLowerer<'a> {
                 )
             }
             ast::Expr::Grouping(grouping) => IrNode::new(ir::Expr::Grouping(Box::new(self.lower_expr(grouping))), expr.span),
-            ast::Expr::Variable(variable) => IrNode::new(ir::Expr::Variable(ir::Ident::from_ast(variable, self.resolution_map)), expr.span),
+            ast::Expr::Variable(variable) => IrNode::new(
+                ir::Expr::Variable(ir::Ident::from_ast(variable, self.scope_tree, self.current_scope)),
+                expr.span,
+            ),
             ast::Expr::Assign(assign_expr) => IrNode::new(
                 ir::Expr::Assign(ir::AssignExpr {
-                    target: ir::Ident::from_ast(&assign_expr.target, self.resolution_map),
+                    target: ir::Ident::from_ast(&assign_expr.target, self.scope_tree, self.current_scope),
                     value: Box::new(self.lower_expr(&assign_expr.value)),
                 }),
                 expr.span,
@@ -255,7 +281,7 @@ impl<'a> AstLowerer<'a> {
                         .parameters
                         .iter()
                         .map(|p| ir::TypedIdent {
-                            name: ir::Ident::from_ast(&p.name, self.resolution_map),
+                            name: ir::Ident::from_ast(&p.name, self.scope_tree, self.current_scope),
                             type_annotation: self.lower_type(&p.type_annotation),
                         })
                         .collect(),
@@ -279,33 +305,41 @@ impl<'a> AstLowerer<'a> {
             ast::Expr::MethodCall(method_call) => IrNode::new(
                 ir::Expr::MethodCall(ir::MethodCallExpr {
                     receiver: Box::new(self.lower_expr(&method_call.receiver)),
-                    method: ir::Ident::from_ast(&method_call.method, self.resolution_map),
+                    method: ir::Ident::from_ast(&method_call.method, self.scope_tree, self.current_scope),
                     arguments: method_call.arguments.iter().map(|arg| self.lower_expr(arg)).collect(),
                 }),
                 expr.span,
             ),
-            ast::Expr::StructInit(struct_init) => IrNode::new(
-                ir::Expr::StructInit(ir::StructInitExpr {
-                    name: ir::Ident::from_ast(&struct_init.name, self.resolution_map),
-                    fields: struct_init
-                        .fields
-                        .iter()
-                        .map(|(name, value)| (ir::Ident::from_ast(name, self.resolution_map), self.lower_expr(value)))
-                        .collect(),
-                }),
-                expr.span,
-            ),
+            ast::Expr::StructInit(struct_init) => {
+                let struct_def_id = self.scope_tree.resolve_name(self.current_scope, &struct_init.name.node);
+                let field_defs: Vec<&Definition> = self.def_map.defs.values().filter(|f| f.parent == struct_def_id).collect();
+                let mut lowered_fields: Vec<(ir::Ident, IrNode<ir::Expr>)> = vec![];
+
+                for field in &struct_init.fields {
+                    let field_def = field_defs.iter().find(|def| def.name == field.0.node).unwrap();
+                    let ident = ir::Ident::new(&field_def.name, field_def.span, field_def.id);
+                    let lowered_expr = self.lower_expr(&field.1);
+                    lowered_fields.push((ident, lowered_expr));
+                }
+                IrNode::new(
+                    ir::Expr::StructInit(ir::StructInitExpr {
+                        name: ir::Ident::from_ast(&struct_init.name, self.scope_tree, self.current_scope),
+                        fields: lowered_fields,
+                    }),
+                    expr.span,
+                )
+            }
             ast::Expr::FieldAccess(field_access) => IrNode::new(
                 ir::Expr::FieldAccess(ir::FieldAccessExpr {
                     receiver: Box::new(self.lower_expr(&field_access.receiver)),
-                    field: ir::Ident::from_ast(&field_access.field, self.resolution_map),
+                    field: IrNode::new(field_access.field.node.clone(), field_access.field.span),
                 }),
                 expr.span,
             ),
             ast::Expr::FieldAssign(field_assign) => IrNode::new(
                 ir::Expr::FieldAssign(ir::FieldAssignExpr {
                     receiver: Box::new(self.lower_expr(&field_assign.receiver)),
-                    field: ir::Ident::from_ast(&field_assign.field, self.resolution_map),
+                    field: IrNode::new(field_assign.field.node.clone(), field_assign.field.span),
                     value: Box::new(self.lower_expr(&field_assign.value)),
                 }),
                 expr.span,
