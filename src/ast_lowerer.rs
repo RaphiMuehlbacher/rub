@@ -1,5 +1,5 @@
 use crate::ast::{AstNode, AstProgram};
-use crate::ir::{DefMap, IrNode, IrProgram, ResolutionMap, ResolvedType};
+use crate::ir::{IrNode, IrProgram, ResolutionMap, ResolvedType};
 use crate::{ast, ir};
 use miette::Report;
 
@@ -12,16 +12,14 @@ pub struct AstLowerer<'a> {
     ast_program: &'a AstProgram,
     errors: Vec<Report>,
     resolution_map: &'a ResolutionMap,
-    def_map: &'a DefMap,
 }
 
 impl<'a> AstLowerer<'a> {
-    pub fn new(ast_program: &'a AstProgram, resolution_map: &'a ResolutionMap, def_map: &'a DefMap) -> Self {
+    pub fn new(ast_program: &'a AstProgram, resolution_map: &'a ResolutionMap) -> Self {
         Self {
             errors: vec![],
             ast_program,
             resolution_map,
-            def_map,
         }
     }
 
@@ -49,13 +47,12 @@ impl<'a> AstLowerer<'a> {
                 stmt.span,
             ),
             ast::Stmt::VarDecl(var_decl) => {
-                let name = IrNode::new(var_decl.ident.node.clone(), var_decl.ident.span);
                 let initializer = var_decl.initializer.as_ref().map(|init| self.lower_expr(init));
                 let type_annotation = var_decl.type_annotation.as_ref().map(|ty| self.lower_type(ty));
 
                 IrNode::new(
                     ir::Stmt::VarDecl(ir::VarDeclStmt {
-                        ident: name,
+                        ident: ir::Ident::from_ast(&var_decl.ident, self.resolution_map),
                         initializer,
                         type_annotation,
                     }),
@@ -63,22 +60,25 @@ impl<'a> AstLowerer<'a> {
                 )
             }
             ast::Stmt::FunDecl(fun_decl) => {
-                let name = IrNode::new(fun_decl.ident.node.clone(), fun_decl.ident.span);
                 let params = fun_decl
                     .params
                     .iter()
                     .map(|p| ir::TypedIdent {
-                        name: ir::Ident::new(p.name.node.clone(), p.name.span),
+                        name: ir::Ident::from_ast(&p.name, self.resolution_map),
                         type_annotation: self.lower_type(&p.type_annotation),
                     })
                     .collect();
-                let generics = fun_decl.generics.iter().map(|g| IrNode::new(g.node.clone(), g.span)).collect();
+                let generics = fun_decl
+                    .generics
+                    .iter()
+                    .map(|g| ir::Ident::from_ast(&g, self.resolution_map))
+                    .collect();
                 let body = self.lower_block_expr(&fun_decl.body);
                 let return_type = self.lower_type(&fun_decl.return_type);
 
                 IrNode::new(
                     ir::Stmt::FunDecl(ir::FunDeclStmt {
-                        ident: name,
+                        ident: ir::Ident::from_ast(&fun_decl.ident, self.resolution_map),
                         params,
                         body,
                         generics,
@@ -88,8 +88,6 @@ impl<'a> AstLowerer<'a> {
                 )
             }
             ast::Stmt::StructDecl(struct_decl) => {
-                let name = IrNode::new(struct_decl.ident.node.clone(), struct_decl.ident.span);
-
                 let fields = struct_decl
                     .fields
                     .iter()
@@ -97,13 +95,19 @@ impl<'a> AstLowerer<'a> {
                         let annotation = self.lower_type(&f.type_annotation);
 
                         ir::TypedIdent {
-                            name: IrNode::new(f.name.node.clone(), f.name.span),
+                            name: ir::Ident::from_ast(&f.name, self.resolution_map),
                             type_annotation: annotation,
                         }
                     })
                     .collect();
 
-                IrNode::new(ir::Stmt::StructDecl(ir::StructDeclStmt { ident: name, fields }), stmt.span)
+                IrNode::new(
+                    ir::Stmt::StructDecl(ir::StructDeclStmt {
+                        ident: ir::Ident::from_ast(&struct_decl.ident, self.resolution_map),
+                        fields,
+                    }),
+                    stmt.span,
+                )
             }
             ast::Stmt::While(while_stmt) => IrNode::new(
                 ir::Stmt::While(ir::WhileStmt {
@@ -216,10 +220,10 @@ impl<'a> AstLowerer<'a> {
                 )
             }
             ast::Expr::Grouping(grouping) => IrNode::new(ir::Expr::Grouping(Box::new(self.lower_expr(grouping))), expr.span),
-            ast::Expr::Variable(variable) => IrNode::new(ir::Expr::Variable(IrNode::new(variable.node.clone(), variable.span)), expr.span),
+            ast::Expr::Variable(variable) => IrNode::new(ir::Expr::Variable(ir::Ident::from_ast(variable, self.resolution_map)), expr.span),
             ast::Expr::Assign(assign_expr) => IrNode::new(
                 ir::Expr::Assign(ir::AssignExpr {
-                    target: IrNode::new(assign_expr.target.node.clone(), assign_expr.target.span),
+                    target: ir::Ident::from_ast(&assign_expr.target, self.resolution_map),
                     value: Box::new(self.lower_expr(&assign_expr.value)),
                 }),
                 expr.span,
@@ -251,7 +255,7 @@ impl<'a> AstLowerer<'a> {
                         .parameters
                         .iter()
                         .map(|p| ir::TypedIdent {
-                            name: IrNode::new(p.name.node.clone(), p.name.span),
+                            name: ir::Ident::from_ast(&p.name, self.resolution_map),
                             type_annotation: self.lower_type(&p.type_annotation),
                         })
                         .collect(),
@@ -275,18 +279,18 @@ impl<'a> AstLowerer<'a> {
             ast::Expr::MethodCall(method_call) => IrNode::new(
                 ir::Expr::MethodCall(ir::MethodCallExpr {
                     receiver: Box::new(self.lower_expr(&method_call.receiver)),
-                    method: IrNode::new(method_call.method.node.clone(), method_call.method.span),
+                    method: ir::Ident::from_ast(&method_call.method, self.resolution_map),
                     arguments: method_call.arguments.iter().map(|arg| self.lower_expr(arg)).collect(),
                 }),
                 expr.span,
             ),
             ast::Expr::StructInit(struct_init) => IrNode::new(
                 ir::Expr::StructInit(ir::StructInitExpr {
-                    name: IrNode::new(struct_init.name.node.clone(), struct_init.name.span),
+                    name: ir::Ident::from_ast(&struct_init.name, self.resolution_map),
                     fields: struct_init
                         .fields
                         .iter()
-                        .map(|(name, value)| (IrNode::new(name.node.clone(), name.span), self.lower_expr(value)))
+                        .map(|(name, value)| (ir::Ident::from_ast(name, self.resolution_map), self.lower_expr(value)))
                         .collect(),
                 }),
                 expr.span,
@@ -294,14 +298,14 @@ impl<'a> AstLowerer<'a> {
             ast::Expr::FieldAccess(field_access) => IrNode::new(
                 ir::Expr::FieldAccess(ir::FieldAccessExpr {
                     receiver: Box::new(self.lower_expr(&field_access.receiver)),
-                    field: IrNode::new(field_access.field.node.clone(), field_access.field.span),
+                    field: ir::Ident::from_ast(&field_access.field, self.resolution_map),
                 }),
                 expr.span,
             ),
             ast::Expr::FieldAssign(field_assign) => IrNode::new(
                 ir::Expr::FieldAssign(ir::FieldAssignExpr {
                     receiver: Box::new(self.lower_expr(&field_assign.receiver)),
-                    field: IrNode::new(field_assign.field.node.clone(), field_assign.field.span),
+                    field: ir::Ident::from_ast(&field_assign.field, self.resolution_map),
                     value: Box::new(self.lower_expr(&field_assign.value)),
                 }),
                 expr.span,

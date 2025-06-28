@@ -1,13 +1,5 @@
 struct Person {
-    a: Person,
+    a: String,
 }
 
-fn a(b: (Vec<Int>) -> Int) -> Int {
-    return b(4);
-}
-
-fn b(a: Int) -> Int {
-    return a + 1;
-}
-
-print(a(b));
+let a = Person { a: "hi"};

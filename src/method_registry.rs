@@ -1,12 +1,12 @@
 use crate::builtins::{float_vec_sum_method, int_vec_sum_method, vec_first_method, vec_get_method, vec_len_method, vec_push_method};
-use crate::error::InterpreterError;
-use crate::interpreter::{Function, Value};
-use crate::ir::{DefMap, FunctionDef, ResolvedType};
+use crate::interpreter::{Function, InterpreterError, Value};
+use crate::ir::{DefMap, ResolvedType};
+use crate::type_inferrer::Type;
 use std::collections::HashMap;
 
 pub struct MethodRegistry<'a> {
     defs: &'a mut DefMap,
-    methods: HashMap<ResolvedType, HashMap<String, (ResolvedType, Function)>>,
+    methods: HashMap<Type, HashMap<String, (Type, Function)>>,
 }
 
 impl<'a> MethodRegistry<'a> {
@@ -19,7 +19,7 @@ impl<'a> MethodRegistry<'a> {
         registry
     }
 
-    pub fn lookup_method(&self, base_type: &ResolvedType, method_name: &str) -> Option<&(ResolvedType, Function)> {
+    pub fn lookup_method(&self, base_type: &Type, method_name: &str) -> Option<&(Type, Function)> {
         if let Some(methods) = self.methods.get(base_type) {
             if let Some(method) = methods.get(method_name) {
                 return Some(method);

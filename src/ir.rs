@@ -1,8 +1,7 @@
+use crate::ast;
 use crate::ast::AstId;
 use miette::SourceSpan;
 use std::collections::HashMap;
-
-pub type TypeVarId = usize;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DefKind {
@@ -17,13 +16,13 @@ pub enum DefKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Definition {
-    id: DefId,
-    name: String,
-    kind: DefKind,
-    scope: ScopeId,
-    span: SourceSpan,
-    type_params: Vec<DefId>,
-    parent: Option<DefId>,
+    pub id: DefId,
+    pub name: String,
+    pub kind: DefKind,
+    pub scope: ScopeId,
+    pub span: SourceSpan,
+    pub type_params: Vec<DefId>,
+    pub parent: Option<DefId>,
 }
 
 impl Definition {
@@ -47,7 +46,6 @@ pub type DefId = usize;
 pub struct DefMap {
     pub next_def_id: DefId,
     pub defs: HashMap<DefId, Definition>,
-    pub name_to_def: HashMap<(ScopeId, String), DefId>,
 }
 
 impl DefMap {
@@ -55,7 +53,6 @@ impl DefMap {
         Self {
             next_def_id: 1,
             defs: HashMap::new(),
-            name_to_def: HashMap::new(),
         }
     }
     pub fn with_builtins() -> Self {
@@ -81,19 +78,7 @@ impl DefMap {
         );
         defs.insert(def_vec_id, Definition::builtin(5, "Vec", vec![def_t_id]));
 
-        let mut name_to_def = HashMap::new();
-        name_to_def.insert((0, "Int".to_string()), 0);
-        name_to_def.insert((0, "Float".to_string()), 1);
-        name_to_def.insert((0, "String".to_string()), 2);
-        name_to_def.insert((0, "Bool".to_string()), 3);
-        name_to_def.insert((0, "Nil".to_string()), 4);
-        name_to_def.insert((0, "Vec".to_string()), def_vec_id);
-
-        Self {
-            next_def_id: 6,
-            defs,
-            name_to_def,
-        }
+        Self { next_def_id: 6, defs }
     }
 
     pub fn insert_with_id(
@@ -116,7 +101,6 @@ impl DefMap {
             type_params,
         };
         self.defs.insert(id, def);
-        self.name_to_def.insert((scope, name.to_string()), id);
     }
     pub fn insert(
         &mut self,
@@ -149,7 +133,7 @@ impl DefMap {
         id
     }
 
-    pub fn get_def(&self, id: DefId) -> Option<&Definition> {
+    pub fn get(&self, id: DefId) -> Option<&Definition> {
         self.defs.get(&id)
     }
 }
@@ -253,11 +237,13 @@ impl ResolutionMap {
     }
 }
 
+pub type IrId = usize;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IrNode<T> {
     pub node: T,
     pub span: SourceSpan,
-    pub ir_id: usize,
+    pub ir_id: IrId,
 }
 
 impl<T> IrNode<T> {
@@ -307,7 +293,24 @@ pub enum Stmt {
     Return(ReturnStmt),
 }
 
-pub type Ident = IrNode<String>;
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ident {
+    pub name: IrNode<String>,
+    pub def_id: DefId,
+}
+
+impl Ident {
+    pub fn new(name: &str, span: SourceSpan, def_id: DefId) -> Self {
+        Self {
+            name: IrNode::new(name.to_string(), span),
+            def_id,
+        }
+    }
+
+    pub fn from_ast(ident: &ast::AstNode<String>, resolution_map: &ResolutionMap) -> Self {
+        Ident::new(&ident.node, ident.span, resolution_map.get(ident.node_id))
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExprStmt {

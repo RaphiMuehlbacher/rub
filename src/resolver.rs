@@ -20,7 +20,7 @@ pub enum Symbol {
 pub struct ResolverResult<'a> {
     pub errors: &'a Vec<Report>,
     pub resolution_map: &'a ResolutionMap,
-    pub def_map: &'a DefMap,
+    pub def_map: &'a mut DefMap,
 }
 
 pub struct Resolver<'a> {
@@ -79,7 +79,7 @@ impl<'a> Resolver<'a> {
         ResolverResult {
             errors: &self.errors,
             resolution_map: &self.resolution_map,
-            def_map: &self.def_map,
+            def_map: &mut self.def_map,
         }
     }
 
@@ -368,6 +368,8 @@ impl<'a> Resolver<'a> {
                     });
                 }
                 Some(Symbol::Struct { fields: _ }) => {
+                    let def_id = self.scope_tree.resolve_name(self.current_scope, &struct_init.name.node).unwrap();
+                    self.resolution_map.insert(struct_init.name.node_id, def_id);
                     for (_, value) in &struct_init.fields {
                         self.resolve_expr(value);
                     }
@@ -422,6 +424,11 @@ impl<'a> Resolver<'a> {
                     span: variable_expr.span,
                     name: variable_expr.node.clone(),
                 }),
+                Some(Symbol::Variable { .. }) => {
+                    if let Some(def_id) = self.scope_tree.resolve_name(self.current_scope, &variable_expr.node) {
+                        self.resolution_map.insert(variable_expr.node_id, def_id);
+                    }
+                }
                 None => self.report(UndefinedVariable {
                     src: self.source.clone(),
                     span: variable_expr.span,
@@ -461,7 +468,10 @@ impl<'a> Resolver<'a> {
                             name: ident.node.clone(),
                         })
                     }
+                    let def_id = self.scope_tree.resolve_name(self.current_scope, &ident.node).unwrap();
+                    self.resolution_map.insert(ident.node_id, def_id);
                 }
+
                 for argument in &call.arguments {
                     self.resolve_expr(argument);
                 }

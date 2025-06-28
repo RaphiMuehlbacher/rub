@@ -1,9 +1,6 @@
 use rub::ast_lowerer::AstLowerer;
 // use rub::interpreter::Interpreter;
-use rub::ir::DefMap;
-// use rub::{Lexer, MethodRegistry, Parser, Resolver, TypeInferrer};
-use rub::{Lexer, Parser, Resolver};
-use std::collections::HashMap;
+use rub::{Lexer, MethodRegistry, Parser, Resolver};
 use std::fs;
 use std::time::Instant;
 
@@ -42,7 +39,7 @@ fn interpret(code: &str) {
 
     let mut resolver = Resolver::new(&parse_result.ast, code.to_string());
     let resolve_result = resolver.resolve();
-    let resolution_map = resolve_result.resolution_map.clone();
+    let a = resolve_result.def_map;
     time_log!(start, "Resolving");
 
     if !resolve_result.errors.is_empty() {
@@ -52,16 +49,11 @@ fn interpret(code: &str) {
         return;
     }
 
-    let mut ast_lowerer = AstLowerer::new(&parse_result.ast, &resolution_map, &resolve_result.def_map);
+    let mut ast_lowerer = AstLowerer::new(&parse_result.ast, resolve_result.resolution_map);
     let ast_lowerer_result = ast_lowerer.lower();
     time_log!(start, "Lowering");
 
-    // println!("Ast: {:?}\n", parse_result.ast);
-    println!("Resolution Map: {:?}\n", resolve_result.resolution_map);
-    // println!("Def Map: {:?}\n", resolve_result.def_map);
-
-    // let mut defs_for_registry = defs.clone();
-    // let method_registry = MethodRegistry::new(&mut defs_for_registry);
+    let method_registry = MethodRegistry::new(resolve_result.def_map);
     //
     // let mut defs_for_type = defs.clone();
     // let mut type_inferrer = TypeInferrer::new(
