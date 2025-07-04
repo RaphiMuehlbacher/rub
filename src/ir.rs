@@ -8,6 +8,7 @@ pub enum DefKind {
     Struct,
     Function,
     Parameter,
+    FunctionBody,
     Field,
     Variable,
     TypeParam,
@@ -331,7 +332,6 @@ pub struct TypedIdent {
 pub struct FunDeclStmt {
     pub ident: Ident,
     pub params: Vec<TypedIdent>,
-    pub body: IrNode<BlockExpr>,
     pub generics: Vec<Ident>,
     pub return_type: ResolvedType,
 }

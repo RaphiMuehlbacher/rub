@@ -1,9 +1,15 @@
 struct Person {
-    age: Float,
+    age: Int
 }
-let p1 = Person { age: 3.0 };
-fn p_function(p: Person) -> Float {
-    return p.age;
+fn a(p: Person, b: Person) -> Person {
+    return if p.age > b.age {
+        p
+    } else {
+        b
+    };
 }
 
-p_function(p1);
+
+let per1 = Person {age: 3};
+let per2 = Person {age: 4};
+let age = a(per1, per2);

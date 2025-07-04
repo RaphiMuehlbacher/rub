@@ -309,6 +309,15 @@ impl<'a> Resolver<'a> {
                 for stmt in &fun_decl.body.node.statements {
                     self.resolve_stmt(stmt);
                 }
+                self.def_map.insert(
+                    "",
+                    DefKind::FunctionBody,
+                    self.current_scope,
+                    fun_decl.body.span,
+                    Some(function_def_id),
+                    vec![],
+                );
+
                 self.inside_fn = prev_inside_fn;
                 self.var_env.pop();
                 self.exit_scope();

@@ -1,11 +1,31 @@
 use crate::ast::{AstNode, AstProgram};
-use crate::ir::{DefMap, Definition, IrNode, IrProgram, ResolutionMap, ResolvedType, ScopeId, ScopeTree};
+use crate::ir::{DefId, DefMap, Definition, IrNode, IrProgram, ResolutionMap, ResolvedType, ScopeId, ScopeTree};
 use crate::{ast, ir};
 use miette::Report;
+use std::collections::HashMap;
 
 pub struct AstLowererResult<'a> {
     pub errors: &'a Vec<Report>,
     pub ir_program: IrProgram,
+    pub function_bodies: &'a FunctionBodies,
+}
+
+pub struct FunctionBodies {
+    map: HashMap<DefId, IrNode<ir::BlockExpr>>,
+}
+
+impl FunctionBodies {
+    pub fn new() -> Self {
+        Self { map: HashMap::new() }
+    }
+
+    pub fn insert(&mut self, def_id: DefId, body: IrNode<ir::BlockExpr>) {
+        self.map.insert(def_id, body);
+    }
+
+    pub fn get(&self, def_id: DefId) -> &IrNode<ir::BlockExpr> {
+        self.map.get(&def_id).unwrap()
+    }
 }
 
 pub struct AstLowerer<'a> {
@@ -15,6 +35,7 @@ pub struct AstLowerer<'a> {
     scope_tree: &'a mut ScopeTree,
     def_map: &'a DefMap,
     current_scope: ScopeId,
+    function_bodies: FunctionBodies,
 }
 
 impl<'a> AstLowerer<'a> {
@@ -26,6 +47,7 @@ impl<'a> AstLowerer<'a> {
             scope_tree,
             def_map,
             current_scope: 1,
+            function_bodies: FunctionBodies::new(),
         }
     }
 
@@ -41,6 +63,7 @@ impl<'a> AstLowerer<'a> {
                 statements,
                 span: self.ast_program.span,
             },
+            function_bodies: &self.function_bodies,
         }
     }
 
@@ -88,6 +111,8 @@ impl<'a> AstLowerer<'a> {
                     .collect();
 
                 let body = self.lower_block_expr(&fun_decl.body);
+                self.function_bodies.insert(def_id, body);
+
                 let return_type = self.lower_type(&fun_decl.return_type);
 
                 self.current_scope = old_scope;
@@ -96,7 +121,6 @@ impl<'a> AstLowerer<'a> {
                     ir::Stmt::FunDecl(ir::FunDeclStmt {
                         ident: ir::Ident::from_ast(&fun_decl.ident, self.scope_tree, self.current_scope),
                         params,
-                        body,
                         generics,
                         return_type,
                     }),

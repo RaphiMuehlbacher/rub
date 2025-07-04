@@ -1,7 +1,10 @@
 // use crate::MethodRegistry;
+use crate::ast_lowerer::FunctionBodies;
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::{NonBooleanCondition, NotCallable, TypeMismatch, UnknownMethod, WrongArgumentCount};
-use crate::ir::{BinaryOp, BlockExpr, DefId, DefKind, DefMap, Expr, IrId, IrNode, IrProgram, LiteralExpr, ResolvedType, Stmt, UnaryOp};
+use crate::ir::{
+    BinaryOp, BlockExpr, DefId, DefKind, DefMap, Definition, Expr, IrId, IrNode, IrProgram, LiteralExpr, ResolvedType, Stmt, UnaryOp,
+};
 use miette::{Report, SourceSpan};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter, Pointer};
@@ -249,6 +252,7 @@ pub struct TypeInferrer<'a> {
     type_db: TypeDatabase,
     // method_registry: &'a MethodRegistry<'a>,
     def_map: &'a DefMap,
+    function_bodies: &'a FunctionBodies,
     infer_ctx: TypeVarContext,
 
     current_function_return_ty: Option<Type>,
@@ -260,7 +264,12 @@ pub struct TypeInferenceResult<'a> {
 }
 
 impl<'a> TypeInferrer<'a> {
-    pub fn new(ast: &'a IrProgram, defs: &'a DefMap, /* method_registry: &'a MethodRegistry,*/ source: String) -> Self {
+    pub fn new(
+        ast: &'a IrProgram,
+        defs: &'a DefMap,
+        function_bodies: &'a FunctionBodies,
+        /* method_registry: &'a MethodRegistry,*/ source: String,
+    ) -> Self {
         Self {
             program: ast,
             infer_ctx: TypeVarContext::new(source.clone()),
@@ -268,6 +277,7 @@ impl<'a> TypeInferrer<'a> {
             errors: vec![],
             current_function_return_ty: None,
             type_db: TypeDatabase::new(),
+            function_bodies,
             // method_registry,
             def_map: defs,
         }
@@ -812,32 +822,44 @@ impl<'a> TypeInferrer<'a> {
 
                 match callee_ty {
                     Type::Function { params, return_type } => {
-                        if let Expr::Variable(var) = &call_expr.callee.node {
-                            if let Some(fn_decl) = self.program.statements.iter().find(|stmt| {
-                                if let Stmt::FunDecl(fd) = &stmt.node {
-                                    fd.ident.name.node == var.name.node
-                                } else {
-                                    false
+                        if call_expr.arguments.len() != params.len() {
+                            return Err(WrongArgumentCount {
+                                src: self.source.clone(),
+                                span: call_expr.callee.span,
+                                expected: params.len(),
+                                found: call_expr.arguments.len(),
+                            });
+                        }
+                        for (arg_expr, param_ty) in call_expr.arguments.iter().zip(params.iter()) {
+                            let arg_ty = self.infer_expr(arg_expr)?;
+                            self.infer_ctx.unify(&arg_ty, &param_ty, &arg_expr.span)?;
+                        }
+
+                        if let Expr::Variable(ident) = &call_expr.callee.node {
+                            if let Some(definition) = self.def_map.get(ident.def_id)
+                                && definition.kind == DefKind::Function
+                            {
+                                let old_return_ty = self.current_function_return_ty.clone();
+                                self.current_function_return_ty = Some(*return_type.clone());
+
+                                let param_defs: Vec<&Definition> = self
+                                    .def_map
+                                    .defs
+                                    .values()
+                                    .filter(|p| p.parent == Some(definition.id) && p.kind == DefKind::Parameter)
+                                    .collect();
+                                for (param_def, param_ty) in param_defs.iter().zip(params.iter()) {
+                                    self.type_db.def_types.insert(param_def.id, param_ty.clone());
                                 }
-                            }) {
-                                if let Stmt::FunDecl(fd) = &fn_decl.node {
-                                    for (param, param_ty) in fd.params.iter().zip(params.iter()) {
-                                        self.type_db.def_types.insert(param.name.def_id, param_ty.clone());
-                                    }
+                                let body = self.function_bodies.get(definition.id);
+                                self.infer_stmts(&body.node.statements)?;
 
-                                    let old_return_ty = self.current_function_return_ty.clone();
-                                    self.current_function_return_ty = Some(*return_type.clone());
-
-                                    self.infer_stmts(&fd.body.node.statements)?;
-
-                                    if let Some(expr) = &fd.body.node.expr {
-                                        let body_ty = self.infer_expr(expr)?;
-                                        self.infer_ctx.unify(&return_type, &body_ty, &fd.ident.name.span)?;
-                                    } else if !fd.body.node.statements.iter().any(|stmt| matches!(stmt.node, Stmt::Return(_))) {
-                                        self.infer_ctx.unify(&Type::Nil, &return_type.clone(), &fd.ident.name.span)?;
-                                    }
-                                    self.current_function_return_ty = old_return_ty;
+                                if let Some(expr) = &body.node.expr {
+                                    let body_ty = self.infer_expr(expr)?;
+                                    self.infer_ctx.unify(&body_ty, &return_type, &definition.span)?;
                                 }
+
+                                self.current_function_return_ty = old_return_ty;
                             }
                         }
 

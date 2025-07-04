@@ -59,7 +59,12 @@ fn interpret(code: &str) {
 
     // let method_registry = MethodRegistry::new(resolve_result.def_map);
     //
-    let mut type_inferrer = TypeInferrer::new(&ast_lowerer_result.ir_program, &resolve_result.def_map, code.to_string());
+    let mut type_inferrer = TypeInferrer::new(
+        &ast_lowerer_result.ir_program,
+        &resolve_result.def_map,
+        &ast_lowerer_result.function_bodies,
+        code.to_string(),
+    );
     let type_inference_result = type_inferrer.infer();
     time_log!(start, "Type Inference");
 
