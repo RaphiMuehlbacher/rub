@@ -1,4 +1,4 @@
-// use crate::MethodRegistry;
+use crate::MethodRegistry;
 use crate::ast_lowerer::FunctionBodies;
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::{NonBooleanCondition, NotCallable, TypeMismatch, UnknownMethod, WrongArgumentCount};
@@ -150,7 +150,7 @@ impl TypeVarContext {
 
     fn occurs_in(&self, var: TypeVarId, ty: &Type) -> bool {
         match self.resolve(ty) {
-            Type::Int | Type::Float | Type::String | Type::Bool | Type::Nil | Type::TypeParam(_) => false,
+            Type::Int | Type::Float | Type::String | Type::Bool | Type::Nil | Type::TypeParam(_) | Type::Error => false,
             Type::Vec { ty } => self.occurs_in(var, &ty),
             Type::Struct { generic_args, .. } => generic_args.iter().any(|arg| self.occurs_in(var, arg)),
             Type::Function { params, return_type } => {
@@ -181,6 +181,7 @@ pub enum Type {
         return_type: Box<Type>,
     },
     TypeVar(TypeVarId),
+    Error,
 }
 
 impl Type {
@@ -260,6 +261,7 @@ impl Display for Type {
                 )
             }
             Type::TypeVar(id) => write!(f, "?{}", id),
+            Type::Error => write!(f, "err"),
         }
     }
 }
@@ -270,7 +272,7 @@ pub struct TypeInferrer<'a> {
     errors: Vec<Report>,
 
     type_db: TypeDatabase,
-    // method_registry: &'a MethodRegistry<'a>,
+    method_registry: &'a MethodRegistry<'a>,
     def_map: &'a DefMap,
     function_bodies: &'a FunctionBodies,
     infer_ctx: TypeVarContext,
@@ -288,7 +290,8 @@ impl<'a> TypeInferrer<'a> {
         ast: &'a IrProgram,
         defs: &'a DefMap,
         function_bodies: &'a FunctionBodies,
-        /* method_registry: &'a MethodRegistry,*/ source: String,
+        method_registry: &'a MethodRegistry,
+        source: String,
     ) -> Self {
         Self {
             program: ast,
@@ -298,7 +301,7 @@ impl<'a> TypeInferrer<'a> {
             current_function_return_ty: None,
             type_db: TypeDatabase::with_builtins(),
             function_bodies,
-            // method_registry,
+            method_registry,
             def_map: defs,
         }
     }
@@ -308,8 +311,6 @@ impl<'a> TypeInferrer<'a> {
     }
 
     pub fn infer(&mut self) -> TypeInferenceResult {
-        // self.declare_native_functions();
-
         for stmt in &self.program.statements {
             if let Err(err) = self.infer_stmt(stmt) {
                 self.report(err);
@@ -321,23 +322,6 @@ impl<'a> TypeInferrer<'a> {
             type_env: &self.type_db,
         }
     }
-
-    // fn declare_native_functions(&mut self) {
-    //     let clock_type = Type::Function {
-    //         params: vec![],
-    //         return_type: Box::new(Type::Float),
-    //     };
-    //
-    //     let clock_type_id = self.infer_ctx.fresh_var();
-    //     self.type_env.insert(clock_type_id, clock_type);
-    //
-    //     let print_type = Type::Function {
-    //         params: vec![Type::TypeParam("T".to_string())],
-    //         return_type: Box::new(Type::Nil),
-    //     };
-    //     let print_type_id = self.infer_ctx.fresh_var();
-    //     self.type_db.def_types.insert(print_type_id, print_type);
-    // }
 
     fn is_type_ambiguous(&self, expr: &Expr) -> bool {
         match expr {
@@ -357,11 +341,13 @@ impl<'a> TypeInferrer<'a> {
 
                 let annotated_ty = var_decl.type_annotation.as_ref().map(|t| Type::from_resolved_type(t, self.def_map));
                 let init_ty = if let Some(init) = &var_decl.initializer {
-                    Some(self.infer_expr(init)?)
+                    match self.infer_expr(init) {
+                        Ok(ty) => Some(ty),
+                        Err(_) => None,
+                    }
                 } else {
                     None
                 };
-
                 let is_ambiguous = var_decl
                     .initializer
                     .as_ref()
@@ -386,11 +372,17 @@ impl<'a> TypeInferrer<'a> {
                         self.type_db.def_types.insert(def_id, final_ty);
                     }
                     (None, None) => {
-                        panic!("Cannot infer without type annotation")
+                        self.type_db.def_types.insert(def_id, Type::Error);
+                        return Err(TypeInferrerError::CannotInferType {
+                            src: self.source.clone(),
+                            span: var_decl.ident.name.span,
+                            name: var_decl.ident.name.node.clone(),
+                        });
                     }
                 }
                 Ok(())
             }
+
             Stmt::FunDecl(fun_decl) => {
                 let def_id = fun_decl.ident.def_id;
 
@@ -701,44 +693,43 @@ impl<'a> TypeInferrer<'a> {
                 Ok(then_return_ty)
             }
             Expr::MethodCall(method_call) => {
-                todo!()
-                //     let receiver_ty = self.infer_expr(&method_call.receiver)?;
-                //     self.type_db.expr_types.insert(method_call.receiver.ir_id, receiver_ty.clone());
-                //
-                //     if let Some((method_ty, _)) = self
-                //         .method_registry
-                //         .lookup_method(&receiver_ty, &method_call.method.name.node)
-                //         .cloned()
-                //     {
-                //         match method_ty {
-                //             Type::Function { params, return_type } => {
-                //                 if params.len() != method_call.arguments.len() {
-                //                     return Err(WrongArgumentCount {
-                //                         src: self.source.clone(),
-                //                         span: method_call.method.name.span,
-                //                         expected: params.len(),
-                //                         found: method_call.arguments.len(),
-                //                     });
-                //                 }
-                //
-                //                 for (param, arg) in params.iter().zip(&method_call.arguments) {
-                //                     let arg_ty = self.infer_expr(arg)?;
-                //                     self.infer_ctx.unify(&arg_ty, &param, &arg.span)?;
-                //                 }
-                //
-                //                 self.type_db.expr_types.insert(expr.ir_id, *return_type.clone());
-                //                 Ok(*return_type)
-                //             }
-                //             _ => unreachable!(),
-                //         }
-                //     } else {
-                //         Err(UnknownMethod {
-                //             src: self.source.clone(),
-                //             span: expr.span,
-                //             method: method_call.method.name.node.clone(),
-                //             base_type: receiver_ty.to_string(),
-                //         })
-                //     }
+                let receiver_ty = self.infer_expr(&method_call.receiver)?;
+                self.type_db.expr_types.insert(method_call.receiver.ir_id, receiver_ty.clone());
+
+                if let Some((method_ty, _)) = self
+                    .method_registry
+                    .lookup_method(&receiver_ty, &method_call.method.name.node)
+                    .cloned()
+                {
+                    match method_ty {
+                        Type::Function { params, return_type } => {
+                            if params.len() != method_call.arguments.len() {
+                                return Err(WrongArgumentCount {
+                                    src: self.source.clone(),
+                                    span: method_call.method.name.span,
+                                    expected: params.len(),
+                                    found: method_call.arguments.len(),
+                                });
+                            }
+
+                            for (param, arg) in params.iter().zip(&method_call.arguments) {
+                                let arg_ty = self.infer_expr(arg)?;
+                                self.infer_ctx.unify(&arg_ty, &param, &arg.span)?;
+                            }
+
+                            self.type_db.expr_types.insert(expr.ir_id, *return_type.clone());
+                            Ok(*return_type)
+                        }
+                        _ => unreachable!(),
+                    }
+                } else {
+                    Err(UnknownMethod {
+                        src: self.source.clone(),
+                        span: expr.span,
+                        method: method_call.method.name.node.clone(),
+                        base_type: receiver_ty.to_string(),
+                    })
+                }
             }
             Expr::Unary(unary_expr) => {
                 let right_ty = self.infer_expr(unary_expr.expr.deref())?;

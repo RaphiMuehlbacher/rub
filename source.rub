@@ -1,17 +1,11 @@
 struct Person {
     age: Int,
+    friends: Vec<Person>,
 }
 
-let p = Person {age: 3};
-let p2 = Person {age: 3};
+let a: Vec<Person> = [];
 
-fn test(per: Person, per2: Person) -> Bool {
-    per.age == per2.age
-}
+let p = Person {age: 3, friends: a};
+let p2 = Person {age: 4, friends: [p]};
 
-if test(p, p2) {
-    print(1);
-} else {
-    print(0);
-}
-
+print(p2.friends.first().age);

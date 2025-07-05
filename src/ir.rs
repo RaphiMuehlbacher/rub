@@ -158,6 +158,9 @@ impl DefMap {
 
         def_map.insert_native_function("clock", vec![]);
         def_map.insert_native_function("print", vec!["T"]);
+        def_map.insert_native_function("len", vec!["T"]);
+        def_map.insert_native_function("sum", vec!["T"]);
+        def_map.insert_native_function("first", vec!["T"]);
 
         def_map
     }
@@ -396,6 +399,9 @@ impl ScopeTree {
         symbols.insert("Vec".to_string(), 6);
         symbols.insert("clock".to_string(), 7);
         symbols.insert("print".to_string(), 9);
+        symbols.insert("len".to_string(), 11);
+        symbols.insert("sum".to_string(), 13);
+        symbols.insert("first".to_string(), 15);
 
         let global_scope = Scope {
             id: 0,

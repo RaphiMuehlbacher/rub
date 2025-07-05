@@ -64,6 +64,7 @@ fn interpret(code: &str) {
         &ast_lowerer_result.ir_program,
         &resolve_result.def_map,
         &ast_lowerer_result.function_bodies,
+        &method_registry,
         code.to_string(),
     );
     let type_inference_result = type_inferrer.infer();

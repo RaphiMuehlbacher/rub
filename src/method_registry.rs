@@ -1,4 +1,4 @@
-use crate::builtins::{float_vec_sum_method, int_vec_sum_method};
+use crate::builtins::{float_vec_sum_method, int_vec_sum_method, vec_first_method, vec_len_method};
 use crate::interpreter::{Function, InterpreterError, Value};
 use crate::ir::DefMap;
 use crate::type_inferrer::Type;
@@ -56,6 +56,10 @@ impl<'a> MethodRegistry<'a> {
         let vec_int_ty = Type::Vec { ty: Box::new(Type::Int) };
         self.create_method(&vec_float_ty, "sum", vec![], Type::Float, float_vec_sum_method);
         self.create_method(&vec_int_ty, "sum", vec![], Type::Int, int_vec_sum_method);
+
+        //TODO: currently only for int vec
+        self.create_method(&vec_int_ty, "len", vec![], Type::Int, vec_len_method);
+        self.create_method(&vec_int_ty, "first", vec![], Type::Int, vec_first_method);
     }
 
     fn register_methods(&mut self) {
