@@ -1,5 +1,5 @@
 use crate::ast::{AstNode, AstProgram};
-use crate::ir::{DefId, DefMap, Definition, IrNode, IrProgram, ResolutionMap, ResolvedType, ScopeId, ScopeTree};
+use crate::ir::{DefId, DefMap, IrNode, IrProgram, ResolutionMap, ResolvedType, ScopeId, ScopeTree};
 use crate::{ast, ir};
 use miette::Report;
 use std::collections::HashMap;
@@ -90,10 +90,10 @@ impl<'a> AstLowerer<'a> {
             }
             ast::Stmt::FunDecl(fun_decl) => {
                 let def_id = self.scope_tree.resolve_name(self.current_scope, &fun_decl.ident.node).unwrap();
-                let def = self.def_map.defs.get(&def_id).unwrap();
+                let def = self.def_map.get(def_id).unwrap();
 
                 let old_scope = self.current_scope;
-                self.current_scope = def.scope;
+                self.current_scope = def.scope() + 1;
 
                 let params = fun_decl
                     .params
@@ -111,7 +111,7 @@ impl<'a> AstLowerer<'a> {
                     .collect();
 
                 let body = self.lower_block_expr(&fun_decl.body);
-                self.function_bodies.insert(def_id, body);
+                self.function_bodies.insert(def_id, body.clone());
 
                 let return_type = self.lower_type(&fun_decl.return_type);
 
@@ -123,28 +123,32 @@ impl<'a> AstLowerer<'a> {
                         params,
                         generics,
                         return_type,
+                        body,
                     }),
                     stmt.span,
                 )
             }
             ast::Stmt::StructDecl(struct_decl) => {
                 let def_id = self.scope_tree.resolve_name(self.current_scope, &struct_decl.ident.node).unwrap();
-                let def = self.def_map.defs.get(&def_id).unwrap();
+                let def = self.def_map.get(def_id).unwrap();
 
                 let old_scope = self.current_scope;
-                self.current_scope = def.scope;
+                self.current_scope = def.scope();
 
-                let field_defs: Vec<&Definition> = self.def_map.defs.values().filter(|f| f.parent == Some(def_id)).collect();
+                let field_def_ids = def.fields();
 
                 let fields = struct_decl
                     .fields
                     .iter()
                     .map(|f| {
                         let annotation = self.lower_type(&f.type_annotation);
-                        let field_def_id = field_defs.iter().find(|fd| f.name.node == fd.name).unwrap();
+                        let field_def_id = field_def_ids
+                            .iter()
+                            .find(|def_id| f.name.node == self.def_map.get(**def_id).unwrap().name())
+                            .unwrap();
 
                         ir::TypedIdent {
-                            name: ir::Ident::new(&f.name.node, f.name.span, field_def_id.id),
+                            name: ir::Ident::new(&f.name.node, f.name.span, *field_def_id),
                             type_annotation: annotation,
                         }
                     })
@@ -338,13 +342,20 @@ impl<'a> AstLowerer<'a> {
                 expr.span,
             ),
             ast::Expr::StructInit(struct_init) => {
-                let struct_def_id = self.scope_tree.resolve_name(self.current_scope, &struct_init.name.node);
-                let field_defs: Vec<&Definition> = self.def_map.defs.values().filter(|f| f.parent == struct_def_id).collect();
+                let struct_def_id = self.scope_tree.resolve_name(self.current_scope, &struct_init.name.node).unwrap();
+                let def = self.def_map.get(struct_def_id).unwrap();
+                let field_def_ids = def.fields();
+
                 let mut lowered_fields: Vec<(ir::Ident, IrNode<ir::Expr>)> = vec![];
 
                 for field in &struct_init.fields {
-                    let field_def = field_defs.iter().find(|def| def.name == field.0.node).unwrap();
-                    let ident = ir::Ident::new(&field_def.name, field_def.span, field_def.id);
+                    let field_def_id = field_def_ids
+                        .iter()
+                        .find(|def_id| self.def_map.get(**def_id).unwrap().name() == field.0.node)
+                        .unwrap();
+
+                    let field_def = self.def_map.get(*field_def_id).unwrap();
+                    let ident = ir::Ident::new(&field_def.name(), field_def.span(), field_def.def_id());
                     let lowered_expr = self.lower_expr(&field.1);
                     lowered_fields.push((ident, lowered_expr));
                 }

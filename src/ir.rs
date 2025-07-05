@@ -4,38 +4,126 @@ use miette::SourceSpan;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum DefKind {
-    Struct,
-    Function,
-    Parameter,
-    FunctionBody,
-    Field,
-    Variable,
-    TypeParam,
-    Builtin,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Definition {
-    pub id: DefId,
-    pub name: String,
-    pub kind: DefKind,
-    pub scope: ScopeId,
-    pub span: SourceSpan,
-    pub type_params: Vec<DefId>,
-    pub parent: Option<DefId>,
+pub enum Definition {
+    Struct {
+        def_id: DefId,
+        name: String,
+        scope: ScopeId,
+        span: SourceSpan,
+        type_params: Vec<DefId>, // TypeParam
+        fields: Vec<DefId>,      // Field
+    },
+    Field {
+        def_id: DefId,
+        name: String,
+        scope: ScopeId,
+        span: SourceSpan,
+    },
+    Function {
+        def_id: DefId,
+        name: String,
+        scope: ScopeId,
+        span: SourceSpan,
+        type_params: Vec<DefId>, // TypeParam
+        params: Vec<DefId>,      // Param
+    },
+    Param {
+        def_id: DefId,
+        name: String,
+        scope: ScopeId,
+        span: SourceSpan,
+    },
+    NativeParam {
+        def_id: DefId,
+        name: String,
+    },
+    TypeParam {
+        def_id: DefId,
+        name: String,
+        scope: ScopeId,
+        span: SourceSpan,
+    },
+    Variable {
+        def_id: DefId,
+        name: String,
+        scope: ScopeId,
+        span: SourceSpan,
+    },
+    Builtin {
+        def_id: DefId,
+        name: String,
+        type_params: Vec<DefId>,
+    },
+    NativeFunction {
+        def_id: DefId,
+        name: String,
+        native_params: Vec<DefId>, // NativeParam
+    },
 }
 
 impl Definition {
-    pub fn builtin(id: DefId, name: &str, type_params: Vec<DefId>) -> Self {
-        Self {
-            id,
-            name: name.to_string(),
-            kind: DefKind::Builtin,
-            scope: 0,
-            span: SourceSpan::from(0),
-            type_params,
-            parent: None,
+    pub fn span(&self) -> SourceSpan {
+        match self {
+            Definition::Struct { span, .. } => *span,
+            Definition::Field { span, .. } => *span,
+            Definition::Function { span, .. } => *span,
+            Definition::Param { span, .. } => *span,
+            Definition::TypeParam { span, .. } => *span,
+            Definition::Variable { span, .. } => *span,
+            _ => panic!(),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            Definition::Struct { name, .. } => name,
+            Definition::Field { name, .. } => name,
+            Definition::Function { name, .. } => name,
+            Definition::Param { name, .. } => name,
+            Definition::TypeParam { name, .. } => name,
+            Definition::Variable { name, .. } => name,
+            Definition::NativeFunction { name, .. } => name,
+            Definition::Builtin { name, .. } => name,
+            Definition::NativeParam { name, .. } => name,
+        }
+    }
+
+    pub fn def_id(&self) -> DefId {
+        match self {
+            Definition::Struct { def_id, .. } => *def_id,
+            Definition::Field { def_id, .. } => *def_id,
+            Definition::Function { def_id, .. } => *def_id,
+            Definition::Param { def_id, .. } => *def_id,
+            Definition::TypeParam { def_id, .. } => *def_id,
+            Definition::Variable { def_id, .. } => *def_id,
+            Definition::NativeFunction { def_id, .. } => *def_id,
+            Definition::Builtin { def_id, .. } => *def_id,
+            Definition::NativeParam { def_id, .. } => *def_id,
+        }
+    }
+
+    pub fn scope(&self) -> ScopeId {
+        match self {
+            Definition::Struct { scope, .. } => *scope,
+            Definition::Field { scope, .. } => *scope,
+            Definition::Function { scope, .. } => *scope,
+            Definition::Param { scope, .. } => *scope,
+            Definition::TypeParam { scope, .. } => *scope,
+            Definition::Variable { scope, .. } => *scope,
+            _ => panic!(),
+        }
+    }
+
+    pub fn fields(&self) -> &Vec<DefId> {
+        match self {
+            Definition::Struct { fields, .. } => fields,
+            _ => panic!(),
+        }
+    }
+    pub fn params(&self) -> &Vec<DefId> {
+        match self {
+            Definition::Function { params, .. } => params,
+            _ => panic!(),
         }
     }
 }
@@ -50,75 +138,218 @@ pub struct DefMap {
 }
 
 impl DefMap {
+    pub fn new() -> Self {
+        Self {
+            next_def_id: 0,
+            defs: HashMap::new(),
+        }
+    }
+
     pub fn with_builtins() -> Self {
-        let mut defs = HashMap::new();
-        defs.insert(0, Definition::builtin(0, "Int", vec![]));
-        defs.insert(1, Definition::builtin(1, "Float", vec![]));
-        defs.insert(2, Definition::builtin(2, "String", vec![]));
-        defs.insert(3, Definition::builtin(3, "Bool", vec![]));
-        defs.insert(4, Definition::builtin(4, "Nil", vec![]));
-        let def_vec_id = 5;
-        let def_t_id = 6;
-        defs.insert(
-            def_t_id,
-            Definition {
-                id: def_t_id,
-                name: "T".to_string(),
-                parent: Some(def_vec_id),
-                kind: DefKind::TypeParam,
-                scope: 0,
-                span: SourceSpan::from(0),
-                type_params: vec![],
+        let mut def_map = DefMap::new();
+
+        def_map.insert_builtin("Int", vec![]);
+        def_map.insert_builtin("Float", vec![]);
+        def_map.insert_builtin("String", vec![]);
+        def_map.insert_builtin("Bool", vec![]);
+        def_map.insert_builtin("Nil", vec![]);
+
+        def_map.insert_builtin("Vec", vec!["T"]);
+
+        def_map.insert_native_function("clock", vec![]);
+        def_map.insert_native_function("print", vec!["T"]);
+
+        def_map
+    }
+
+    pub fn insert_native_function(&mut self, name: &str, native_params: Vec<&str>) -> DefId {
+        let native_param_ids = native_params.iter().map(|p| self.insert_native_param(p)).collect();
+
+        let def_id = self.allocate_id();
+        self.defs.insert(
+            def_id,
+            Definition::NativeFunction {
+                def_id,
+                name: name.to_string(),
+                native_params: native_param_ids,
             },
         );
-        defs.insert(def_vec_id, Definition::builtin(5, "Vec", vec![def_t_id]));
 
-        Self { next_def_id: 7, defs }
+        def_id
     }
 
-    pub fn insert_with_id(
-        &mut self,
-        id: DefId,
-        name: &str,
-        kind: DefKind,
-        scope: ScopeId,
-        span: SourceSpan,
-        parent: Option<DefId>,
-        type_params: Vec<DefId>,
-    ) {
-        let def = Definition {
-            id,
-            name: name.to_string(),
-            kind,
-            scope,
-            span,
-            parent,
-            type_params,
-        };
-        self.defs.insert(id, def);
+    pub fn insert_native_param(&mut self, name: &str) -> DefId {
+        let def_id = self.allocate_id();
+        self.defs.insert(
+            def_id,
+            Definition::NativeParam {
+                def_id,
+                name: name.to_string(),
+            },
+        );
+        def_id
     }
-    pub fn insert(
+
+    pub fn insert_builtin(&mut self, name: &str, type_params: Vec<&str>) -> DefId {
+        let type_param_ids = type_params
+            .iter()
+            .map(|p| self.insert_type_param((p, 0, SourceSpan::from(0))))
+            .collect();
+
+        let def_id = self.allocate_id();
+        self.defs.insert(
+            def_id,
+            Definition::Builtin {
+                def_id,
+                name: name.to_string(),
+                type_params: type_param_ids,
+            },
+        );
+        def_id
+    }
+
+    pub fn insert_variable(&mut self, name: &str, scope: ScopeId, span: SourceSpan) -> DefId {
+        let def_id = self.allocate_id();
+        self.defs.insert(
+            def_id,
+            Definition::Variable {
+                def_id,
+                name: name.to_string(),
+                scope,
+                span,
+            },
+        );
+        def_id
+    }
+
+    pub fn insert_place_holder_struct(&mut self, name: &str, scope: ScopeId, span: SourceSpan) -> DefId {
+        self.insert_struct(name, scope, span, vec![], vec![])
+    }
+
+    pub fn complete_struct(&mut self, def_id: DefId, fields: Vec<DefId>, type_params: Vec<DefId>) {
+        let def = self.defs.get_mut(&def_id).unwrap();
+        match def {
+            Definition::Struct {
+                type_params: old_type_params,
+                fields: old_fields,
+                ..
+            } => {
+                *old_type_params = type_params;
+                *old_fields = fields;
+            }
+            _ => panic!(),
+        }
+    }
+
+    pub fn insert_struct(
         &mut self,
         name: &str,
-        kind: DefKind,
         scope: ScopeId,
         span: SourceSpan,
-        parent: Option<DefId>,
-        type_params: Vec<DefId>,
+        type_params: Vec<(&str, ScopeId, SourceSpan)>,
+        fields: Vec<(&str, ScopeId, SourceSpan)>,
     ) -> DefId {
-        let id = self.next_def_id;
-        self.next_def_id += 1;
-        let def = Definition {
-            id,
-            name: name.to_string(),
-            kind,
-            scope,
-            span,
-            parent,
-            type_params,
-        };
-        self.defs.insert(id, def);
-        id
+        let type_param_ids = type_params.into_iter().map(|p| self.insert_type_param(p)).collect();
+        let field_ids = fields.into_iter().map(|f| self.insert_field(f)).collect();
+
+        let def_id = self.allocate_id();
+        self.defs.insert(
+            def_id,
+            Definition::Struct {
+                def_id,
+                name: name.to_string(),
+                scope,
+                span,
+                type_params: type_param_ids,
+                fields: field_ids,
+            },
+        );
+        def_id
+    }
+    pub fn insert_placeholder_function(&mut self, name: &str, scope: ScopeId, span: SourceSpan) -> DefId {
+        self.insert_function(name, scope, span, vec![], vec![])
+    }
+
+    pub fn complete_function(&mut self, def_id: DefId, params: Vec<DefId>, type_params: Vec<DefId>) {
+        let def = self.defs.get_mut(&def_id).unwrap();
+        match def {
+            Definition::Function {
+                type_params: old_type_params,
+                params: old_params,
+                ..
+            } => {
+                *old_type_params = type_params;
+                *old_params = params;
+            }
+            _ => panic!(),
+        }
+    }
+
+    pub fn insert_function(
+        &mut self,
+        name: &str,
+        scope: ScopeId,
+        span: SourceSpan,
+        params: Vec<(&str, ScopeId, SourceSpan)>,
+        type_params: Vec<(&str, ScopeId, SourceSpan)>,
+    ) -> DefId {
+        let type_param_ids = type_params.into_iter().map(|p| self.insert_type_param(p)).collect();
+        let param_ids = params.into_iter().map(|p| self.insert_param(p)).collect();
+
+        let def_id = self.allocate_id();
+        self.defs.insert(
+            def_id,
+            Definition::Function {
+                def_id,
+                name: name.to_string(),
+                scope,
+                span,
+                type_params: type_param_ids,
+                params: param_ids,
+            },
+        );
+        def_id
+    }
+
+    pub fn insert_field(&mut self, field: (&str, ScopeId, SourceSpan)) -> DefId {
+        let def_id = self.allocate_id();
+        self.defs.insert(
+            def_id,
+            Definition::Field {
+                def_id,
+                name: field.0.to_string(),
+                scope: field.1,
+                span: field.2,
+            },
+        );
+        def_id
+    }
+    pub fn insert_param(&mut self, param: (&str, ScopeId, SourceSpan)) -> DefId {
+        let def_id = self.allocate_id();
+        self.defs.insert(
+            def_id,
+            Definition::Param {
+                def_id,
+                name: param.0.to_string(),
+                scope: param.1,
+                span: param.2,
+            },
+        );
+        def_id
+    }
+
+    pub fn insert_type_param(&mut self, type_param: (&str, ScopeId, SourceSpan)) -> DefId {
+        let def_id = self.allocate_id();
+        self.defs.insert(
+            def_id,
+            Definition::TypeParam {
+                def_id,
+                name: type_param.0.to_string(),
+                scope: type_param.1,
+                span: type_param.2,
+            },
+        );
+        def_id
     }
 
     pub fn allocate_id(&mut self) -> DefId {
@@ -162,7 +393,9 @@ impl ScopeTree {
         symbols.insert("String".to_string(), 2);
         symbols.insert("Bool".to_string(), 3);
         symbols.insert("Nil".to_string(), 4);
-        symbols.insert("Vec".to_string(), 5);
+        symbols.insert("Vec".to_string(), 6);
+        symbols.insert("clock".to_string(), 7);
+        symbols.insert("print".to_string(), 9);
 
         let global_scope = Scope {
             id: 0,
@@ -334,6 +567,7 @@ pub struct FunDeclStmt {
     pub params: Vec<TypedIdent>,
     pub generics: Vec<Ident>,
     pub return_type: ResolvedType,
+    pub body: IrNode<BlockExpr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

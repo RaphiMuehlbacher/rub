@@ -2,12 +2,10 @@
 use crate::ast_lowerer::FunctionBodies;
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::{NonBooleanCondition, NotCallable, TypeMismatch, UnknownMethod, WrongArgumentCount};
-use crate::ir::{
-    BinaryOp, BlockExpr, DefId, DefKind, DefMap, Definition, Expr, IrId, IrNode, IrProgram, LiteralExpr, ResolvedType, Stmt, UnaryOp,
-};
+use crate::ir::{BinaryOp, BlockExpr, DefId, DefMap, Definition, Expr, IrId, IrNode, IrProgram, LiteralExpr, ResolvedType, Stmt, UnaryOp};
 use miette::{Report, SourceSpan};
 use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Formatter, Pointer};
+use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -15,12 +13,33 @@ pub struct TypeDatabase {
     pub expr_types: HashMap<IrId, Type>,
     pub def_types: HashMap<DefId, Type>,
 }
-
 impl TypeDatabase {
     pub fn new() -> Self {
         Self {
             expr_types: HashMap::new(),
             def_types: HashMap::new(),
+        }
+    }
+    pub fn with_builtins() -> Self {
+        let mut def_types = HashMap::new();
+        def_types.insert(
+            7,
+            Type::Function {
+                params: vec![],
+                return_type: Box::new(Type::Float),
+            },
+        );
+        //TODO generic params
+        def_types.insert(
+            9,
+            Type::Function {
+                params: vec![Type::Int],
+                return_type: Box::new(Type::Nil),
+            },
+        );
+        Self {
+            expr_types: HashMap::new(),
+            def_types,
         }
     }
 }
@@ -169,13 +188,14 @@ impl Type {
         match ty {
             ResolvedType::Named(def_id) => {
                 let def = def_map.get(*def_id).unwrap();
-                match def.kind {
-                    DefKind::Struct => Type::Struct {
-                        def_id: def.id,
+
+                match def {
+                    Definition::Struct { def_id, .. } => Type::Struct {
+                        def_id: *def_id,
                         generic_args: vec![],
                     },
-                    DefKind::TypeParam => Type::TypeParam(todo!()),
-                    DefKind::Builtin => match def.name.as_str() {
+                    Definition::TypeParam { .. } => Type::TypeParam(todo!()),
+                    Definition::Builtin { name, .. } => match name.as_str() {
                         "Int" => Type::Int,
                         "Float" => Type::Float,
                         "String" => Type::String,
@@ -192,8 +212,8 @@ impl Type {
             },
             ResolvedType::Generic { base, args } => {
                 let def = def_map.get(*base).unwrap();
-                if let DefKind::Builtin = def.kind
-                    && def.name == "Vec"
+                if let Definition::Builtin { name, .. } = def
+                    && name == "Vec"
                 {
                     return Type::Vec {
                         ty: Box::new(Type::from_resolved_type(args.first().unwrap(), def_map)),
@@ -201,7 +221,7 @@ impl Type {
                 }
 
                 Type::Struct {
-                    def_id: def.id,
+                    def_id: def.def_id(),
                     generic_args: args.iter().map(|a| Type::from_resolved_type(a, def_map)).collect(),
                 }
             }
@@ -276,7 +296,7 @@ impl<'a> TypeInferrer<'a> {
             source,
             errors: vec![],
             current_function_return_ty: None,
-            type_db: TypeDatabase::new(),
+            type_db: TypeDatabase::with_builtins(),
             function_bodies,
             // method_registry,
             def_map: defs,
@@ -439,6 +459,7 @@ impl<'a> TypeInferrer<'a> {
                     def_id,
                     generic_args: vec![],
                 };
+
                 self.type_db.def_types.insert(def_id, struct_type);
 
                 Ok(())
@@ -506,11 +527,14 @@ impl<'a> TypeInferrer<'a> {
 
                 match receiver_ty {
                     Type::Struct { def_id, generic_args: _ } => {
-                        let struct_ty = self.def_map.defs.get(&def_id).unwrap();
-                        let mut fields = self.def_map.defs.values().filter(|def| def.parent == Some(def_id));
+                        let struct_def = self.def_map.get(def_id).unwrap();
+                        let field_def_ids = struct_def.fields();
 
-                        if let Some(field_def) = fields.find(|def| *def.name == field_assign.field.node) {
-                            let field_ty = self.type_db.def_types.get(&field_def.id).unwrap().clone();
+                        if let Some(field_def_id) = field_def_ids
+                            .iter()
+                            .find(|def_id| self.def_map.get(**def_id).unwrap().name() == field_assign.field.node)
+                        {
+                            let field_ty = self.type_db.def_types.get(&field_def_id).unwrap().clone();
                             self.infer_ctx.unify(&value_ty, &field_ty, &field_assign.value.span)?;
 
                             self.type_db.expr_types.insert(expr.ir_id, field_ty.clone());
@@ -520,7 +544,7 @@ impl<'a> TypeInferrer<'a> {
                                 src: self.source.clone(),
                                 span: field_assign.field.span,
                                 field: field_assign.field.node.clone(),
-                                struct_name: struct_ty.name.clone(),
+                                struct_name: struct_def.name().to_string(),
                             })
                         }
                     }
@@ -537,11 +561,14 @@ impl<'a> TypeInferrer<'a> {
 
                 match receiver_ty {
                     Type::Struct { def_id, generic_args: _ } => {
-                        let struct_def = self.def_map.defs.get(&def_id).unwrap();
-                        let mut fields = self.def_map.defs.values().filter(|def| def.parent == Some(def_id));
+                        let struct_def = self.def_map.get(def_id).unwrap();
+                        let field_def_ids = struct_def.fields();
 
-                        if let Some(field_def) = fields.find(|def| *def.name == field_access.field.node) {
-                            let field_ty = self.type_db.def_types.get(&field_def.id).unwrap().clone();
+                        if let Some(field_def_id) = field_def_ids
+                            .iter()
+                            .find(|def_id| self.def_map.get(**def_id).unwrap().name() == field_access.field.node)
+                        {
+                            let field_ty = self.type_db.def_types.get(&field_def_id).unwrap().clone();
                             self.type_db.expr_types.insert(expr.ir_id, field_ty.clone());
                             Ok(field_ty)
                         } else {
@@ -549,7 +576,7 @@ impl<'a> TypeInferrer<'a> {
                                 src: self.source.clone(),
                                 span: field_access.field.span,
                                 field: field_access.field.node.clone(),
-                                struct_name: struct_def.name.clone(),
+                                struct_name: struct_def.name().to_string(),
                             })
                         }
                     }
@@ -566,12 +593,13 @@ impl<'a> TypeInferrer<'a> {
                 let struct_type = self.type_db.def_types.get(&struct_init.name.def_id).unwrap().clone();
 
                 if let Type::Struct { def_id, generic_args: _ } = struct_type {
-                    let struct_fields: HashMap<String, Type> = self
-                        .def_map
-                        .defs
-                        .values()
-                        .filter(|f| f.parent == Some(def_id))
-                        .map(|f| (f.name.clone(), self.type_db.def_types.get(&f.id).unwrap().clone()))
+                    let struct_def = self.def_map.get(def_id).unwrap();
+                    let field_def_ids = struct_def.fields();
+
+                    let struct_fields: HashMap<String, Type> = field_def_ids
+                        .iter()
+                        .map(|def_id| self.def_map.get(*def_id).unwrap())
+                        .map(|def| (def.name().to_string(), self.type_db.def_types.get(&def.def_id()).unwrap().clone()))
                         .collect();
 
                     let mut seen_fields = HashSet::new();
@@ -836,30 +864,36 @@ impl<'a> TypeInferrer<'a> {
                         }
 
                         if let Expr::Variable(ident) = &call_expr.callee.node {
-                            if let Some(definition) = self.def_map.get(ident.def_id)
-                                && definition.kind == DefKind::Function
-                            {
-                                let old_return_ty = self.current_function_return_ty.clone();
-                                self.current_function_return_ty = Some(*return_type.clone());
+                            if let Some(definition) = self.def_map.get(ident.def_id) {
+                                match definition {
+                                    Definition::Function {
+                                        def_id,
+                                        span,
+                                        params: param_def_ids,
+                                        ..
+                                    } => {
+                                        let old_return_ty = self.current_function_return_ty.clone();
+                                        self.current_function_return_ty = Some(*return_type.clone());
 
-                                let param_defs: Vec<&Definition> = self
-                                    .def_map
-                                    .defs
-                                    .values()
-                                    .filter(|p| p.parent == Some(definition.id) && p.kind == DefKind::Parameter)
-                                    .collect();
-                                for (param_def, param_ty) in param_defs.iter().zip(params.iter()) {
-                                    self.type_db.def_types.insert(param_def.id, param_ty.clone());
+                                        let param_defs: Vec<&Definition> =
+                                            param_def_ids.iter().map(|def_id| self.def_map.get(*def_id).unwrap()).collect();
+
+                                        for (param_def, param_ty) in param_defs.iter().zip(params.iter()) {
+                                            self.type_db.def_types.insert(param_def.def_id(), param_ty.clone());
+                                        }
+                                        let body = self.function_bodies.get(*def_id);
+                                        self.infer_stmts(&body.node.statements)?;
+
+                                        if let Some(expr) = &body.node.expr {
+                                            let body_ty = self.infer_expr(expr)?;
+                                            self.infer_ctx.unify(&body_ty, &return_type, &span)?;
+                                        }
+
+                                        self.current_function_return_ty = old_return_ty;
+                                    }
+                                    Definition::NativeFunction { .. } => {}
+                                    _ => panic!(),
                                 }
-                                let body = self.function_bodies.get(definition.id);
-                                self.infer_stmts(&body.node.statements)?;
-
-                                if let Some(expr) = &body.node.expr {
-                                    let body_ty = self.infer_expr(expr)?;
-                                    self.infer_ctx.unify(&body_ty, &return_type, &definition.span)?;
-                                }
-
-                                self.current_function_return_ty = old_return_ty;
                             }
                         }
 

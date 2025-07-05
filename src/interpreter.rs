@@ -5,8 +5,10 @@ use crate::ir::{
 };
 
 use crate::builtins::{clock_native, print_native};
+use crate::error::RuntimeError;
 use crate::error::RuntimeError::DivisionByZero;
 use crate::interpreter::Function::{NativeFunction, UserFunction};
+use crate::type_inferrer::{Type, TypeDatabase};
 use miette::Report;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
@@ -64,7 +66,7 @@ impl Value {
                     body: _,
                     env: _,
                 } => {
-                    let param_strings: Vec<String> = params.iter().map(|p| p.name.node.clone()).collect();
+                    let param_strings: Vec<String> = params.iter().map(|p| p.name.name.node.clone()).collect();
                     match name {
                         None => format!("<fn ({})>", param_strings.join(", ")),
                         Some(name) => {
@@ -178,17 +180,17 @@ impl Environment {
 pub struct Interpreter<'a> {
     source: String,
     program: &'a IrProgram,
-    type_env: &'a HashMap<TypeVarId, ResolvedType>,
+    type_db: &'a TypeDatabase,
     var_env: Env,
     method_registry: &'a MethodRegistry<'a>,
-    defs: &'a mut DefMap,
+    defs: &'a DefMap,
 }
 
 impl<'a> Interpreter<'a> {
     pub fn new(
         program: &'a IrProgram,
-        type_env: &'a HashMap<TypeVarId, ResolvedType>,
-        defs: &'a mut DefMap,
+        type_db: &'a TypeDatabase,
+        defs: &'a DefMap,
         method_registry: &'a MethodRegistry,
         source: String,
     ) -> Self {
@@ -203,7 +205,7 @@ impl<'a> Interpreter<'a> {
         Self {
             source,
             program,
-            type_env,
+            type_db,
             var_env,
             method_registry,
             defs,
@@ -245,12 +247,12 @@ impl<'a> Interpreter<'a> {
         match &stmt.node {
             Stmt::FunDecl(fun_decl) => {
                 let value = Value::Function(Rc::new(UserFunction {
-                    name: Some(fun_decl.ident.node.clone()),
+                    name: Some(fun_decl.ident.name.node.clone()),
                     params: Rc::new(fun_decl.params.clone()),
                     body: Rc::new(fun_decl.body.clone()),
                     env: self.var_env.clone(),
                 }));
-                self.define_var(fun_decl.ident.node.clone(), value)
+                self.define_var(fun_decl.ident.name.node.clone(), value)
             }
             _ => {}
         }
@@ -265,18 +267,18 @@ impl<'a> Interpreter<'a> {
             Stmt::VarDecl(var_decl) => {
                 if let Some(init) = &var_decl.initializer {
                     let value = self.interpret_expr(&init)?;
-                    self.define_var(var_decl.ident.node.clone(), value);
+                    self.define_var(var_decl.ident.name.node.clone(), value);
                 } else {
-                    self.define_var(var_decl.ident.node.clone(), Value::Nil);
+                    self.define_var(var_decl.ident.name.node.clone(), Value::Nil);
                 }
 
                 Ok(())
             }
             Stmt::FunDecl(fun_decl) => {
                 self.define_var(
-                    fun_decl.ident.node.clone(),
+                    fun_decl.ident.name.node.clone(),
                     Value::Function(Rc::new(UserFunction {
-                        name: Some(fun_decl.ident.node.clone()),
+                        name: Some(fun_decl.ident.name.node.clone()),
                         params: Rc::new(fun_decl.params.clone()),
                         body: Rc::new(fun_decl.body.clone()),
                         env: self.var_env.clone(),
@@ -357,7 +359,7 @@ impl<'a> Interpreter<'a> {
                 let mut field_values = HashMap::new();
                 for (field_name, field_expr) in &struct_init.fields {
                     let value = self.interpret_expr(field_expr)?;
-                    field_values.insert(field_name.node.clone(), value);
+                    field_values.insert(field_name.name.node.clone(), value);
                 }
                 Ok(Value::Struct(Rc::new(RefCell::new(field_values))))
             }
@@ -377,8 +379,8 @@ impl<'a> Interpreter<'a> {
             }
             Expr::MethodCall(method_call) => {
                 let receiver = self.interpret_expr(&method_call.receiver)?;
-                let method_name = &method_call.method.node;
-                let receiver_ty = self.type_env.get(&method_call.receiver.ir_id).expect("should work");
+                let method_name = &method_call.method.name.node;
+                let receiver_ty = self.type_db.expr_types.get(&method_call.receiver.ir_id).expect("should work");
 
                 let mut args = vec![receiver];
                 for arg in &method_call.arguments {
@@ -412,13 +414,13 @@ impl<'a> Interpreter<'a> {
 
             Expr::Unary(unary) => {
                 let right = self.interpret_expr(&unary.expr)?;
-                let expr_type = self.type_env.get(&expr.ir_id).unwrap();
+                let expr_type = self.type_db.expr_types.get(&expr.ir_id).unwrap();
 
                 match unary.op.node {
                     UnaryOp::Bang => Ok(Value::Bool(!right.to_bool())),
                     UnaryOp::Minus => match expr_type {
-                        ResolvedType::Int => Ok(Value::Int(-right.to_int())),
-                        ResolvedType::Float => Ok(Value::Float(-right.to_float())),
+                        Type::Int => Ok(Value::Int(-right.to_int())),
+                        Type::Float => Ok(Value::Float(-right.to_float())),
                         _ => panic!(),
                     },
                 }
@@ -428,13 +430,13 @@ impl<'a> Interpreter<'a> {
                 let left = self.interpret_expr(&binary.left)?;
                 let right = self.interpret_expr(&binary.right)?;
 
-                let expr_type = self.type_env.get(&expr.ir_id).unwrap();
+                let expr_type = self.type_db.expr_types.get(&expr.ir_id).unwrap();
 
                 match binary.op.node {
                     BinaryOp::Plus => match expr_type {
-                        ResolvedType::Int => Ok(Value::Int(left.to_int() + right.to_int())),
-                        ResolvedType::Float => Ok(Value::Float(left.to_float() + right.to_float())),
-                        ResolvedType::String => {
+                        Type::Int => Ok(Value::Int(left.to_int() + right.to_int())),
+                        Type::Float => Ok(Value::Float(left.to_float() + right.to_float())),
+                        Type::String => {
                             let left_string = left.to_string();
                             let right_string = right.to_string();
                             let mut buffer = String::with_capacity(left_string.len() + right_string.len());
@@ -446,18 +448,18 @@ impl<'a> Interpreter<'a> {
                         _ => panic!("{:?}", expr_type),
                     },
                     BinaryOp::Minus => match expr_type {
-                        ResolvedType::Int => Ok(Value::Int(left.to_int() - right.to_int())),
-                        ResolvedType::Float => Ok(Value::Float(left.to_float() - right.to_float())),
+                        Type::Int => Ok(Value::Int(left.to_int() - right.to_int())),
+                        Type::Float => Ok(Value::Float(left.to_float() - right.to_float())),
                         _ => panic!(),
                     },
                     BinaryOp::Star => match expr_type {
-                        ResolvedType::Int => Ok(Value::Int(left.to_int() * right.to_int())),
-                        ResolvedType::Float => Ok(Value::Float(left.to_float() * right.to_float())),
+                        Type::Int => Ok(Value::Int(left.to_int() * right.to_int())),
+                        Type::Float => Ok(Value::Float(left.to_float() * right.to_float())),
                         _ => panic!(),
                     },
                     BinaryOp::Slash => match expr_type {
-                        ResolvedType::Int => Ok(Value::Int(left.to_int() / right.to_int())),
-                        ResolvedType::Float => {
+                        Type::Int => Ok(Value::Int(left.to_int() / right.to_int())),
+                        Type::Float => {
                             if right.to_float() == 0.0 {
                                 return Err(InterpreterError::RuntimeError(DivisionByZero {
                                     src: self.source.to_string(),
@@ -469,16 +471,16 @@ impl<'a> Interpreter<'a> {
                         _ => panic!(),
                     },
                     BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => {
-                        let operand_type = self.type_env.get(&binary.left.ir_id).unwrap();
+                        let operand_type = self.type_db.expr_types.get(&binary.left.ir_id).unwrap();
                         match operand_type {
-                            ResolvedType::Int => match binary.op.node {
+                            Type::Int => match binary.op.node {
                                 BinaryOp::Greater => Ok(Value::Bool(left.to_int() > right.to_int())),
                                 BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_int() >= right.to_int())),
                                 BinaryOp::Less => Ok(Value::Bool(left.to_int() < right.to_int())),
                                 BinaryOp::LessEqual => Ok(Value::Bool(left.to_int() <= right.to_int())),
                                 _ => unreachable!(),
                             },
-                            ResolvedType::Float => match binary.op.node {
+                            Type::Float => match binary.op.node {
                                 BinaryOp::Greater => Ok(Value::Bool(left.to_float() > right.to_float())),
                                 BinaryOp::GreaterEqual => Ok(Value::Bool(left.to_float() >= right.to_float())),
                                 BinaryOp::Less => Ok(Value::Bool(left.to_float() < right.to_float())),
@@ -494,11 +496,11 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Grouping(grouping) => self.interpret_expr(grouping),
-            Expr::Variable(variable) => Ok(self.get_var(variable.node.clone()).clone()),
+            Expr::Variable(variable) => Ok(self.get_var(variable.name.node.clone()).clone()),
 
             Expr::Assign(assign) => {
                 let value = self.interpret_expr(&assign.value)?;
-                self.assign_var(assign.target.node.clone(), value.clone());
+                self.assign_var(assign.target.name.node.clone(), value.clone());
                 Ok(value)
             }
 
@@ -536,7 +538,7 @@ impl<'a> Interpreter<'a> {
 
                         for (arg, param) in call.arguments.iter().zip(params.as_ref()) {
                             let value = self.interpret_expr(arg)?;
-                            local_env.borrow_mut().define(param.name.node.clone(), value);
+                            local_env.borrow_mut().define(param.name.name.node.clone(), value);
                         }
 
                         let old_env = self.var_env.clone();

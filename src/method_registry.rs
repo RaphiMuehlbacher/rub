@@ -1,6 +1,6 @@
 use crate::builtins::{float_vec_sum_method, int_vec_sum_method};
 use crate::interpreter::{Function, InterpreterError, Value};
-use crate::ir::{DefKind, DefMap};
+use crate::ir::DefMap;
 use crate::type_inferrer::Type;
 use miette::SourceSpan;
 use std::collections::HashMap;
@@ -38,8 +38,7 @@ impl<'a> MethodRegistry<'a> {
         return_ty: Type,
         method: fn(Vec<Value>) -> Result<Value, InterpreterError>,
     ) {
-        self.defs
-            .insert(method_name, DefKind::Function, 0, SourceSpan::from(0), None, vec![]);
+        self.defs.insert_placeholder_function(method_name, 0, SourceSpan::from(0));
 
         let method_type = Type::Function {
             params,

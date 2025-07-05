@@ -1,15 +1,17 @@
 struct Person {
-    age: Int
-}
-fn a(p: Person, b: Person) -> Person {
-    return if p.age > b.age {
-        p
-    } else {
-        b
-    };
+    age: Int,
 }
 
+let p = Person {age: 3};
+let p2 = Person {age: 3};
 
-let per1 = Person {age: 3};
-let per2 = Person {age: 4};
-let age = a(per1, per2);
+fn test(per: Person, per2: Person) -> Bool {
+    per.age == per2.age
+}
+
+if test(p, p2) {
+    print(1);
+} else {
+    print(0);
+}
+

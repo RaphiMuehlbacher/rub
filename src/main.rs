@@ -1,6 +1,6 @@
 use rub::ast_lowerer::AstLowerer;
-// use rub::interpreter::Interpreter;
-use rub::{Lexer, Parser, Resolver, TypeInferrer};
+use rub::interpreter::Interpreter;
+use rub::{Lexer, MethodRegistry, Parser, Resolver, TypeInferrer};
 use std::fs;
 use std::time::Instant;
 
@@ -57,8 +57,9 @@ fn interpret(code: &str) {
     let ast_lowerer_result = ast_lowerer.lower();
     time_log!(start, "Lowering");
 
-    // let method_registry = MethodRegistry::new(resolve_result.def_map);
-    //
+    let mut cloned_def_map = resolve_result.def_map.clone();
+    let method_registry = MethodRegistry::new(&mut cloned_def_map);
+
     let mut type_inferrer = TypeInferrer::new(
         &ast_lowerer_result.ir_program,
         &resolve_result.def_map,
@@ -74,20 +75,18 @@ fn interpret(code: &str) {
         }
         return;
     }
-    //
-    // let mut defs_for_interpreting = defs.clone();
-    // let mut interpreter = Interpreter::new(
-    //     &ast_lowerer_result.ir_program,
-    //     type_inference_result.type_env,
-    //     &mut defs_for_interpreting,
-    //     &method_registry,
-    //     code.to_string(),
-    // );
-    // let error = interpreter.interpret().error;
-    // if let Some(err) = error {
-    //     println!("{:?}", err);
-    // }
-    // time_log!(start, "Interpreting");
+    let mut interpreter = Interpreter::new(
+        &ast_lowerer_result.ir_program,
+        type_inference_result.type_env,
+        resolve_result.def_map,
+        &method_registry,
+        code.to_string(),
+    );
+    let error = interpreter.interpret().error;
+    if let Some(err) = error {
+        println!("{:?}", err);
+    }
+    time_log!(start, "Interpreting");
 }
 
 fn main() {
