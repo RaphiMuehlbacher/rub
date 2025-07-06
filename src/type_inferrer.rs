@@ -29,11 +29,10 @@ impl TypeDatabase {
                 return_type: Box::new(Type::Float),
             },
         );
-        //TODO generic params
         def_types.insert(
             9,
             Type::Function {
-                params: vec![Type::Int],
+                params: vec![Type::TypeParam(8)],
                 return_type: Box::new(Type::Nil),
             },
         );
@@ -70,7 +69,24 @@ impl TypeVarContext {
         self.next_var += 1;
         Type::TypeVar(id)
     }
-
+    pub fn instantiate(&mut self, ty: &Type) -> Type {
+        match ty {
+            Type::TypeParam(_) => self.fresh_var(),
+            Type::Vec { ty } => Type::Vec {
+                ty: Box::new(self.instantiate(ty)),
+            },
+            Type::Function { params, return_type } => Type::Function {
+                params: params.iter().map(|p| self.instantiate(p)).collect(),
+                return_type: Box::new(self.instantiate(return_type)),
+            },
+            Type::Struct { def_id, generic_args } => Type::Struct {
+                def_id: *def_id,
+                generic_args: generic_args.iter().map(|a| self.instantiate(a)).collect(),
+            },
+            Type::TypeVar(id) => Type::TypeVar(*id),
+            other => other.clone(),
+        }
+    }
     pub fn unify(&mut self, found: &Type, expected: &Type, found_span: &SourceSpan) -> Result<(), TypeInferrerError> {
         let found = self.resolve(found);
         let expected = self.resolve(expected);
@@ -312,6 +328,7 @@ pub struct TypeInferrer<'a> {
 pub struct TypeInferenceResult<'a> {
     pub errors: &'a Vec<Report>,
     pub type_env: &'a TypeDatabase,
+    pub infer_ctx: &'a mut TypeVarContext,
 }
 
 impl<'a> TypeInferrer<'a> {
@@ -349,6 +366,7 @@ impl<'a> TypeInferrer<'a> {
         TypeInferenceResult {
             errors: &self.errors,
             type_env: &self.type_db,
+            infer_ctx: &mut self.infer_ctx,
         }
     }
 
@@ -732,10 +750,9 @@ impl<'a> TypeInferrer<'a> {
                 let receiver_ty = self.infer_expr(&method_call.receiver)?;
                 self.type_db.expr_types.insert(method_call.receiver.ir_id, receiver_ty.clone());
 
-                if let Some((method_ty, _)) = self
-                    .method_registry
-                    .lookup_method(&receiver_ty, &method_call.method.name.node)
-                    .cloned()
+                if let Some((method_ty, _)) =
+                    self.method_registry
+                        .lookup_method(&receiver_ty, &method_call.method.name.node, &mut self.infer_ctx)
                 {
                     match method_ty {
                         Type::Function { params, return_type } => {

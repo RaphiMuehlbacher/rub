@@ -1,6 +1,3 @@
-fn test<T>(a: T) -> T {
-    return a + 1;
-}
-
-let a = test(0);
-print(a);
+let a = [1, 2];
+let b = a.len();
+print(b);

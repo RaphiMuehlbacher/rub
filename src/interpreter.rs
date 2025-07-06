@@ -8,7 +8,7 @@ use crate::builtins::{clock_native, print_native};
 use crate::error::RuntimeError;
 use crate::error::RuntimeError::DivisionByZero;
 use crate::interpreter::Function::{NativeFunction, UserFunction};
-use crate::type_inferrer::{Type, TypeDatabase};
+use crate::type_inferrer::{Type, TypeDatabase, TypeVarContext};
 use miette::Report;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
@@ -184,6 +184,7 @@ pub struct Interpreter<'a> {
     var_env: Env,
     method_registry: &'a MethodRegistry<'a>,
     defs: &'a DefMap,
+    infer_ctx: &'a mut TypeVarContext,
 }
 
 impl<'a> Interpreter<'a> {
@@ -192,6 +193,7 @@ impl<'a> Interpreter<'a> {
         type_db: &'a TypeDatabase,
         defs: &'a DefMap,
         method_registry: &'a MethodRegistry,
+        infer_ctx: &'a mut TypeVarContext,
         source: String,
     ) -> Self {
         let var_env = Environment::new();
@@ -208,6 +210,7 @@ impl<'a> Interpreter<'a> {
             type_db,
             var_env,
             method_registry,
+            infer_ctx,
             defs,
         }
     }
@@ -387,7 +390,7 @@ impl<'a> Interpreter<'a> {
                     args.push(self.interpret_expr(arg)?)
                 }
 
-                if let Some((_, function)) = self.method_registry.lookup_method(receiver_ty, method_name) {
+                if let Some((_, function)) = self.method_registry.lookup_method(receiver_ty, method_name, &mut self.infer_ctx) {
                     match function {
                         NativeFunction(native_fn) => native_fn(args),
                         _ => panic!(),

@@ -67,7 +67,7 @@ fn interpret(code: &str) {
         &method_registry,
         code.to_string(),
     );
-    let type_inference_result = type_inferrer.infer();
+    let mut type_inference_result = type_inferrer.infer();
     time_log!(start, "Type Inference");
 
     if !type_inference_result.errors.is_empty() {
@@ -81,6 +81,7 @@ fn interpret(code: &str) {
         type_inference_result.type_env,
         resolve_result.def_map,
         &method_registry,
+        &mut type_inference_result.infer_ctx,
         code.to_string(),
     );
     let error = interpreter.interpret().error;
