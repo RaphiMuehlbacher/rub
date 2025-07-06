@@ -1,11 +1,6 @@
-struct Person {
-    age: Int,
-    friends: Vec<Person>,
+fn test<T>(a: T) -> T {
+    return a + 1;
 }
 
-let a: Vec<Person> = [];
-
-let p = Person {age: 3, friends: a};
-let p2 = Person {age: 4, friends: [p]};
-
-print(p2.friends.first().age);
+let a = test(0);
+print(a);

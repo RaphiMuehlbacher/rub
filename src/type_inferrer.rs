@@ -51,6 +51,7 @@ pub type TypeParamId = usize;
 pub struct TypeVarContext {
     next_var: TypeVarId,
     solutions: HashMap<TypeVarId, Type>,
+    type_subst: HashMap<DefId, Type>,
     source: String,
 }
 
@@ -59,6 +60,7 @@ impl TypeVarContext {
         Self {
             next_var: 0,
             solutions: HashMap::new(),
+            type_subst: HashMap::new(),
             source,
         }
     }
@@ -89,6 +91,13 @@ impl TypeVarContext {
                     panic!("You need to implement the Error type for this")
                 }
                 self.solutions.insert(id, ty);
+                Ok(())
+            }
+            (Type::TypeParam(def_id), ty) | (ty, Type::TypeParam(def_id)) => {
+                if self.occurs_in(def_id, &ty) {
+                    panic!("You need to implement the Error type for this")
+                }
+                self.insert_subst(def_id, ty);
                 Ok(())
             }
             (
@@ -135,6 +144,26 @@ impl TypeVarContext {
         }
     }
 
+    pub fn insert_subst(&mut self, def_id: DefId, ty: Type) {
+        self.type_subst.insert(def_id, ty);
+    }
+
+    pub fn substitute_type(&self, ty: &Type) -> Type {
+        match ty {
+            Type::TypeParam(def_id) => self.type_subst.get(def_id).cloned().unwrap_or(Type::Error),
+            Type::Vec { ty } => Type::Vec {
+                ty: Box::new(self.substitute_type(ty)),
+            },
+            Type::Struct { .. } => {
+                todo!()
+            }
+            Type::Function { params, return_type } => Type::Function {
+                params: params.iter().map(|p| self.substitute_type(p)).collect(),
+                return_type: Box::new(self.substitute_type(return_type)),
+            },
+            _ => ty.clone(),
+        }
+    }
     fn resolve(&self, ty: &Type) -> Type {
         match ty {
             Type::TypeVar(var_id) => {
@@ -168,7 +197,7 @@ pub enum Type {
     String,
     Bool,
     Nil,
-    TypeParam(TypeParamId),
+    TypeParam(DefId),
     Vec {
         ty: Box<Type>,
     },
@@ -195,7 +224,7 @@ impl Type {
                         def_id: *def_id,
                         generic_args: vec![],
                     },
-                    Definition::TypeParam { .. } => Type::TypeParam(todo!()),
+                    Definition::TypeParam { def_id, .. } => Type::TypeParam(*def_id),
                     Definition::Builtin { name, .. } => match name.as_str() {
                         "Int" => Type::Int,
                         "Float" => Type::Float,
@@ -343,7 +372,14 @@ impl<'a> TypeInferrer<'a> {
                 let init_ty = if let Some(init) = &var_decl.initializer {
                     match self.infer_expr(init) {
                         Ok(ty) => Some(ty),
-                        Err(_) => None,
+                        Err(err) => {
+                            if matches!(err, TypeInferrerError::CannotInferType { .. }) {
+                                None
+                            } else {
+                                self.type_db.def_types.insert(def_id, Type::Error);
+                                return Err(err);
+                            }
+                        }
                     }
                 } else {
                     None
@@ -849,9 +885,11 @@ impl<'a> TypeInferrer<'a> {
                                 found: call_expr.arguments.len(),
                             });
                         }
+                        let mut arg_types = vec![];
                         for (arg_expr, param_ty) in call_expr.arguments.iter().zip(params.iter()) {
                             let arg_ty = self.infer_expr(arg_expr)?;
                             self.infer_ctx.unify(&arg_ty, &param_ty, &arg_expr.span)?;
+                            arg_types.push(arg_ty);
                         }
 
                         if let Expr::Variable(ident) = &call_expr.callee.node {
@@ -861,26 +899,37 @@ impl<'a> TypeInferrer<'a> {
                                         def_id,
                                         span,
                                         params: param_def_ids,
+                                        type_params,
                                         ..
                                     } => {
                                         let old_return_ty = self.current_function_return_ty.clone();
                                         self.current_function_return_ty = Some(*return_type.clone());
 
+                                        for (param, arg_ty) in type_params.iter().zip(arg_types.iter()) {
+                                            self.infer_ctx.insert_subst(*param, arg_ty.clone());
+                                        }
+                                        let concrete_param_types: Vec<Type> =
+                                            params.iter().map(|ty| self.infer_ctx.substitute_type(ty)).collect();
+
                                         let param_defs: Vec<&Definition> =
                                             param_def_ids.iter().map(|def_id| self.def_map.get(*def_id).unwrap()).collect();
 
-                                        for (param_def, param_ty) in param_defs.iter().zip(params.iter()) {
+                                        for (param_def, param_ty) in param_defs.iter().zip(concrete_param_types.iter()) {
                                             self.type_db.def_types.insert(param_def.def_id(), param_ty.clone());
                                         }
+
+                                        let concrete_return_ty = self.infer_ctx.substitute_type(&return_type);
                                         let body = self.function_bodies.get(*def_id);
                                         self.infer_stmts(&body.node.statements)?;
 
                                         if let Some(expr) = &body.node.expr {
                                             let body_ty = self.infer_expr(expr)?;
-                                            self.infer_ctx.unify(&body_ty, &return_type, &span)?;
+                                            self.infer_ctx.unify(&body_ty, &concrete_return_ty, &span)?;
                                         }
 
                                         self.current_function_return_ty = old_return_ty;
+                                        self.type_db.expr_types.insert(expr.ir_id, concrete_return_ty.clone());
+                                        return Ok(concrete_return_ty);
                                     }
                                     Definition::NativeFunction { .. } => {}
                                     _ => panic!(),
