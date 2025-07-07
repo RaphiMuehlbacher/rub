@@ -1,14 +1,6 @@
 use crate::TokenKind;
-use crate::interpreters::ControlFlow;
-use crate::type_inferrer::Type;
 use miette::{Diagnostic, SourceSpan, diagnostic};
 use thiserror::Error;
-
-#[derive(Debug)]
-pub enum InterpreterError {
-    RuntimeError(RuntimeError),
-    ControlFlowError(ControlFlow),
-}
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum RuntimeError {
@@ -108,7 +100,7 @@ pub enum TypeInferrerError {
         field: String,
         struct_name: String,
     },
-    #[error("Type mismatch: expected {expected:?}, found {found:?}")]
+    #[error("Type mismatch: expected {expected}, found {found}")]
     #[diagnostic(help("The types don't match"), code(type_inferrer::type_mismatch))]
     TypeMismatch {
         #[source_code]
@@ -117,8 +109,8 @@ pub enum TypeInferrerError {
         #[label("mismatched type here")]
         span: SourceSpan,
 
-        expected: Type,
-        found: Type,
+        expected: String,
+        found: String,
     },
 
     #[error("Type annotations needed for '{name}'")]
@@ -144,7 +136,7 @@ pub enum TypeInferrerError {
         expected: usize,
         found: usize,
     },
-    #[error("Cannot call non-function type '{found:?}'")]
+    #[error("Cannot call non-function type '{found}'")]
     #[diagnostic(
         help("This value is not callable - only functions can be called"),
         code(type_inferrer::not_callable)
@@ -156,10 +148,10 @@ pub enum TypeInferrerError {
         #[label("attempted to call non-function here")]
         span: SourceSpan,
 
-        found: Type,
+        found: String,
     },
 
-    #[error("Condition must be boolean")]
+    #[error("Condition must be boolean, found {found}")]
     #[diagnostic(
         help("If conditions, while loops, and other conditionals require boolean expressions"),
         code(type_inferrer::non_boolean_condition)
@@ -171,10 +163,10 @@ pub enum TypeInferrerError {
         #[label("non-boolean condition here")]
         span: SourceSpan,
 
-        found: Type,
+        found: String,
     },
 
-    #[error("Method '{method}' does not exist on type {base_type:?}")]
+    #[error("Method '{method}' does not exist on type {base_type}")]
     #[diagnostic(help("This type doesn't have the requested method"), code(type_inferrer::unknown_method))]
     UnknownMethod {
         #[source_code]
@@ -184,7 +176,7 @@ pub enum TypeInferrerError {
         span: SourceSpan,
 
         method: String,
-        base_type: Type,
+        base_type: String,
     },
 }
 
@@ -246,6 +238,18 @@ pub enum ResolverError {
         src: String,
 
         #[label("undefined variable used here")]
+        span: SourceSpan,
+
+        name: String,
+    },
+
+    #[error("Undefined type '{name}'")]
+    #[diagnostic(help("Make sure the type is declared before using it"), code(resolver::undefined_type))]
+    UndefinedType {
+        #[source_code]
+        src: String,
+
+        #[label("undefined type used here")]
         span: SourceSpan,
 
         name: String,
@@ -312,15 +316,13 @@ pub enum ResolverError {
 #[derive(Debug, Error, Diagnostic)]
 pub enum ParseError {
     #[error("Expected identifier")]
-    #[diagnostic(code(parser::expected_identifier), help("Expected {context} name here"))]
+    #[diagnostic(code(parser::expected_identifier), help("Expected an identifier"))]
     ExpectedIdentifier {
         #[source_code]
         src: String,
 
         #[label("expected identifier here")]
         span: SourceSpan,
-
-        context: String,
     },
 
     #[error("Expected block")]
@@ -462,9 +464,9 @@ pub enum ParseError {
         side: String,
     },
 
-    #[error("Invalid variable name: {message}")]
-    #[diagnostic(help("Only variables can be assignment targets"), code(parser::invalid_assignment_target))]
-    InvalidVariableName {
+    #[error("Invalid identifier, found '{found}'")]
+    #[diagnostic(help("{message}"), code(parser::invalid_identifier))]
+    InvalidIdentifier {
         #[source_code]
         src: String,
 
@@ -472,30 +474,7 @@ pub enum ParseError {
         span: SourceSpan,
 
         message: String,
-    },
-
-    #[error("Invalid function name: {message}")]
-    #[diagnostic(help("change the function name"), code(parser::invalid_function_name))]
-    InvalidFunctionName {
-        #[source_code]
-        src: String,
-
-        #[label("this function")]
-        span: SourceSpan,
-
-        message: String,
-    },
-
-    #[error("Invalid struct name: {message}")]
-    #[diagnostic(help("change the struct name"), code(parser::invalid_struct_name))]
-    InvalidStructName {
-        #[source_code]
-        src: String,
-
-        #[label("this struct")]
-        span: SourceSpan,
-
-        message: String,
+        found: String,
     },
 }
 

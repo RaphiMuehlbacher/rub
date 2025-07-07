@@ -1,46 +1,44 @@
-use crate::ast::Expr::{Block, Call, Grouping, Lambda, Literal, Unary, Variable};
-use crate::ast::LiteralExpr::VecLiteral;
 use crate::ast::Stmt::{ExprStmtNode, Return, While};
 use crate::ast::{
-    AssignExpr, AstNode, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Delimiter, Expr, ExprStmt, FieldAccessExpr, FieldAssignExpr, ForStmt,
-    FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, MethodCallExpr, Program, ReturnStmt, Stmt, StructDeclStmt,
-    StructInitExpr, TypedIdent, UnaryExpr, UnaryOp, VarDeclStmt, WhileStmt,
+    AssignExpr, AstNode, AstProgram, BinaryExpr, BinaryOp, BlockExpr, CallExpr, Expr, ExprStmt, FieldAccessExpr, FieldAssignExpr, ForStmt,
+    FunDeclStmt, Ident, IfExpr, LambdaExpr, LiteralExpr, LogicalExpr, LogicalOp, MethodCallExpr, ReturnStmt, Stmt, StructDeclStmt,
+    StructInitExpr, TypedIdent, UnaryExpr, UnaryOp, UnresolvedType, VarDeclStmt, WhileStmt,
 };
+use crate::error::ParseError;
 use crate::error::ParseError::{
-    ExpectedExpression, ExpectedIdentifier, InvalidFunctionName, InvalidStructName, InvalidVariableName, MissingBlock, MissingOperand,
-    MissingSemicolon, RedundantParenthesis, RedundantSemicolon, UnclosedDelimiter, UnexpectedClosingDelimiter, UnexpectedEOF,
-    UnexpectedToken, UnmatchedDelimiter,
+    ExpectedExpression, ExpectedIdentifier, InvalidIdentifier, MissingBlock, MissingOperand, MissingSemicolon, RedundantParenthesis,
+    RedundantSemicolon, UnclosedDelimiter, UnexpectedClosingDelimiter, UnexpectedEOF, UnexpectedToken, UnmatchedDelimiter,
 };
-use crate::type_inferrer::Type;
-use crate::{TokenKind, lexer};
-use lexer::Token;
+use crate::lexer::Delimiter::{LeftParen, RightParen};
+use crate::lexer::{Delimiter, Keyword, Literal, Operator, Punctuation};
+use crate::{Token, TokenKind};
 use miette::{Report, SourceOffset, SourceSpan};
 
-type ParseResult<T> = Result<T, Report>;
+type ParseResult<T> = Result<T, ParseError>;
 
 pub struct ParserResult<'a> {
     pub errors: &'a Vec<Report>,
-    pub ast: Program,
+    pub ast: AstProgram,
 }
 
-pub struct Parser<'a> {
-    tokens: Vec<Token<'a>>,
+pub struct Parser {
+    tokens: Vec<Token>,
     position: usize,
     errors: Vec<Report>,
     source: String,
-    delimiter_stack: Vec<Delimiter>,
+    delimiter_stack: Vec<Token>,
 }
 
-impl<'a> Parser<'a> {
-    fn current(&self) -> &Token<'a> {
+impl Parser {
+    fn current(&self) -> &Token {
         &self.tokens[self.position]
     }
 
-    fn peek(&self) -> &Token<'a> {
+    fn peek(&self) -> &Token {
         &self.tokens[self.position + 1]
     }
 
-    fn previous(&self) -> &Token<'a> {
+    fn previous(&self) -> &Token {
         &self.tokens[self.position - 1]
     }
 
@@ -56,9 +54,9 @@ impl<'a> Parser<'a> {
 
     fn next_is(&self, kind: TokenKind) -> bool {
         match (&self.peek().token_kind, &kind) {
-            (TokenKind::Int(_), TokenKind::Int(_)) => true,
-            (TokenKind::Float(_), TokenKind::Float(_)) => true,
-            (TokenKind::String(_), TokenKind::String(_)) => true,
+            (TokenKind::Literal(Literal::Int(_)), TokenKind::Literal(Literal::Int(_))) => true,
+            (TokenKind::Literal(Literal::Float(_)), TokenKind::Literal(Literal::Float(_))) => true,
+            (TokenKind::Literal(Literal::String(_)), TokenKind::Literal(Literal::String(_))) => true,
             (TokenKind::Ident(_), TokenKind::Ident(_)) => true,
             (a, b) => a == b,
         }
@@ -66,9 +64,9 @@ impl<'a> Parser<'a> {
 
     fn current_is(&self, kind: TokenKind) -> bool {
         match (&self.current().token_kind, &kind) {
-            (TokenKind::Int(_), TokenKind::Int(_)) => true,
-            (TokenKind::Float(_), TokenKind::Float(_)) => true,
-            (TokenKind::String(_), TokenKind::String(_)) => true,
+            (TokenKind::Literal(Literal::Int(_)), TokenKind::Literal(Literal::Int(_))) => true,
+            (TokenKind::Literal(Literal::Float(_)), TokenKind::Literal(Literal::Float(_))) => true,
+            (TokenKind::Literal(Literal::String(_)), TokenKind::Literal(Literal::String(_))) => true,
             (TokenKind::Ident(_), TokenKind::Ident(_)) => true,
             (a, b) => a == b,
         }
@@ -96,7 +94,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl<'a> Parser<'a> {
+impl Parser {
     /// * `start` - Starting span (inclusive)
     /// * `end` - Ending span (inclusive)
     fn create_span(&self, start: SourceSpan, end: SourceSpan) -> SourceSpan {
@@ -113,52 +111,36 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl<'a> Parser<'a> {
-    fn report(&mut self, error: Report) {
-        self.errors.push(error);
-    }
-
-    /// if `current` is not a left brace it skips the whole block
-    fn expect_block(&mut self) -> ParseResult<()> {
-        if !self.matches(&[TokenKind::LeftBrace]) {
-            let opening_span = self.current().span;
-            self.skip_next_block();
-            return Err(MissingBlock {
-                src: self.source.to_string(),
-                span: opening_span,
-            }
-            .into());
-        }
-        Ok(())
+impl Parser {
+    fn report(&mut self, error: ParseError) {
+        self.errors.push(error.into());
     }
 
     /// if `current` is not a semicolon, it skips to the next statement
     fn expect_semicolon(&mut self) {
-        if !self.consume(&[TokenKind::Semicolon]) {
+        if !self.consume(&[TokenKind::Punct(Punctuation::Semicolon)]) {
             let previous_span = self.previous().span;
             let next_span = self.next_span(previous_span);
             let error = MissingSemicolon {
                 src: self.source.to_string(),
                 span: next_span,
             };
-            self.report(error.into());
+            self.report(error);
             self.skip_to_next_stmt();
         }
     }
 
     fn expect_expr(&self, result: ParseResult<Expr>, side: &str, span: SourceSpan) -> ParseResult<Expr> {
-        result.map_err(|_| {
-            MissingOperand {
-                src: self.source.to_string(),
-                span,
-                side: side.to_string(),
-            }
-            .into()
+        result.map_err(|_| MissingOperand {
+            src: self.source.to_string(),
+            span,
+            side: side.to_string(),
         })
     }
 }
 
-impl<'a> Parser<'a> {
+impl Parser {
+    /// eats until `current` is one of the given tokens
     fn eat_to_tokens(&mut self, tokens: &[TokenKind]) {
         while !self.at_eof() && !self.matches(tokens) {
             self.advance_position();
@@ -167,55 +149,34 @@ impl<'a> Parser<'a> {
 
     /// skips past the next semicolon, stops before block ending
     fn skip_to_next_stmt(&mut self) {
-        while !self.matches(&[TokenKind::Semicolon, TokenKind::RightBrace]) && !self.at_eof() {
+        while !self.matches(&[TokenKind::Punct(Punctuation::Semicolon), TokenKind::Delim(Delimiter::RightBrace)]) && !self.at_eof() {
             self.advance_position();
         }
-        if self.matches(&[TokenKind::Semicolon]) {
+        if self.matches(&[TokenKind::Punct(Punctuation::Semicolon)]) {
             self.advance_position();
         }
-    }
-
-    /// skips until next left brace
-    fn skip_to_next_block(&mut self) {
-        self.eat_to_tokens(&[TokenKind::LeftBrace]);
     }
 
     /// skips until next left paren
-    fn skip_to_next_paren(&mut self) {
-        self.eat_to_tokens(&[TokenKind::LeftParen])
-    }
-
-    /// skips past the whole next block
-    fn skip_next_block(&mut self) {
-        self.eat_to_tokens(&[TokenKind::LeftBrace]);
-
-        let mut brace_count = 1;
-        self.advance_position();
-
-        while brace_count > 0 && !self.at_eof() {
-            match self.current().token_kind {
-                TokenKind::LeftBrace => {
-                    brace_count += 1;
-                    self.advance_position();
-                }
-                TokenKind::RightBrace => {
-                    brace_count -= 1;
-                    self.advance_position();
-                }
-                _ => self.advance_position(),
-            }
-        }
+    fn skip_to_left_paren(&mut self) {
+        self.eat_to_tokens(&[TokenKind::Delim(Delimiter::LeftParen)])
     }
 }
 
-impl<'a> Parser<'a> {
+impl Parser {
     /// current is the opening delimiter, end is the next token
     fn open_delimiter(&mut self, open_delim: TokenKind) -> ParseResult<()> {
         let current_token = self.current().clone();
+
+        // this should never happen because it should always check if the current is the open_delim before
+        if current_token.token_kind != open_delim {
+            unreachable!()
+        }
+
         match open_delim {
-            TokenKind::LeftParen | TokenKind::LeftBrace | TokenKind::LeftBracket => {
-                self.delimiter_stack.push(Delimiter {
-                    delimiter: open_delim,
+            TokenKind::Delim(Delimiter::LeftParen) | TokenKind::Delim(Delimiter::LeftBrace) | TokenKind::Delim(Delimiter::LeftBracket) => {
+                self.delimiter_stack.push(Token {
+                    token_kind: open_delim,
                     span: current_token.span,
                 });
                 self.advance_position();
@@ -228,29 +189,32 @@ impl<'a> Parser<'a> {
                     span: current_token.span,
                     found: current_token.token_kind,
                     expected: "an opening delimiter".to_string(),
-                }
-                .into())
+                })
             }
         }
     }
 
     /// current is closing delimiter, end is the next token
     fn close_delimiter(&mut self, close_delim: TokenKind) -> ParseResult<()> {
+        // this should never happen because it should always check if the current is the open_delim before
+        if self.current().token_kind != close_delim {
+            unreachable!()
+        }
+
         if self.delimiter_stack.is_empty() {
             self.advance_position();
             return Err(UnexpectedClosingDelimiter {
                 src: self.source.to_string(),
                 span: self.previous().span,
                 delimiter: close_delim,
-            }
-            .into());
+            });
         }
 
         let last_delimiter = self.delimiter_stack.pop().unwrap();
-        let expected_closing = match last_delimiter.delimiter {
-            TokenKind::LeftParen => TokenKind::RightParen,
-            TokenKind::LeftBrace => TokenKind::RightBrace,
-            TokenKind::LeftBracket => TokenKind::RightBracket,
+        let expected_closing = match last_delimiter.token_kind {
+            TokenKind::Delim(Delimiter::LeftParen) => TokenKind::Delim(Delimiter::RightParen),
+            TokenKind::Delim(Delimiter::LeftBrace) => TokenKind::Delim(Delimiter::RightBrace),
+            TokenKind::Delim(Delimiter::LeftBracket) => TokenKind::Delim(Delimiter::RightBracket),
             _ => unreachable!("Invalid opening delimiter"),
         };
 
@@ -269,8 +233,8 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(tokens: Vec<Token<'a>>, source: String) -> Self {
+impl Parser {
+    pub fn new(tokens: Vec<Token>, source: String) -> Self {
         Self {
             tokens,
             position: 0,
@@ -283,9 +247,9 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> ParserResult {
         let left_program_span = self.current().span;
         let mut statements = vec![];
-        if self.matches(&[TokenKind::EOF]) {
+        if self.at_eof() {
             return ParserResult {
-                ast: Program {
+                ast: AstProgram {
                     statements,
                     span: self.create_span(left_program_span, self.current().span),
                 },
@@ -294,9 +258,12 @@ impl<'a> Parser<'a> {
         }
 
         while !self.at_eof() {
+            let left_statement_span = self.current().span;
             let statement = self.declaration();
+            let right_statement_span = self.previous().span;
+
             match statement {
-                Ok(stmt) => statements.push(stmt),
+                Ok(stmt) => statements.push(AstNode::new(stmt, self.create_span(left_statement_span, right_statement_span))),
                 Err(err) => {
                     self.report(err);
                     self.skip_to_next_stmt();
@@ -305,7 +272,7 @@ impl<'a> Parser<'a> {
         }
 
         ParserResult {
-            ast: Program {
+            ast: AstProgram {
                 statements,
                 span: self.create_span(left_program_span, self.current().span),
             },
@@ -314,23 +281,22 @@ impl<'a> Parser<'a> {
     }
 
     fn declaration(&mut self) -> ParseResult<Stmt> {
-        if self.matches(&[TokenKind::Let]) {
+        if self.matches(&[TokenKind::Keyword(Keyword::Let)]) {
             return self.var_declaration();
-        } else if self.matches(&[TokenKind::Fn]) {
+        } else if self.matches(&[TokenKind::Keyword(Keyword::Fn)]) {
             return self.fun_declaration();
-        } else if self.matches(&[TokenKind::Struct]) {
+        } else if self.matches(&[TokenKind::Keyword(Keyword::Struct)]) {
             return self.struct_declaration();
         }
         self.statement()
     }
 
     fn var_declaration(&mut self) -> ParseResult<Stmt> {
-        let var_keyword_span = self.current().span;
         self.advance_position();
 
-        let variable_name = self.parse_variable_name()?;
+        let variable_name = self.parse_identifier()?;
 
-        let type_annotation = if self.matches(&[TokenKind::Colon]) {
+        let type_annotation = if self.matches(&[TokenKind::Punct(Punctuation::Colon)]) {
             Some(self.parse_type_annotation()?)
         } else {
             None
@@ -339,79 +305,63 @@ impl<'a> Parser<'a> {
         let initializer = self.parse_var_initializer()?;
         self.expect_semicolon();
 
-        Ok(Stmt::VarDecl(AstNode::new(
-            VarDeclStmt {
-                ident: variable_name,
-                initializer,
-                type_annotation,
-            },
-            self.create_span(var_keyword_span, self.previous().span),
-        )))
+        Ok(Stmt::VarDecl(VarDeclStmt {
+            ident: variable_name,
+            initializer,
+            type_annotation,
+        }))
     }
 
-    fn parse_variable_name(&mut self) -> ParseResult<Ident> {
-        let var_keyword_span = self.previous().span;
-        let variable_token = self.current().clone();
+    /// start is the identifier, end is the next token
+    fn parse_identifier(&mut self) -> ParseResult<Ident> {
+        let ident_token = self.current().clone();
 
-        let variable_name = match &variable_token.token_kind {
+        let ident = match ident_token.token_kind {
             TokenKind::Ident(name) => {
-                let variable_span = variable_token.span;
                 self.advance_position();
-                AstNode::new(name.clone(), variable_span)
+                AstNode::new(name.clone(), ident_token.span)
             }
-            TokenKind::Float(_) | TokenKind::Int(_) => {
-                if self.next_is(TokenKind::Ident(String::new())) {
-                    self.advance_position();
-                    return Err(InvalidVariableName {
+            TokenKind::Literal(Literal::Float(_)) | TokenKind::Literal(Literal::Int(_)) => {
+                if self.consume(&[TokenKind::Ident(String::new())]) {
+                    self.report(InvalidIdentifier {
                         src: self.source.to_string(),
-                        span: self.create_span(variable_token.span, self.current().span),
-                        message: "A variable cannot start with a number".to_string(),
-                    }
-                    .into());
+                        span: self.create_span(ident_token.span, self.current().span),
+                        message: "identifiers cannot start with a number".to_string(),
+                        found: format!("{}{}", self.previous().token_kind, self.current().token_kind),
+                    })
+                } else {
+                    self.report(ExpectedIdentifier {
+                        src: self.source.to_string(),
+                        span: ident_token.span,
+                    });
                 }
-                return Err(InvalidVariableName {
-                    src: self.source.to_string(),
-                    span: variable_token.span,
-                    message: "A variable name cannot be a number".to_string(),
-                }
-                .into());
-            }
-            TokenKind::Semicolon | TokenKind::Equal => {
-                return Err(ExpectedIdentifier {
-                    src: self.source.to_string(),
-                    span: var_keyword_span,
-                    context: "variable name".to_string(),
-                }
-                .into());
+                AstNode::new("dummy".to_string(), self.current().span)
             }
             _ => {
                 return Err(ExpectedIdentifier {
                     src: self.source.to_string(),
-                    span: variable_token.span,
-                    context: "variable".to_string(),
-                }
-                .into());
+                    span: ident_token.span,
+                });
             }
         };
-
-        Ok(variable_name)
+        Ok(ident)
     }
 
     fn parse_var_initializer(&mut self) -> ParseResult<Option<AstNode<Expr>>> {
-        let initializer = if self.consume(&[TokenKind::Equal]) {
-            if self.consume(&[TokenKind::Semicolon]) {
+        let initializer = if self.consume(&[TokenKind::Operator(Operator::Equal)]) {
+            if self.consume(&[TokenKind::Punct(Punctuation::Semicolon)]) {
                 return Err(ExpectedExpression {
                     src: self.source.to_string(),
                     span: self.previous().span,
                 }
                 .into());
             }
-            let expr_left_span = self.current().span;
+            let left_expr_span = self.current().span;
             Some(AstNode::new(
                 self.expression()?,
-                self.create_span(expr_left_span, self.previous().span),
+                self.create_span(left_expr_span, self.previous().span),
             ))
-        } else if self.matches(&[TokenKind::Semicolon]) {
+        } else if self.matches(&[TokenKind::Punct(Punctuation::Semicolon)]) {
             None
         } else {
             return Err(UnexpectedToken {
@@ -426,10 +376,9 @@ impl<'a> Parser<'a> {
     }
 
     fn fun_declaration(&mut self) -> ParseResult<Stmt> {
-        let fun_keyword_span = self.current().span;
         self.advance_position();
 
-        let function_name = self.parse_function_name()?;
+        let function_name = self.parse_identifier()?;
         let generics = self.parse_function_generics()?;
 
         let parameters = self.parse_function_parameters()?;
@@ -438,7 +387,7 @@ impl<'a> Parser<'a> {
 
         let body_left_span = self.current().span;
         let body = match self.block()? {
-            Block(block) => block,
+            Expr::Block(block) => block,
             _ => {
                 return Err(MissingBlock {
                     src: self.source.to_string(),
@@ -449,84 +398,35 @@ impl<'a> Parser<'a> {
         };
         let body_right_span = self.previous().span;
 
-        Ok(Stmt::FunDecl(AstNode::new(
-            FunDeclStmt {
-                name: function_name,
-                params: parameters,
-                generics,
-                body: AstNode::new(body, self.create_span(body_left_span, body_right_span)),
-                return_type,
-            },
-            self.create_span(fun_keyword_span, self.previous().span),
-        )))
+        Ok(Stmt::FunDecl(FunDeclStmt {
+            ident: function_name,
+            params: parameters,
+            generics,
+            body: AstNode::new(body, self.create_span(body_left_span, body_right_span)),
+            return_type,
+        }))
     }
 
     /// current is struct name, ends at '{'
-    fn parse_struct_name(&mut self) -> ParseResult<Ident> {
-        let struct_token = self.current().clone();
-
-        let struct_name = match &struct_token.token_kind {
-            TokenKind::Ident(name) => {
-                self.advance_position();
-                AstNode::new(name.clone(), struct_token.span)
-            }
-            TokenKind::Float(_) | TokenKind::Int(_) => {
-                if self.next_is(TokenKind::Ident(String::new())) {
-                    self.skip_to_next_paren();
-                    self.report(
-                        InvalidStructName {
-                            src: self.source.to_string(),
-                            span: self.create_span(struct_token.span, self.current().span),
-                            message: "A struct name cannot start with a number".to_string(),
-                        }
-                        .into(),
-                    );
-                    AstNode::new("err_fun".to_string(), self.current().span)
-                } else {
-                    self.skip_to_next_paren();
-                    self.report(
-                        InvalidStructName {
-                            src: self.source.to_string(),
-                            span: struct_token.span,
-                            message: "A struct name name cannot be a number".to_string(),
-                        }
-                        .into(),
-                    );
-                    AstNode::new("err fun".to_string(), self.current().span)
-                }
-            }
-            _ => {
-                self.skip_to_next_paren();
-                return Err(ExpectedIdentifier {
-                    src: self.source.to_string(),
-                    span: struct_token.span,
-                    context: "struct".to_string(),
-                }
-                .into());
-            }
-        };
-        Ok(struct_name)
-    }
     fn struct_declaration(&mut self) -> ParseResult<Stmt> {
-        let struct_keyword_span = self.current().span;
         self.advance_position();
 
-        let struct_name = self.parse_struct_name()?;
-        self.open_delimiter(TokenKind::LeftBrace)?;
-        let parameters = self.parse_typed_idents(TokenKind::RightBrace)?;
+        let struct_name = self.parse_identifier()?;
+        self.open_delimiter(TokenKind::Delim(Delimiter::LeftBrace))?;
+        let parameters = self.parse_typed_idents(TokenKind::Delim(Delimiter::RightBrace))?;
 
-        Ok(Stmt::StructDecl(AstNode::new(
-            StructDeclStmt {
-                ident: struct_name,
-                fields: parameters,
-            },
-            self.create_span(struct_keyword_span, self.previous().span),
-        )))
+        Ok(Stmt::StructDecl(StructDeclStmt {
+            ident: struct_name,
+            fields: parameters,
+        }))
     }
 
-    fn parse_return_type(&mut self) -> ParseResult<AstNode<Type>> {
-        if !self.consume(&[TokenKind::Arrow]) {
-            return Ok(AstNode::new(Type::Nil, SourceSpan::from(0)));
+    fn parse_return_type(&mut self) -> ParseResult<AstNode<UnresolvedType>> {
+        if !self.consume(&[TokenKind::Punct(Punctuation::Arrow)]) {
+            return Ok(AstNode::new(
+                UnresolvedType::Named(Ident::new("Nil".to_string(), SourceSpan::from(0))),
+                SourceSpan::from(0),
+            ));
         }
 
         let return_left_span = self.current().span;
@@ -536,56 +436,9 @@ impl<'a> Parser<'a> {
         Ok(AstNode::new(ty, self.create_span(return_left_span, return_right_span)))
     }
 
-    /// current is function name, ends at '('
-    fn parse_function_name(&mut self) -> ParseResult<Ident> {
-        let function_token = self.current().clone();
-
-        let function_name = match &function_token.token_kind {
-            TokenKind::Ident(name) => {
-                self.advance_position();
-                AstNode::new(name.clone(), function_token.span)
-            }
-            TokenKind::Float(_) | TokenKind::Int(_) => {
-                if self.next_is(TokenKind::Ident(String::new())) {
-                    self.skip_to_next_paren();
-                    self.report(
-                        InvalidFunctionName {
-                            src: self.source.to_string(),
-                            span: self.create_span(function_token.span, self.current().span),
-                            message: "A function name cannot start with a number".to_string(),
-                        }
-                        .into(),
-                    );
-                    AstNode::new("err_fun".to_string(), self.current().span)
-                } else {
-                    self.skip_to_next_paren();
-                    self.report(
-                        InvalidFunctionName {
-                            src: self.source.to_string(),
-                            span: function_token.span,
-                            message: "A function name name cannot be a number".to_string(),
-                        }
-                        .into(),
-                    );
-                    AstNode::new("err fun".to_string(), self.current().span)
-                }
-            }
-            _ => {
-                self.skip_to_next_paren();
-                return Err(ExpectedIdentifier {
-                    src: self.source.to_string(),
-                    span: function_token.span,
-                    context: "function".to_string(),
-                }
-                .into());
-            }
-        };
-        Ok(function_name)
-    }
-
     /// current is potential `<` ends after `>`
     fn parse_function_generics(&mut self) -> ParseResult<Vec<Ident>> {
-        if !self.consume(&[TokenKind::Less]) {
+        if !self.consume(&[TokenKind::Operator(Operator::Less)]) {
             return Ok(vec![]);
         }
 
@@ -598,10 +451,10 @@ impl<'a> Parser<'a> {
                     generics.push(AstNode::new(name.clone(), span));
                     self.advance_position();
 
-                    if self.consume(&[TokenKind::Greater]) {
+                    if self.consume(&[TokenKind::Operator(Operator::Greater)]) {
                         break;
                     }
-                    if !self.consume(&[TokenKind::Comma]) {
+                    if !self.consume(&[TokenKind::Punct(Punctuation::Comma)]) {
                         return Err(UnexpectedToken {
                             src: self.source.to_string(),
                             span: self.current().span,
@@ -611,12 +464,11 @@ impl<'a> Parser<'a> {
                         .into());
                     }
                 }
-                TokenKind::Greater => {
+                TokenKind::Operator(Operator::Greater) => {
                     if generics.is_empty() {
                         return Err(ExpectedIdentifier {
                             src: self.source.to_string(),
                             span: self.current().span,
-                            context: "generic type parameter".to_string(),
                         }
                         .into());
                     }
@@ -627,7 +479,6 @@ impl<'a> Parser<'a> {
                     return Err(ExpectedIdentifier {
                         src: self.source.to_string(),
                         span: self.current().span,
-                        context: "generic type parameter".to_string(),
                     }
                     .into());
                 }
@@ -637,12 +488,12 @@ impl<'a> Parser<'a> {
     }
 
     /// current is `:` end is after type
-    fn parse_type_annotation(&mut self) -> ParseResult<AstNode<Type>> {
-        if !self.consume(&[TokenKind::Colon]) {
+    fn parse_type_annotation(&mut self) -> ParseResult<AstNode<UnresolvedType>> {
+        if !self.consume(&[TokenKind::Punct(Punctuation::Colon)]) {
             return Err(UnexpectedToken {
                 src: self.source.to_string(),
                 span: self.current().span,
-                expected: "type".to_string(),
+                expected: "colon".to_string(),
                 found: self.current().token_kind.clone(),
             }
             .into());
@@ -656,95 +507,93 @@ impl<'a> Parser<'a> {
     }
 
     /// current is the type annotation
-    fn parse_type(&mut self) -> ParseResult<Type> {
-        if self.matches(&[TokenKind::LeftParen]) {
-            self.open_delimiter(self.current().token_kind.clone())?;
-            let mut param_types = vec![];
+    fn parse_type(&mut self) -> ParseResult<UnresolvedType> {
+        if self.matches(&[TokenKind::Delim(Delimiter::LeftParen)]) {
+            self.parse_function_type()
+        } else {
+            self.parse_named_or_generic()
+        }
+    }
 
-            if !self.matches(&[TokenKind::RightParen]) {
-                param_types.push(self.parse_type()?);
-                while self.consume(&[TokenKind::Comma]) {
-                    param_types.push(self.parse_type()?);
-                }
+    fn parse_function_type(&mut self) -> ParseResult<UnresolvedType> {
+        self.open_delimiter(TokenKind::Delim(Delimiter::LeftParen))?;
+        let mut param_types = vec![];
+
+        if !self.matches(&[TokenKind::Delim(Delimiter::RightParen)]) {
+            let left_param_span = self.current().span;
+            param_types.push(AstNode::new(
+                self.parse_type()?,
+                self.create_span(left_param_span, self.previous().span),
+            ));
+            while self.consume(&[TokenKind::Punct(Punctuation::Comma)]) {
+                let left_param_span = self.current().span;
+                param_types.push(AstNode::new(
+                    self.parse_type()?,
+                    self.create_span(left_param_span, self.previous().span),
+                ));
             }
+        }
 
-            self.close_delimiter(TokenKind::RightParen)?;
+        self.close_delimiter(TokenKind::Delim(Delimiter::RightParen))?;
 
-            if !self.consume(&[TokenKind::Arrow]) {
+        if !self.consume(&[TokenKind::Punct(Punctuation::Arrow)]) {
+            return Err(UnexpectedToken {
+                src: self.source.to_string(),
+                span: self.current().span,
+                expected: "'->'".to_string(),
+                found: self.current().token_kind.clone(),
+            }
+            .into());
+        }
+
+        let left_return_span = self.current().span;
+        let return_type = Box::new(AstNode::new(
+            self.parse_type()?,
+            self.create_span(left_return_span, self.previous().span),
+        ));
+        Ok(UnresolvedType::Function {
+            params: param_types,
+            return_type,
+        })
+    }
+
+    fn parse_named_or_generic(&mut self) -> ParseResult<UnresolvedType> {
+        let left_base_span = self.current().span;
+        let base = self.parse_identifier()?;
+        let right_base_span = self.previous().span;
+
+        let base = UnresolvedType::Named(base);
+
+        if self.consume(&[TokenKind::Operator(Operator::Less)]) {
+            let mut args = vec![];
+
+            let left_arg_span = self.current().span;
+            args.push(AstNode::new(
+                self.parse_type()?,
+                self.create_span(left_arg_span, self.previous().span),
+            ));
+            while self.consume(&[TokenKind::Punct(Punctuation::Comma)]) {
+                let left_arg_span = self.current().span;
+                args.push(AstNode::new(
+                    self.parse_type()?,
+                    self.create_span(left_arg_span, self.previous().span),
+                ));
+            }
+            if !self.consume(&[TokenKind::Operator(Operator::Greater)]) {
                 return Err(UnexpectedToken {
                     src: self.source.to_string(),
                     span: self.current().span,
-                    expected: "'->'".to_string(),
+                    expected: "'>'".to_string(),
                     found: self.current().token_kind.clone(),
                 }
                 .into());
             }
-
-            let return_type = Box::new(self.parse_type()?);
-            Ok(Type::Function {
-                params: param_types,
-                return_ty: return_type,
+            Ok(UnresolvedType::Generic {
+                base: Box::new(AstNode::new(base, self.create_span(left_base_span, right_base_span))),
+                args,
             })
         } else {
-            match self.current().token_kind {
-                TokenKind::TypeVec => {
-                    self.advance_position();
-                    if !self.consume(&[TokenKind::Less]) {
-                        return Err(UnexpectedToken {
-                            src: self.source.to_string(),
-                            span: self.current().span,
-                            expected: "'<'".to_string(),
-                            found: self.current().token_kind.clone(),
-                        }
-                        .into());
-                    }
-
-                    let inner_type = Box::new(self.parse_type()?);
-                    if !self.consume(&[TokenKind::Greater]) {
-                        return Err(UnexpectedToken {
-                            src: self.source.to_string(),
-                            span: self.current().span,
-                            expected: "'>'".to_string(),
-                            found: self.current().token_kind.clone(),
-                        }
-                        .into());
-                    }
-
-                    Ok(Type::Vec(inner_type))
-                }
-                TokenKind::TypeInt => {
-                    self.advance_position();
-                    Ok(Type::Int)
-                }
-                TokenKind::TypeFloat => {
-                    self.advance_position();
-                    Ok(Type::Float)
-                }
-                TokenKind::TypeString => {
-                    self.advance_position();
-                    Ok(Type::String)
-                }
-                TokenKind::TypeBool => {
-                    self.advance_position();
-                    Ok(Type::Bool)
-                }
-                TokenKind::TypeNil => {
-                    self.advance_position();
-                    Ok(Type::Nil)
-                }
-                TokenKind::Ident(ref name) => {
-                    let name = name.clone();
-                    self.advance_position();
-                    Ok(Type::Generic(name))
-                }
-                _ => Err(UnexpectedToken {
-                    src: self.source.to_string(),
-                    span: self.current().span,
-                    expected: "type".to_string(),
-                    found: self.current().token_kind.clone(),
-                }
-                .into()),
-            }
+            Ok(base)
         }
     }
 
@@ -763,15 +612,11 @@ impl<'a> Parser<'a> {
                     type_annotation,
                 })
             }
-            _ => {
-                self.skip_next_block();
-                Err(ExpectedIdentifier {
-                    src: self.source.to_string(),
-                    span: curr_token.span,
-                    context: "parameter".to_string(),
-                }
-                .into())
+            _ => Err(ExpectedIdentifier {
+                src: self.source.to_string(),
+                span: curr_token.span,
             }
+            .into()),
         }
     }
 
@@ -789,7 +634,7 @@ impl<'a> Parser<'a> {
             fields.push(field);
 
             match self.current().token_kind.clone() {
-                TokenKind::Comma => {
+                TokenKind::Punct(Punctuation::Comma) => {
                     self.advance_position();
                     if self.current_is(closing_delimiter.clone()) {
                         self.close_delimiter(closing_delimiter)?;
@@ -822,18 +667,18 @@ impl<'a> Parser<'a> {
     }
     /// current is '(' ends after ')'
     fn parse_function_parameters(&mut self) -> ParseResult<Vec<TypedIdent>> {
-        self.open_delimiter(TokenKind::LeftParen)?;
+        self.open_delimiter(TokenKind::Delim(Delimiter::LeftParen))?;
 
-        Ok(self.parse_typed_idents(TokenKind::RightParen)?)
+        Ok(self.parse_typed_idents(TokenKind::Delim(Delimiter::RightParen))?)
     }
 
     /// current is the start of the statement
     fn statement(&mut self) -> ParseResult<Stmt> {
-        if self.matches(&[TokenKind::While]) {
+        if self.matches(&[TokenKind::Keyword(Keyword::While)]) {
             return self.while_stmt();
-        } else if self.matches(&[TokenKind::For]) {
+        } else if self.matches(&[TokenKind::Keyword(Keyword::For)]) {
             return self.for_stmt();
-        } else if self.matches(&[TokenKind::Return]) {
+        } else if self.matches(&[TokenKind::Keyword(Keyword::Return)]) {
             return self.return_stmt();
         }
         self.expression_stmt()
@@ -841,24 +686,19 @@ impl<'a> Parser<'a> {
 
     /// current is start of the statement, end is next statement
     fn expression_stmt(&mut self) -> ParseResult<Stmt> {
-        let left_span = self.current().span;
-
         let expr_left_span = self.current().span;
         let value = self.expression()?;
         let expr_right_span = self.previous().span;
 
         match value {
-            Block(_) => {}
+            Expr::Block(_) => {}
             Expr::If(_) => {}
             _ => self.expect_semicolon(),
         }
 
-        Ok(ExprStmtNode(AstNode::new(
-            ExprStmt {
-                expr: AstNode::new(value, self.create_span(expr_left_span, expr_right_span)),
-            },
-            self.create_span(left_span, self.previous().span),
-        )))
+        Ok(ExprStmtNode(ExprStmt {
+            expr: AstNode::new(value, self.create_span(expr_left_span, expr_right_span)),
+        }))
     }
     /// start is `if`, end is next statement
     fn if_expr(&mut self) -> ParseResult<Expr> {
@@ -870,7 +710,7 @@ impl<'a> Parser<'a> {
 
         let then_branch_left_span = self.current().span;
         let then_branch = match self.block()? {
-            Block(block) => block,
+            Expr::Block(block) => block,
             _ => {
                 return Err(MissingBlock {
                     src: self.source.to_string(),
@@ -883,10 +723,10 @@ impl<'a> Parser<'a> {
 
         let else_branch_left_span = self.current().span;
         let mut else_branch = None;
-        if self.consume(&[TokenKind::Else]) {
-            else_branch = if self.matches(&[TokenKind::If]) {
+        if self.consume(&[TokenKind::Keyword(Keyword::Else)]) {
+            else_branch = if self.matches(&[TokenKind::Keyword(Keyword::If)]) {
                 let if_expr = self.if_expr()?;
-                Some(Box::new(AstNode::new(
+                Some(AstNode::new(
                     BlockExpr {
                         statements: vec![],
                         expr: Some(Box::new(AstNode::new(
@@ -895,13 +735,10 @@ impl<'a> Parser<'a> {
                         ))),
                     },
                     self.create_span(else_branch_left_span, self.previous().span),
-                )))
+                ))
             } else {
                 match self.block()? {
-                    Block(block) => Some(Box::new(AstNode::new(
-                        block,
-                        self.create_span(else_branch_left_span, self.previous().span),
-                    ))),
+                    Expr::Block(block) => Some(AstNode::new(block, self.create_span(else_branch_left_span, self.previous().span))),
                     _ => {
                         return Err(MissingBlock {
                             src: self.source.to_string(),
@@ -922,16 +759,16 @@ impl<'a> Parser<'a> {
 
     /// current is '{' and ends after '}'
     fn block(&mut self) -> ParseResult<Expr> {
-        self.open_delimiter(self.current().token_kind.clone())?;
+        self.open_delimiter(TokenKind::Delim(Delimiter::LeftBrace))?;
 
         let mut statements = vec![];
         let mut expression = None;
 
-        while !self.matches(&[TokenKind::RightBrace]) && !self.at_eof() {
+        while !self.matches(&[TokenKind::Delim(Delimiter::RightBrace)]) && !self.at_eof() {
             let saved_pos = self.position;
 
             if let Ok(expr) = self.expression() {
-                if self.current_is(TokenKind::RightBrace) {
+                if self.current_is(TokenKind::Delim(Delimiter::RightBrace)) {
                     let span = self.create_span(self.previous().span, self.current().span);
                     expression = Some(Box::new(AstNode::new(expr, span)));
                     break;
@@ -939,8 +776,9 @@ impl<'a> Parser<'a> {
             }
 
             self.position = saved_pos;
+            let left_stmt_span = self.current().span;
             match self.declaration() {
-                Ok(stmt) => statements.push(stmt),
+                Ok(stmt) => statements.push(AstNode::new(stmt, self.create_span(left_stmt_span, self.previous().span))),
                 Err(err) => {
                     self.report(err);
                     self.skip_to_next_stmt();
@@ -948,9 +786,9 @@ impl<'a> Parser<'a> {
             }
         }
 
-        self.close_delimiter(self.current().token_kind.clone())?;
+        self.close_delimiter(TokenKind::Delim(Delimiter::RightBrace))?;
 
-        Ok(Block(BlockExpr {
+        Ok(Expr::Block(BlockExpr {
             statements,
             expr: expression,
         }))
@@ -961,7 +799,7 @@ impl<'a> Parser<'a> {
         let expr_left_span = self.current().span;
         let expr = self.expression()?;
 
-        if let Grouping(inner) = expr {
+        if let Expr::Grouping(inner) = expr {
             self.report(
                 RedundantParenthesis {
                     src: self.source.to_string(),
@@ -978,7 +816,6 @@ impl<'a> Parser<'a> {
 
     /// start is `while`, end is next statement
     fn while_stmt(&mut self) -> ParseResult<Stmt> {
-        let while_span = self.current().span;
         self.advance_position();
 
         let condition_span = self.current().span;
@@ -986,7 +823,7 @@ impl<'a> Parser<'a> {
 
         let block_left_span = self.current().span;
         let block = match self.block()? {
-            Block(block) => block,
+            Expr::Block(block) => block,
             _ => {
                 return Err(MissingBlock {
                     src: self.source.to_string(),
@@ -998,37 +835,41 @@ impl<'a> Parser<'a> {
 
         let block_right_span = self.previous().span;
 
-        Ok(While(AstNode::new(
-            WhileStmt {
-                condition,
-                body: AstNode::new(block, self.create_span(block_left_span, block_right_span)),
-            },
-            self.create_span(while_span, self.previous().span),
-        )))
+        Ok(While(WhileStmt {
+            condition,
+            body: AstNode::new(block, self.create_span(block_left_span, block_right_span)),
+        }))
     }
 
     /// current is for, end is after block
     fn for_stmt(&mut self) -> ParseResult<Stmt> {
-        let left_for_span = self.current().span;
         self.advance_position();
+        self.open_delimiter(TokenKind::Delim(LeftParen))?;
 
-        let initializer = if self.matches(&[TokenKind::Let]) {
-            Some(self.var_declaration()?)
-        } else if !self.consume(&[TokenKind::Semicolon]) {
-            Some(self.expression_stmt()?)
+        let left_initializer_span = self.current().span;
+        let initializer = if self.matches(&[TokenKind::Keyword(Keyword::Let)]) {
+            Some(Box::new(AstNode::new(
+                self.var_declaration()?,
+                self.create_span(left_initializer_span, self.previous().span),
+            )))
+        } else if !self.consume(&[TokenKind::Punct(Punctuation::Semicolon)]) {
+            Some(Box::new(AstNode::new(
+                self.expression_stmt()?,
+                self.create_span(left_initializer_span, self.previous().span),
+            )))
         } else {
             None
         };
 
         let condition_span = self.current().span;
-        let condition = if !self.matches(&[TokenKind::Semicolon]) {
+        let condition = if !self.matches(&[TokenKind::Punct(Punctuation::Semicolon)]) {
             self.expression()?
         } else {
-            Literal(LiteralExpr::Bool(true))
+            Expr::Literal(LiteralExpr::Bool(true))
         };
         let condition = AstNode::new(condition, condition_span);
 
-        if !self.consume(&[TokenKind::Semicolon]) {
+        if !self.consume(&[TokenKind::Punct(Punctuation::Semicolon)]) {
             let error = MissingSemicolon {
                 src: self.source.to_string(),
                 span: self.previous().span,
@@ -1037,7 +878,7 @@ impl<'a> Parser<'a> {
         }
 
         let inc_left_span = self.current().span;
-        let increment = if !self.matches(&[TokenKind::LeftBrace]) {
+        let increment = if !self.matches(&[TokenKind::Delim(Delimiter::LeftBrace)]) {
             Some(AstNode::new(
                 self.expression()?,
                 self.create_span(inc_left_span, self.previous().span),
@@ -1046,9 +887,10 @@ impl<'a> Parser<'a> {
             None
         };
 
+        self.close_delimiter(TokenKind::Delim(RightParen))?;
         let body_left_span = self.current().span;
         let body = match self.block()? {
-            Block(block) => block,
+            Expr::Block(block) => block,
             _ => {
                 return Err(MissingBlock {
                     src: self.source.to_string(),
@@ -1057,25 +899,21 @@ impl<'a> Parser<'a> {
                 .into());
             }
         };
-        Ok(Stmt::For(AstNode::new(
-            ForStmt {
-                condition,
-                initializer,
-                increment,
-                body: AstNode::new(body, self.create_span(body_left_span, self.previous().span)),
-            },
-            self.create_span(left_for_span, self.previous().span),
-        )))
+        Ok(Stmt::For(ForStmt {
+            condition,
+            initializer,
+            increment,
+            body: AstNode::new(body, self.create_span(body_left_span, self.previous().span)),
+        }))
     }
 
     /// current is `return` end is next statement
     fn return_stmt(&mut self) -> ParseResult<Stmt> {
-        let left_return_span = self.current().span;
         self.advance_position();
 
-        let value = if !self.matches(&[TokenKind::Semicolon]) {
+        let value = if !self.matches(&[TokenKind::Punct(Punctuation::Semicolon)]) {
             let left_expr_span = self.current().span;
-            if self.matches(&[TokenKind::EOF]) {
+            if self.at_eof() {
                 return Err(ExpectedExpression {
                     src: self.source.to_string(),
                     span: self.current().span,
@@ -1091,26 +929,23 @@ impl<'a> Parser<'a> {
         };
 
         self.expect_semicolon();
-        Ok(Return(AstNode::new(
-            ReturnStmt { expr: value },
-            self.create_span(left_return_span, self.previous().span),
-        )))
+        Ok(Return(ReturnStmt { expr: value }))
     }
 
     /// starts at first token, ends after the last token of the expression
     fn expression(&mut self) -> ParseResult<Expr> {
-        if self.matches(&[TokenKind::Fn]) {
+        if self.matches(&[TokenKind::Keyword(Keyword::Fn)]) {
             return self.lambda_expr();
-        } else if self.matches(&[TokenKind::If]) {
+        } else if self.matches(&[TokenKind::Keyword(Keyword::If)]) {
             return self.if_expr();
-        } else if self.matches(&[TokenKind::LeftBrace]) {
+        } else if self.matches(&[TokenKind::Delim(Delimiter::LeftBrace)]) {
             return self.block();
         }
         self.assignment()
     }
 
     fn parse_binary_operand(&mut self, parse_fn: fn(&mut Self) -> ParseResult<Expr>) -> ParseResult<Expr> {
-        if self.matches(&[TokenKind::LeftBrace]) {
+        if self.matches(&[TokenKind::Delim(Delimiter::LeftBrace)]) {
             self.block()
         } else {
             parse_fn(self)
@@ -1126,7 +961,7 @@ impl<'a> Parser<'a> {
 
         let body_left_span = self.current().span;
         let body = match self.block()? {
-            Block(block) => block,
+            Expr::Block(block) => block,
             _ => {
                 return Err(MissingBlock {
                     src: self.source.to_string(),
@@ -1137,7 +972,7 @@ impl<'a> Parser<'a> {
         };
         let body_right_span = self.previous().span;
 
-        Ok(Lambda(LambdaExpr {
+        Ok(Expr::Lambda(LambdaExpr {
             parameters,
             body: Box::new(AstNode::new(body, self.create_span(body_left_span, body_right_span))),
             return_type,
@@ -1148,7 +983,7 @@ impl<'a> Parser<'a> {
         let left_assignment_span = self.current().span;
         let expr = self.logic_or()?;
 
-        if self.consume(&[TokenKind::Equal]) {
+        if self.consume(&[TokenKind::Operator(Operator::Equal)]) {
             let equal_span = self.previous().span;
 
             let left_result_span = self.current().span;
@@ -1165,7 +1000,7 @@ impl<'a> Parser<'a> {
             };
 
             return match expr {
-                Variable(name) => Ok(Expr::Assign(AssignExpr {
+                Expr::Variable(name) => Ok(Expr::Assign(AssignExpr {
                     target: name,
                     value: Box::new(AstNode::new(value, self.create_span(left_assignment_span, self.previous().span))),
                 })),
@@ -1177,7 +1012,6 @@ impl<'a> Parser<'a> {
                 _ => Err(ExpectedIdentifier {
                     src: self.source.to_string(),
                     span: equal_span,
-                    context: "variable name".to_string(),
                 }
                 .into()),
             };
@@ -1190,11 +1024,11 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_binary_operand(Self::logic_and)?;
         let expr_right_span = self.previous().span;
 
-        while self.consume(&[TokenKind::Or]) {
+        while self.consume(&[TokenKind::Keyword(Keyword::Or)]) {
             let operator = self.previous();
 
             let op = match operator.token_kind {
-                TokenKind::Or => LogicalOp::Or,
+                TokenKind::Keyword(Keyword::Or) => LogicalOp::Or,
                 _ => unreachable!(),
             };
 
@@ -1220,11 +1054,11 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_binary_operand(Self::equality)?;
         let expr_right_span = self.previous().span;
 
-        while self.consume(&[TokenKind::And]) {
+        while self.consume(&[TokenKind::Keyword(Keyword::And)]) {
             let operator = self.previous();
 
             let op = match operator.token_kind {
-                TokenKind::And => LogicalOp::And,
+                TokenKind::Keyword(Keyword::And) => LogicalOp::And,
                 _ => unreachable!(),
             };
 
@@ -1250,12 +1084,12 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_binary_operand(Self::comparison)?;
         let expr_right_span = self.previous().span;
 
-        while self.consume(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
+        while self.consume(&[TokenKind::Operator(Operator::EqualEqual), TokenKind::Operator(Operator::BangEqual)]) {
             let operator = self.previous();
 
             let op = match operator.token_kind {
-                TokenKind::BangEqual => BinaryOp::BangEqual,
-                TokenKind::EqualEqual => BinaryOp::EqualEqual,
+                TokenKind::Operator(Operator::BangEqual) => BinaryOp::BangEqual,
+                TokenKind::Operator(Operator::EqualEqual) => BinaryOp::EqualEqual,
                 _ => unreachable!(),
             };
             let operator_span = operator.span;
@@ -1280,14 +1114,19 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_binary_operand(Self::term)?;
         let expr_right_span = self.previous().span;
 
-        while self.consume(&[TokenKind::Less, TokenKind::LessEqual, TokenKind::Greater, TokenKind::GreaterEqual]) {
+        while self.consume(&[
+            TokenKind::Operator(Operator::Less),
+            TokenKind::Operator(Operator::LessEqual),
+            TokenKind::Operator(Operator::Greater),
+            TokenKind::Operator(Operator::GreaterEqual),
+        ]) {
             let operator = self.previous();
 
             let op = match operator.token_kind {
-                TokenKind::Less => BinaryOp::Less,
-                TokenKind::LessEqual => BinaryOp::LessEqual,
-                TokenKind::Greater => BinaryOp::Greater,
-                TokenKind::GreaterEqual => BinaryOp::GreaterEqual,
+                TokenKind::Operator(Operator::Less) => BinaryOp::Less,
+                TokenKind::Operator(Operator::LessEqual) => BinaryOp::LessEqual,
+                TokenKind::Operator(Operator::Greater) => BinaryOp::Greater,
+                TokenKind::Operator(Operator::GreaterEqual) => BinaryOp::GreaterEqual,
                 _ => unreachable!(),
             };
 
@@ -1313,12 +1152,12 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_binary_operand(Self::factor)?;
         let expr_right_span = self.previous().span;
 
-        while self.consume(&[TokenKind::Plus, TokenKind::Minus]) {
+        while self.consume(&[TokenKind::Operator(Operator::Plus), TokenKind::Operator(Operator::Minus)]) {
             let operator = self.previous();
 
             let op = match operator.token_kind {
-                TokenKind::Plus => BinaryOp::Plus,
-                TokenKind::Minus => BinaryOp::Minus,
+                TokenKind::Operator(Operator::Plus) => BinaryOp::Plus,
+                TokenKind::Operator(Operator::Minus) => BinaryOp::Minus,
                 _ => unreachable!(),
             };
 
@@ -1343,12 +1182,12 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_binary_operand(Self::unary)?;
         let expr_right_span = self.previous().span;
 
-        while self.consume(&[TokenKind::Slash, TokenKind::Star]) {
+        while self.consume(&[TokenKind::Operator(Operator::Slash), TokenKind::Operator(Operator::Star)]) {
             let operator = self.previous();
 
             let op = match operator.token_kind {
-                TokenKind::Slash => BinaryOp::Slash,
-                TokenKind::Star => BinaryOp::Star,
+                TokenKind::Operator(Operator::Slash) => BinaryOp::Slash,
+                TokenKind::Operator(Operator::Star) => BinaryOp::Star,
                 _ => unreachable!(),
             };
 
@@ -1370,12 +1209,12 @@ impl<'a> Parser<'a> {
     }
 
     fn unary(&mut self) -> ParseResult<Expr> {
-        if self.consume(&[TokenKind::Minus, TokenKind::Bang]) {
+        if self.consume(&[TokenKind::Operator(Operator::Minus), TokenKind::Operator(Operator::Bang)]) {
             let operator = self.previous();
 
             let op = match operator.token_kind {
-                TokenKind::Bang => UnaryOp::Bang,
-                TokenKind::Minus => UnaryOp::Minus,
+                TokenKind::Operator(Operator::Minus) => UnaryOp::Minus,
+                TokenKind::Operator(Operator::Bang) => UnaryOp::Bang,
                 _ => unreachable!(),
             };
 
@@ -1387,7 +1226,7 @@ impl<'a> Parser<'a> {
 
             let expr = self.expect_expr(result, "right", operator_span)?;
 
-            Ok(Unary(UnaryExpr {
+            Ok(Expr::Unary(UnaryExpr {
                 op: AstNode::new(op, operator_span),
                 expr: Box::new(AstNode::new(expr, self.create_span(expr_left_span, expr_right_span))),
             }))
@@ -1400,9 +1239,9 @@ impl<'a> Parser<'a> {
         let mut expr = self.primary()?;
 
         loop {
-            if self.matches(&[TokenKind::LeftParen]) {
+            if self.matches(&[TokenKind::Delim(Delimiter::LeftParen)]) {
                 expr = self.finish_call(expr)?;
-            } else if self.matches(&[TokenKind::Dot]) {
+            } else if self.matches(&[TokenKind::Punct(Punctuation::Dot)]) {
                 expr = self.finish_method_call(expr)?;
             } else {
                 break;
@@ -1416,24 +1255,24 @@ impl<'a> Parser<'a> {
         let left_paren_span = self.current().span;
         self.open_delimiter(self.current().token_kind.clone())?;
 
-        if self.matches(&[TokenKind::EOF, TokenKind::Semicolon]) {
+        if self.matches(&[TokenKind::EOF, TokenKind::Punct(Punctuation::Semicolon)]) {
             return Err(UnclosedDelimiter {
                 src: self.source.to_string(),
                 span: left_paren_span,
-                delimiter: TokenKind::LeftParen,
+                delimiter: TokenKind::Delim(Delimiter::LeftParen),
             }
             .into());
         }
 
         let mut arguments = vec![];
 
-        if !self.matches(&[TokenKind::RightParen]) {
+        if !self.matches(&[TokenKind::Delim(Delimiter::RightParen)]) {
             let expr_left_span = self.current().span;
             arguments.push(AstNode::new(
                 self.expression()?,
                 self.create_span(expr_left_span, self.previous().span),
             ));
-            while self.consume(&[TokenKind::Comma]) {
+            while self.consume(&[TokenKind::Punct(Punctuation::Comma)]) {
                 let expr_left_span = self.current().span;
                 arguments.push(AstNode::new(
                     self.expression()?,
@@ -1444,7 +1283,7 @@ impl<'a> Parser<'a> {
 
         self.close_delimiter(self.current().token_kind.clone())?;
 
-        Ok(Call(CallExpr {
+        Ok(Expr::Call(CallExpr {
             callee: Box::new(AstNode::new(callee, left_paren_span)),
             arguments,
         }))
@@ -1463,22 +1302,21 @@ impl<'a> Parser<'a> {
                 return Err(ExpectedIdentifier {
                     src: self.source.to_string(),
                     span: self.current().span,
-                    context: "field name or method".to_string(),
                 }
                 .into());
             }
         };
-        if self.matches(&[TokenKind::LeftParen]) {
+        if self.matches(&[TokenKind::Delim(Delimiter::LeftParen)]) {
             let mut arguments = vec![];
-            self.open_delimiter(TokenKind::LeftParen)?;
+            self.open_delimiter(TokenKind::Delim(Delimiter::LeftParen))?;
 
-            if !self.matches(&[TokenKind::RightParen]) {
+            if !self.matches(&[TokenKind::Delim(Delimiter::RightParen)]) {
                 let expr_left_span = self.current().span;
                 arguments.push(AstNode::new(
                     self.expression()?,
                     self.create_span(expr_left_span, self.previous().span),
                 ));
-                while self.consume(&[TokenKind::Comma]) {
+                while self.consume(&[TokenKind::Punct(Punctuation::Comma)]) {
                     let expr_left_span = self.current().span;
                     arguments.push(AstNode::new(
                         self.expression()?,
@@ -1487,7 +1325,7 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            self.close_delimiter(TokenKind::RightParen)?;
+            self.close_delimiter(TokenKind::Delim(Delimiter::RightParen))?;
             Ok(Expr::MethodCall(MethodCallExpr {
                 receiver: Box::new(AstNode::new(receiver, self.previous().span)),
                 method: field,
@@ -1505,7 +1343,9 @@ impl<'a> Parser<'a> {
     /// current is token to parse, end is after the token
     fn primary(&mut self) -> ParseResult<Expr> {
         match self.current().token_kind {
-            TokenKind::RightBrace | TokenKind::RightParen => {
+            TokenKind::Delim(Delimiter::RightBrace)
+            | TokenKind::Delim(Delimiter::RightParen)
+            | TokenKind::Delim(Delimiter::RightBracket) => {
                 let token = self.current();
                 self.close_delimiter(token.token_kind.clone())?;
                 Err(UnexpectedClosingDelimiter {
@@ -1515,20 +1355,20 @@ impl<'a> Parser<'a> {
                 }
                 .into())
             }
-            TokenKind::LeftBracket => {
+            TokenKind::Delim(Delimiter::LeftBracket) => {
                 self.open_delimiter(self.current().token_kind.clone())?;
 
                 let mut elements = vec![];
 
-                if !self.matches(&[TokenKind::RightBracket]) {
+                if !self.matches(&[TokenKind::Delim(Delimiter::RightBracket)]) {
                     let expr_left_span = self.current().span;
                     elements.push(AstNode::new(
                         self.expression()?,
                         self.create_span(expr_left_span, self.previous().span),
                     ));
 
-                    while self.consume(&[TokenKind::Comma]) {
-                        if self.matches(&[TokenKind::RightBracket]) {
+                    while self.consume(&[TokenKind::Punct(Punctuation::Comma)]) {
+                        if self.matches(&[TokenKind::Delim(Delimiter::RightBracket)]) {
                             return Err(ExpectedExpression {
                                 src: self.source.to_string(),
                                 span: self.current().span,
@@ -1542,26 +1382,26 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 }
-                self.close_delimiter(TokenKind::RightBracket)?;
-                Ok(Literal(VecLiteral(elements)))
+                self.close_delimiter(TokenKind::Delim(Delimiter::RightBracket))?;
+                Ok(Expr::Literal(LiteralExpr::VecLiteral(elements)))
             }
-            TokenKind::False => {
+            TokenKind::Keyword(Keyword::False) => {
                 self.advance_position();
-                Ok(Literal(LiteralExpr::Bool(false)))
+                Ok(Expr::Literal(LiteralExpr::Bool(false)))
             }
-            TokenKind::True => {
+            TokenKind::Keyword(Keyword::True) => {
                 self.advance_position();
-                Ok(Literal(LiteralExpr::Bool(true)))
+                Ok(Expr::Literal(LiteralExpr::Bool(true)))
             }
-            TokenKind::Nil => {
+            TokenKind::Keyword(Keyword::Nil) => {
                 self.advance_position();
-                Ok(Literal(LiteralExpr::Nil))
+                Ok(Expr::Literal(LiteralExpr::Nil))
             }
-            TokenKind::LeftParen => {
+            TokenKind::Delim(Delimiter::LeftParen) => {
                 let opening_paren_span = self.current().span;
                 self.open_delimiter(self.current().token_kind.clone())?;
 
-                let expr = if self.next_is(TokenKind::RightParen) {
+                let expr = if self.next_is(TokenKind::Delim(Delimiter::RightParen)) {
                     Err(ExpectedExpression {
                         src: self.source.to_string(),
                         span: self.create_span(opening_paren_span, self.peek().span),
@@ -1573,53 +1413,55 @@ impl<'a> Parser<'a> {
 
                 self.close_delimiter(self.current().token_kind.clone())?;
 
-                Ok(Grouping(Box::new(AstNode::new(
+                Ok(Expr::Grouping(Box::new(AstNode::new(
                     expr,
                     self.create_span(opening_paren_span, self.current().span),
                 ))))
             }
-            TokenKind::Int(value) => {
+            TokenKind::Literal(Literal::Int(value)) => {
                 let span = self.current().span;
                 self.advance_position();
 
                 if self.current_is(TokenKind::Ident(String::new())) {
-                    return Err(InvalidVariableName {
+                    return Err(InvalidIdentifier {
                         src: self.source.to_string(),
                         span,
                         message: "A variable cannot start with a number".to_string(),
+                        found: self.current().token_kind.to_string(),
                     }
                     .into());
                 }
-                Ok(Literal(LiteralExpr::Int(value)))
+                Ok(Expr::Literal(LiteralExpr::Int(value)))
             }
-            TokenKind::Float(value) => {
+            TokenKind::Literal(Literal::Float(value)) => {
                 let span = self.current().span;
                 self.advance_position();
 
                 if self.current_is(TokenKind::Ident(String::new())) {
-                    return Err(InvalidVariableName {
+                    return Err(InvalidIdentifier {
                         src: self.source.to_string(),
                         span,
                         message: "A variable cannot start with a number".to_string(),
+                        found: self.current().token_kind.to_string(),
                     }
                     .into());
                 }
-                Ok(Literal(LiteralExpr::Float(value)))
+                Ok(Expr::Literal(LiteralExpr::Float(value)))
             }
-            TokenKind::String(ref value) => {
+            TokenKind::Literal(Literal::String(ref value)) => {
                 let string = value.clone();
                 self.advance_position();
-                Ok(Literal(LiteralExpr::String(string)))
+                Ok(Expr::Literal(LiteralExpr::String(string)))
             }
             TokenKind::Ident(ref name) => {
                 let string = name.clone();
                 let name_span = self.current().span;
                 self.advance_position();
 
-                if self.consume(&[TokenKind::LeftBrace]) {
+                if self.consume(&[TokenKind::Delim(Delimiter::LeftBrace)]) {
                     let mut fields = vec![];
 
-                    while !self.matches(&[TokenKind::RightBrace]) {
+                    while !self.matches(&[TokenKind::Delim(Delimiter::RightBrace)]) {
                         let field_name = match self.current().token_kind.clone() {
                             TokenKind::Ident(field_name) => {
                                 let span = self.current().span;
@@ -1630,12 +1472,11 @@ impl<'a> Parser<'a> {
                                 return Err(ExpectedIdentifier {
                                     src: self.source.to_string(),
                                     span: self.current().span,
-                                    context: "struct field name".to_string(),
                                 }
                                 .into());
                             }
                         };
-                        if !self.consume(&[TokenKind::Colon]) {
+                        if !self.consume(&[TokenKind::Punct(Punctuation::Colon)]) {
                             return Err(UnexpectedToken {
                                 src: self.source.to_string(),
                                 span: self.current().span,
@@ -1650,10 +1491,10 @@ impl<'a> Parser<'a> {
 
                         fields.push((
                             field_name.clone(),
-                            Box::new(AstNode::new(value, self.create_span(expr_left_span, expr_right_span))),
+                            AstNode::new(value, self.create_span(expr_left_span, expr_right_span)),
                         ));
-                        if !self.matches(&[TokenKind::RightBrace]) {
-                            if !self.consume(&[TokenKind::Comma]) {
+                        if !self.matches(&[TokenKind::Delim(Delimiter::RightBrace)]) {
+                            if !self.consume(&[TokenKind::Punct(Punctuation::Comma)]) {
                                 return Err(UnexpectedToken {
                                     src: self.source.to_string(),
                                     span: self.current().span,
@@ -1665,14 +1506,14 @@ impl<'a> Parser<'a> {
                         }
                     }
 
-                    self.consume(&[TokenKind::RightBrace]);
+                    self.consume(&[TokenKind::Delim(Delimiter::RightBrace)]);
 
                     Ok(Expr::StructInit(StructInitExpr {
                         name: AstNode::new(string, name_span),
                         fields,
                     }))
                 } else {
-                    Ok(Variable(AstNode::new(string, name_span)))
+                    Ok(Expr::Variable(AstNode::new(string, name_span)))
                 }
             }
             TokenKind::EOF => Err(UnexpectedEOF {
@@ -1680,7 +1521,7 @@ impl<'a> Parser<'a> {
                 expected: "unexpected EOF".to_string(),
             }
             .into()),
-            TokenKind::Semicolon => {
+            TokenKind::Punct(Punctuation::Semicolon) => {
                 let span = self.current().span;
                 self.advance_position();
                 Err(RedundantSemicolon {

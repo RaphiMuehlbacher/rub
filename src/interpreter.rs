@@ -1,13 +1,14 @@
 use crate::MethodRegistry;
-use crate::ast::{
-    AstNode, BinaryOp, BlockExpr, Expr, ExprStmt, FunDeclStmt, LiteralExpr, LogicalOp, Program, ReturnStmt, Stmt, StructDeclStmt,
-    TypedIdent, UnaryOp, VarDeclStmt, WhileStmt,
+use crate::ir::{
+    BinaryOp, BlockExpr, DefMap, Expr, ExprStmt, FunDeclStmt, IrNode, IrProgram, LiteralExpr, LogicalOp, ReturnStmt, Stmt, TypedIdent,
+    UnaryOp, VarDeclStmt, WhileStmt,
 };
+
 use crate::builtins::{clock_native, print_native};
-use crate::error::InterpreterError;
+use crate::error::RuntimeError;
 use crate::error::RuntimeError::DivisionByZero;
-use crate::interpreters::Function::{NativeFunction, UserFunction};
-use crate::type_inferrer::{Type, TypeVarId};
+use crate::interpreter::Function::{NativeFunction, UserFunction};
+use crate::type_inferrer::{Type, TypeDatabase, TypeVarContext};
 use miette::Report;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
@@ -33,7 +34,7 @@ pub enum Function {
     UserFunction {
         name: Option<String>,
         params: Rc<Vec<TypedIdent>>,
-        body: Rc<AstNode<BlockExpr>>,
+        body: Rc<IrNode<BlockExpr>>,
         env: Env,
     },
 }
@@ -49,7 +50,14 @@ impl Value {
                 let elements: Vec<String> = vec.borrow().iter().map(|value| value.to_printable_value()).collect();
                 format!("[{}]", elements.join(", "))
             }
-            Value::Struct(_) => todo!(),
+            Value::Struct(fields) => {
+                let fields_str: Vec<String> = fields
+                    .borrow()
+                    .iter()
+                    .map(|(name, value)| format!("{}:{}", name, value.to_printable_value()))
+                    .collect();
+                format!("{{{}}}", fields_str.join(", "))
+            }
             Value::Function(function) => match function.as_ref() {
                 NativeFunction(_) => "<native_fn>".to_string(),
                 UserFunction {
@@ -58,7 +66,7 @@ impl Value {
                     body: _,
                     env: _,
                 } => {
-                    let param_strings: Vec<String> = params.iter().map(|p| p.name.node.clone()).collect();
+                    let param_strings: Vec<String> = params.iter().map(|p| p.name.name.node.clone()).collect();
                     match name {
                         None => format!("<fn ({})>", param_strings.join(", ")),
                         Some(name) => {
@@ -104,6 +112,12 @@ impl Value {
             _ => panic!(),
         }
     }
+}
+
+#[derive(Debug)]
+pub enum InterpreterError {
+    RuntimeError(RuntimeError),
+    ControlFlowError(ControlFlow),
 }
 
 pub struct InterpreterResult {
@@ -165,15 +179,24 @@ impl Environment {
 
 pub struct Interpreter<'a> {
     source: String,
-    program: &'a Program,
-    type_env: &'a HashMap<TypeVarId, Type>,
+    program: &'a IrProgram,
+    type_db: &'a TypeDatabase,
     var_env: Env,
-    method_registry: MethodRegistry,
+    method_registry: &'a MethodRegistry<'a>,
+    defs: &'a DefMap,
+    infer_ctx: &'a mut TypeVarContext,
 }
 
 impl<'a> Interpreter<'a> {
-    pub fn new(program: &'a Program, type_env: &'a HashMap<TypeVarId, Type>, source: String) -> Self {
-        let mut var_env = Environment::new();
+    pub fn new(
+        program: &'a IrProgram,
+        type_db: &'a TypeDatabase,
+        defs: &'a DefMap,
+        method_registry: &'a MethodRegistry,
+        infer_ctx: &'a mut TypeVarContext,
+        source: String,
+    ) -> Self {
+        let var_env = Environment::new();
         var_env
             .borrow_mut()
             .define("clock".to_string(), Value::Function(Rc::new(NativeFunction(clock_native))));
@@ -181,14 +204,14 @@ impl<'a> Interpreter<'a> {
             .borrow_mut()
             .define("print".to_string(), Value::Function(Rc::new(NativeFunction(print_native))));
 
-        let method_registry = MethodRegistry::new();
-
         Self {
             source,
             program,
-            type_env,
+            type_db,
             var_env,
             method_registry,
+            infer_ctx,
+            defs,
         }
     }
 
@@ -223,86 +246,76 @@ impl<'a> Interpreter<'a> {
         InterpreterResult { error: None }
     }
 
-    fn declare_stmt(&mut self, stmt: &Stmt) {
-        match stmt {
+    fn declare_stmt(&mut self, stmt: &IrNode<Stmt>) {
+        match &stmt.node {
             Stmt::FunDecl(fun_decl) => {
                 let value = Value::Function(Rc::new(UserFunction {
-                    name: Some(fun_decl.node.ident.node.clone()),
-                    params: Rc::new(fun_decl.node.params.clone()),
-                    body: Rc::new(fun_decl.node.body.clone()),
+                    name: Some(fun_decl.ident.name.node.clone()),
+                    params: Rc::new(fun_decl.params.clone()),
+                    body: Rc::new(fun_decl.body.clone()),
                     env: self.var_env.clone(),
                 }));
-                self.define_var(fun_decl.node.ident.node.clone(), value)
+                self.define_var(fun_decl.ident.name.node.clone(), value)
             }
             _ => {}
         }
     }
 
-    fn interpret_stmt(&mut self, stmt: &Stmt) -> Result<(), InterpreterError> {
-        match stmt {
-            Stmt::ExprStmtNode(expr) => self.expr_stmt(expr),
-            Stmt::VarDecl(var_decl) => self.var_decl(var_decl),
-            Stmt::FunDecl(fun_decl) => self.fun_decl(fun_decl),
+    fn interpret_stmt(&mut self, stmt: &IrNode<Stmt>) -> Result<(), InterpreterError> {
+        match &stmt.node {
+            Stmt::ExprStmtNode(expr) => {
+                self.interpret_expr(&expr.expr)?;
+                Ok(())
+            }
+            Stmt::VarDecl(var_decl) => {
+                if let Some(init) = &var_decl.initializer {
+                    let value = self.interpret_expr(&init)?;
+                    self.define_var(var_decl.ident.name.node.clone(), value);
+                } else {
+                    self.define_var(var_decl.ident.name.node.clone(), Value::Nil);
+                }
+
+                Ok(())
+            }
+            Stmt::FunDecl(fun_decl) => {
+                self.define_var(
+                    fun_decl.ident.name.node.clone(),
+                    Value::Function(Rc::new(UserFunction {
+                        name: Some(fun_decl.ident.name.node.clone()),
+                        params: Rc::new(fun_decl.params.clone()),
+                        body: Rc::new(fun_decl.body.clone()),
+                        env: self.var_env.clone(),
+                    })),
+                );
+
+                Ok(())
+            }
             Stmt::StructDecl(_) => Ok(()),
-            Stmt::While(while_stmt) => self.while_stmt(while_stmt),
-            Stmt::Return(return_stmt) => self.return_stmt(return_stmt),
+            Stmt::While(while_stmt) => {
+                let mut cond_value = self.interpret_expr(&while_stmt.condition)?.to_bool();
+                while cond_value {
+                    self.interpret_stmts(&while_stmt.body.node.statements)?;
+                    cond_value = self.interpret_expr(&while_stmt.condition)?.to_bool();
+                }
+
+                Ok(())
+            }
+            Stmt::Return(return_stmt) => {
+                let value = if let Some(expr) = &return_stmt.expr {
+                    self.interpret_expr(expr)?
+                } else {
+                    Value::Nil
+                };
+                Err(InterpreterError::ControlFlowError(ControlFlow::Return(value)))
+            }
         }
     }
 
-    fn interpret_stmts(&mut self, stmts: &Vec<Stmt>) -> Result<(), InterpreterError> {
+    fn interpret_stmts(&mut self, stmts: &Vec<IrNode<Stmt>>) -> Result<(), InterpreterError> {
         for stmt in stmts {
             self.interpret_stmt(stmt)?;
         }
         Ok(())
-    }
-
-    fn expr_stmt(&mut self, expr: &AstNode<ExprStmt>) -> Result<(), InterpreterError> {
-        self.interpret_expr(&expr.node.expr)?;
-        Ok(())
-    }
-
-    fn var_decl(&mut self, var_decl: &AstNode<VarDeclStmt>) -> Result<(), InterpreterError> {
-        if let Some(init) = &var_decl.node.initializer {
-            let value = self.interpret_expr(&init)?;
-            self.define_var(var_decl.node.ident.node.clone(), value);
-        } else {
-            self.define_var(var_decl.node.ident.node.clone(), Value::Nil);
-        }
-
-        Ok(())
-    }
-
-    fn fun_decl(&mut self, fun_decl: &AstNode<FunDeclStmt>) -> Result<(), InterpreterError> {
-        self.define_var(
-            fun_decl.node.name.node.clone(),
-            Value::Function(Rc::new(UserFunction {
-                name: Some(fun_decl.node.name.node.clone()),
-                params: Rc::new(fun_decl.node.params.clone()),
-                body: Rc::new(fun_decl.node.body.clone()),
-                env: self.var_env.clone(),
-            })),
-        );
-
-        Ok(())
-    }
-
-    fn while_stmt(&mut self, while_stmt: &AstNode<WhileStmt>) -> Result<(), InterpreterError> {
-        let mut cond_value = self.interpret_expr(&while_stmt.node.condition)?.to_bool();
-        while cond_value {
-            self.interpret_stmts(&while_stmt.node.body.node.statements)?;
-            cond_value = self.interpret_expr(&while_stmt.node.condition)?.to_bool();
-        }
-
-        Ok(())
-    }
-
-    fn return_stmt(&mut self, return_stmt: &AstNode<ReturnStmt>) -> Result<(), InterpreterError> {
-        let value = if let Some(expr) = &return_stmt.node.expr {
-            self.interpret_expr(expr)?
-        } else {
-            Value::Nil
-        };
-        Err(InterpreterError::ControlFlowError(ControlFlow::Return(value)))
     }
 
     fn interpret_block_expr(&mut self, block: &BlockExpr) -> Result<Value, InterpreterError> {
@@ -317,7 +330,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn interpret_expr(&mut self, expr: &AstNode<Expr>) -> Result<Value, InterpreterError> {
+    fn interpret_expr(&mut self, expr: &IrNode<Expr>) -> Result<Value, InterpreterError> {
         match &expr.node {
             Expr::FieldAssign(field_assign) => {
                 let receiver = self.interpret_expr(&field_assign.receiver)?;
@@ -349,7 +362,7 @@ impl<'a> Interpreter<'a> {
                 let mut field_values = HashMap::new();
                 for (field_name, field_expr) in &struct_init.fields {
                     let value = self.interpret_expr(field_expr)?;
-                    field_values.insert(field_name.node.clone(), value);
+                    field_values.insert(field_name.name.node.clone(), value);
                 }
                 Ok(Value::Struct(Rc::new(RefCell::new(field_values))))
             }
@@ -369,15 +382,15 @@ impl<'a> Interpreter<'a> {
             }
             Expr::MethodCall(method_call) => {
                 let receiver = self.interpret_expr(&method_call.receiver)?;
-                let method_name = &method_call.method.node;
-                let receiver_ty = self.type_env.get(&method_call.receiver.node_id).expect("should work");
+                let method_name = &method_call.method.name.node;
+                let receiver_ty = self.type_db.expr_types.get(&method_call.receiver.ir_id).expect("should work");
 
                 let mut args = vec![receiver];
                 for arg in &method_call.arguments {
                     args.push(self.interpret_expr(arg)?)
                 }
 
-                if let Some((_, function)) = self.method_registry.lookup_method(receiver_ty, method_name) {
+                if let Some((_, function)) = self.method_registry.lookup_method(receiver_ty, method_name, &mut self.infer_ctx) {
                     match function {
                         NativeFunction(native_fn) => native_fn(args),
                         _ => panic!(),
@@ -404,7 +417,7 @@ impl<'a> Interpreter<'a> {
 
             Expr::Unary(unary) => {
                 let right = self.interpret_expr(&unary.expr)?;
-                let expr_type = self.type_env.get(&expr.node_id).unwrap();
+                let expr_type = self.type_db.expr_types.get(&expr.ir_id).unwrap();
 
                 match unary.op.node {
                     UnaryOp::Bang => Ok(Value::Bool(!right.to_bool())),
@@ -420,7 +433,7 @@ impl<'a> Interpreter<'a> {
                 let left = self.interpret_expr(&binary.left)?;
                 let right = self.interpret_expr(&binary.right)?;
 
-                let expr_type = self.type_env.get(&expr.node_id).unwrap();
+                let expr_type = self.type_db.expr_types.get(&expr.ir_id).unwrap();
 
                 match binary.op.node {
                     BinaryOp::Plus => match expr_type {
@@ -461,7 +474,7 @@ impl<'a> Interpreter<'a> {
                         _ => panic!(),
                     },
                     BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => {
-                        let operand_type = self.type_env.get(&binary.left.node_id).unwrap();
+                        let operand_type = self.type_db.expr_types.get(&binary.left.ir_id).unwrap();
                         match operand_type {
                             Type::Int => match binary.op.node {
                                 BinaryOp::Greater => Ok(Value::Bool(left.to_int() > right.to_int())),
@@ -486,11 +499,11 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Grouping(grouping) => self.interpret_expr(grouping),
-            Expr::Variable(variable) => Ok(self.get_var(variable.node.clone()).clone()),
+            Expr::Variable(variable) => Ok(self.get_var(variable.name.node.clone()).clone()),
 
             Expr::Assign(assign) => {
                 let value = self.interpret_expr(&assign.value)?;
-                self.assign_var(assign.target.node.clone(), value.clone());
+                self.assign_var(assign.target.name.node.clone(), value.clone());
                 Ok(value)
             }
 
@@ -528,7 +541,7 @@ impl<'a> Interpreter<'a> {
 
                         for (arg, param) in call.arguments.iter().zip(params.as_ref()) {
                             let value = self.interpret_expr(arg)?;
-                            local_env.borrow_mut().define(param.name.node.clone(), value);
+                            local_env.borrow_mut().define(param.name.name.node.clone(), value);
                         }
 
                         let old_env = self.var_env.clone();

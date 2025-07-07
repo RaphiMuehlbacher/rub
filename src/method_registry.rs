@@ -1,45 +1,33 @@
-use crate::builtins::{float_vec_sum_method, int_vec_sum_method, vec_first_method, vec_get_method, vec_len_method, vec_push_method};
-use crate::error::InterpreterError;
-use crate::interpreters::{Function, Value};
-use crate::type_inferrer::Type;
-use std::collections::HashMap;
+use crate::builtins::{float_vec_sum_method, int_vec_sum_method, vec_first_method, vec_len_method};
+use crate::interpreter::{Function, InterpreterError, Value};
+use crate::ir::DefMap;
+use crate::type_inferrer::{Type, TypeVarContext};
+use miette::SourceSpan;
 
-pub struct MethodRegistry {
-    methods: HashMap<Type, HashMap<String, (Type, Function)>>,
+#[derive(Debug, PartialEq)]
+pub struct MethodRegistry<'a> {
+    defs: &'a mut DefMap,
+    methods: Vec<(Type, String, Type, Function)>, // (receiver_ty, method_name, method_ty, method_impl)
 }
 
-impl MethodRegistry {
-    pub fn new() -> Self {
-        let mut registry = Self { methods: HashMap::new() };
+impl<'a> MethodRegistry<'a> {
+    pub fn new(defs: &'a mut DefMap) -> Self {
+        let mut registry = Self { methods: vec![], defs };
         registry.register_methods();
         registry
     }
 
-    pub fn lookup_method(&self, base_type: &Type, method_name: &str) -> Option<&(Type, Function)> {
-        if let Some(methods) = self.methods.get(base_type) {
-            if let Some(method) = methods.get(method_name) {
-                return Some(method);
-            }
-        }
-
-        for (type_, methods) in &self.methods {
-            if let Some(method) = methods.get(method_name) {
-                if self.can_monomorphize(type_, base_type) {
-                    return Some(method);
+    pub fn lookup_method(&self, receiver_ty: &Type, method_name: &str, infer_ctx: &mut TypeVarContext) -> Option<(Type, Function)> {
+        for (receiver_ty_pattern, name, method_ty, method_def) in &self.methods {
+            if name == method_name {
+                let instantiated = infer_ctx.instantiate(receiver_ty_pattern);
+                if infer_ctx.unify(&instantiated, receiver_ty, &SourceSpan::from(0)).is_ok() {
+                    let instantiated_method_ty = infer_ctx.instantiate(method_ty);
+                    return Some((instantiated_method_ty, method_def.clone()));
                 }
             }
         }
-
         None
-    }
-
-    fn can_monomorphize(&self, generic_type: &Type, concrete_type: &Type) -> bool {
-        match (generic_type, concrete_type) {
-            (Type::Vec(gen_inner), Type::Vec(_)) => {
-                matches!(gen_inner.as_ref(), Type::Generic(_))
-            }
-            _ => false,
-        }
     }
 
     fn create_method(
@@ -50,41 +38,33 @@ impl MethodRegistry {
         return_ty: Type,
         method: fn(Vec<Value>) -> Result<Value, InterpreterError>,
     ) {
+        self.defs.insert_placeholder_function(method_name, 0, SourceSpan::from(0));
+
         let method_type = Type::Function {
             params,
-            return_ty: Box::new(return_ty),
+            return_type: Box::new(return_ty),
         };
 
-        self.methods
-            .entry(base_type.clone())
-            .or_insert_with(HashMap::new)
-            .insert(method_name.to_string(), (method_type.clone(), Function::NativeFunction(method)));
+        self.methods.push((
+            base_type.clone(),
+            method_name.to_string(),
+            method_type,
+            Function::NativeFunction(method),
+        ));
     }
 
     fn register_vec_methods(&mut self) {
-        let vec_float_ty = Type::Vec(Box::new(Type::Float));
-        let vec_int_ty = Type::Vec(Box::new(Type::Int));
-        let vec_generic_ty = Type::Vec(Box::new(Type::Generic("T".to_string())));
-
-        self.create_method(&vec_generic_ty, "len", vec![], Type::Int, vec_len_method);
-        self.create_method(&vec_generic_ty, "first", vec![], Type::Generic("T".to_string()), vec_first_method);
+        let vec_float_ty = Type::Vec { ty: Box::new(Type::Float) };
+        let vec_int_ty = Type::Vec { ty: Box::new(Type::Int) };
+        let vec_gen_ty = Type::Vec {
+            ty: Box::new(Type::TypeParam(5)),
+        };
         self.create_method(&vec_float_ty, "sum", vec![], Type::Float, float_vec_sum_method);
         self.create_method(&vec_int_ty, "sum", vec![], Type::Int, int_vec_sum_method);
-        self.create_method(
-            &vec_generic_ty,
-            "push",
-            vec![Type::Generic("T".to_string())],
-            Type::Nil,
-            vec_push_method,
-        );
 
-        self.create_method(
-            &vec_generic_ty,
-            "get",
-            vec![Type::Int],
-            Type::Generic("T".to_string()),
-            vec_get_method,
-        );
+        //TODO: currently only for int vec
+        self.create_method(&vec_gen_ty, "len", vec![], Type::Int, vec_len_method);
+        self.create_method(&vec_int_ty, "first", vec![], Type::Int, vec_first_method);
     }
 
     fn register_methods(&mut self) {

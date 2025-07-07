@@ -1,5 +1,6 @@
-use rub::interpreters::Interpreter;
-use rub::{Lexer, Parser, Resolver, TypeInferrer};
+use rub::ast_lowerer::AstLowerer;
+use rub::interpreter::Interpreter;
+use rub::{Lexer, MethodRegistry, Parser, Resolver, TypeInferrer};
 use std::fs;
 use std::time::Instant;
 
@@ -14,7 +15,7 @@ fn interpret(code: &str) {
     #[cfg(feature = "timing")]
     let start = Instant::now();
 
-    let mut lexer = Lexer::new(&code);
+    let mut lexer = Lexer::new(code);
     let lex_result = lexer.lex();
     time_log!(start, "Lexing");
 
@@ -37,18 +38,36 @@ fn interpret(code: &str) {
     }
 
     let mut resolver = Resolver::new(&parse_result.ast, code.to_string());
-    let resolving_errors = resolver.resolve();
+    let resolve_result = resolver.resolve();
     time_log!(start, "Resolving");
 
-    if !resolving_errors.is_empty() {
-        for error in resolving_errors {
+    if !resolve_result.errors.is_empty() {
+        for error in resolve_result.errors {
             println!("{:?}", error);
         }
         return;
     }
 
-    let mut type_inferrer = TypeInferrer::new(&parse_result.ast, code.to_string());
-    let type_inference_result = type_inferrer.infer();
+    let mut ast_lowerer = AstLowerer::new(
+        &parse_result.ast,
+        resolve_result.resolution_map,
+        resolve_result.scope_tree,
+        resolve_result.def_map,
+    );
+    let ast_lowerer_result = ast_lowerer.lower();
+    time_log!(start, "Lowering");
+
+    let mut cloned_def_map = resolve_result.def_map.clone();
+    let method_registry = MethodRegistry::new(&mut cloned_def_map);
+
+    let mut type_inferrer = TypeInferrer::new(
+        &ast_lowerer_result.ir_program,
+        &resolve_result.def_map,
+        &ast_lowerer_result.function_bodies,
+        &method_registry,
+        code.to_string(),
+    );
+    let mut type_inference_result = type_inferrer.infer();
     time_log!(start, "Type Inference");
 
     if !type_inference_result.errors.is_empty() {
@@ -57,9 +76,14 @@ fn interpret(code: &str) {
         }
         return;
     }
-
-    // println!("{:?}", parse_result.ast);
-    let mut interpreter = Interpreter::new(&parse_result.ast, type_inference_result.type_env, code.to_string());
+    let mut interpreter = Interpreter::new(
+        &ast_lowerer_result.ir_program,
+        type_inference_result.type_env,
+        resolve_result.def_map,
+        &method_registry,
+        &mut type_inference_result.infer_ctx,
+        code.to_string(),
+    );
     let error = interpreter.interpret().error;
     if let Some(err) = error {
         println!("{:?}", err);
@@ -69,7 +93,7 @@ fn interpret(code: &str) {
 
 fn main() {
     let mut path = "source.rub".to_string();
-    let source = fs::read_to_string(&mut path).expect(format!("Error reading file {}", path).as_str());
+    let source = fs::read_to_string(&mut path).unwrap_or_else(|_| panic!("Error reading file {}", path));
     let source = format!("{} ", source);
     interpret(&source);
 }

@@ -1,6 +1,3 @@
-struct Person {
-    age: Int,
-}
-
-let p = Person {age: 3};
-print(p.age);
+let a = [1, 2];
+let b = a.len();
+print(b);

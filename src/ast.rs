@@ -1,16 +1,17 @@
-use crate::TokenKind;
 use miette::SourceSpan;
+
+pub type AstId = usize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AstNode<T> {
     pub node: T,
     pub span: SourceSpan,
-    pub node_id: usize,
+    pub node_id: AstId,
 }
 
 impl<T> AstNode<T> {
     pub fn new(node: T, span: SourceSpan) -> Self {
-        static mut NODE_ID: usize = 1;
+        static mut NODE_ID: AstId = 1;
 
         let node_id = unsafe {
             let id = NODE_ID;
@@ -24,36 +25,24 @@ impl<T> AstNode<T> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnresolvedType {
-    Primitive(PrimitiveType),
-    Named(String),
+    /// Int, Bool, User, T
+    Named(Ident),
+
+    /// (Int, Bool) -> Bool
     Function {
-        params: Vec<UnresolvedType>,
-        return_type: Box<UnresolvedType>,
+        params: Vec<AstNode<UnresolvedType>>,
+        return_type: Box<AstNode<UnresolvedType>>,
     },
-    /// Option<T>, Option<Int>, Result<A, B>
-    GenericApplication {
-        base: Box<UnresolvedType>,
-        args: Vec<UnresolvedType>,
+
+    /// Option<T>, Vec<Int>, Result<A, B>
+    Generic {
+        base: Box<AstNode<UnresolvedType>>,
+        args: Vec<AstNode<UnresolvedType>>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum PrimitiveType {
-    Nil,
-    Int,
-    Float,
-    Bool,
-    String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Delimiter {
-    pub delimiter: TokenKind,
-    pub span: SourceSpan,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Program {
+pub struct AstProgram {
     pub statements: Vec<AstNode<Stmt>>,
     pub span: SourceSpan,
 }
@@ -91,7 +80,7 @@ pub struct TypedIdent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDeclStmt {
-    pub name: Ident,
+    pub ident: Ident,
     pub params: Vec<TypedIdent>,
     pub body: AstNode<BlockExpr>,
     pub generics: Vec<Ident>,
