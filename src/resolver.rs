@@ -5,7 +5,7 @@ use crate::error::ResolverError::{
     UninitializedVariable,
 };
 
-use crate::ir::{DefMap, ResolutionMap, ScopeId, ScopeTree};
+use crate::hir::{DefMap, ResolutionMap, ScopeId, ScopeTree};
 use miette::Report;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;

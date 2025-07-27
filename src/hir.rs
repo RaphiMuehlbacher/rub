@@ -470,29 +470,29 @@ impl ResolutionMap {
     }
 }
 
-pub type IrId = usize;
+pub type HirId = usize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct IrNode<T> {
+pub struct HirNode<T> {
     pub node: T,
     pub span: SourceSpan,
-    pub ir_id: IrId,
+    pub hir_id: HirId,
 }
 
-impl<T> IrNode<T> {
+impl<T> HirNode<T> {
     pub fn new(node: T, span: SourceSpan) -> Self {
-        static mut IR_ID: usize = 1;
+        static mut HIR_ID: usize = 1;
 
         let node_id = unsafe {
-            let id = IR_ID;
-            IR_ID += 1;
+            let id = HIR_ID;
+            HIR_ID += 1;
             id
         };
 
         Self {
             node,
             span,
-            ir_id: node_id,
+            hir_id: node_id,
         }
     }
 }
@@ -511,8 +511,8 @@ pub enum ResolvedType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct IrProgram {
-    pub statements: Vec<IrNode<Stmt>>,
+pub struct HirProgram {
+    pub statements: Vec<HirNode<Stmt>>,
     pub span: SourceSpan,
 }
 
@@ -528,14 +528,14 @@ pub enum Stmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ident {
-    pub name: IrNode<String>,
+    pub name: HirNode<String>,
     pub def_id: DefId,
 }
 
 impl Ident {
     pub fn new(name: &str, span: SourceSpan, def_id: DefId) -> Self {
         Self {
-            name: IrNode::new(name.to_string(), span),
+            name: HirNode::new(name.to_string(), span),
             def_id,
         }
     }
@@ -551,13 +551,13 @@ impl Ident {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExprStmt {
-    pub expr: IrNode<Expr>,
+    pub expr: HirNode<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarDeclStmt {
     pub ident: Ident,
-    pub initializer: Option<IrNode<Expr>>,
+    pub initializer: Option<HirNode<Expr>>,
     pub type_annotation: Option<ResolvedType>,
 }
 
@@ -573,7 +573,7 @@ pub struct FunDeclStmt {
     pub params: Vec<TypedIdent>,
     pub generics: Vec<Ident>,
     pub return_type: ResolvedType,
-    pub body: IrNode<BlockExpr>,
+    pub body: HirNode<BlockExpr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -584,13 +584,13 @@ pub struct StructDeclStmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileStmt {
-    pub condition: IrNode<Expr>,
-    pub body: IrNode<BlockExpr>,
+    pub condition: HirNode<Expr>,
+    pub body: HirNode<BlockExpr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReturnStmt {
-    pub expr: Option<IrNode<Expr>>,
+    pub expr: Option<HirNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -598,7 +598,7 @@ pub enum Expr {
     Literal(LiteralExpr),
     Unary(UnaryExpr),
     Binary(BinaryExpr),
-    Grouping(Box<IrNode<Expr>>),
+    Grouping(Box<HirNode<Expr>>),
     Variable(Ident),
     Assign(AssignExpr),
     Logical(LogicalExpr),
@@ -614,80 +614,80 @@ pub enum Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnaryExpr {
-    pub op: IrNode<UnaryOp>,
-    pub expr: Box<IrNode<Expr>>,
+    pub op: HirNode<UnaryOp>,
+    pub expr: Box<HirNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BinaryExpr {
-    pub left: Box<IrNode<Expr>>,
-    pub op: IrNode<BinaryOp>,
-    pub right: Box<IrNode<Expr>>,
+    pub left: Box<HirNode<Expr>>,
+    pub op: HirNode<BinaryOp>,
+    pub right: Box<HirNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LogicalExpr {
-    pub left: Box<IrNode<Expr>>,
-    pub op: IrNode<LogicalOp>,
-    pub right: Box<IrNode<Expr>>,
+    pub left: Box<HirNode<Expr>>,
+    pub op: HirNode<LogicalOp>,
+    pub right: Box<HirNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignExpr {
     pub target: Ident,
-    pub value: Box<IrNode<Expr>>,
+    pub value: Box<HirNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CallExpr {
-    pub callee: Box<IrNode<Expr>>,
-    pub arguments: Vec<IrNode<Expr>>,
+    pub callee: Box<HirNode<Expr>>,
+    pub arguments: Vec<HirNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
     pub parameters: Vec<TypedIdent>,
-    pub body: Box<IrNode<BlockExpr>>,
+    pub body: Box<HirNode<BlockExpr>>,
     pub return_type: ResolvedType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockExpr {
-    pub statements: Vec<IrNode<Stmt>>,
-    pub expr: Option<Box<IrNode<Expr>>>,
+    pub statements: Vec<HirNode<Stmt>>,
+    pub expr: Option<Box<HirNode<Expr>>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfExpr {
-    pub condition: Box<IrNode<Expr>>,
-    pub then_branch: IrNode<BlockExpr>,
-    pub else_branch: Option<IrNode<BlockExpr>>,
+    pub condition: Box<HirNode<Expr>>,
+    pub then_branch: HirNode<BlockExpr>,
+    pub else_branch: Option<HirNode<BlockExpr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodCallExpr {
-    pub receiver: Box<IrNode<Expr>>,
+    pub receiver: Box<HirNode<Expr>>,
     pub method: Ident,
-    pub arguments: Vec<IrNode<Expr>>,
+    pub arguments: Vec<HirNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructInitExpr {
     pub name: Ident,
-    pub fields: Vec<(Ident, IrNode<Expr>)>,
+    pub fields: Vec<(Ident, HirNode<Expr>)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldAccessExpr {
-    pub receiver: Box<IrNode<Expr>>,
-    pub field: IrNode<String>,
+    pub receiver: Box<HirNode<Expr>>,
+    pub field: HirNode<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldAssignExpr {
-    pub receiver: Box<IrNode<Expr>>,
-    pub field: IrNode<String>,
-    pub value: Box<IrNode<Expr>>,
+    pub receiver: Box<HirNode<Expr>>,
+    pub field: HirNode<String>,
+    pub value: Box<HirNode<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -696,7 +696,7 @@ pub enum LiteralExpr {
     Float(f64),
     String(String),
     Bool(bool),
-    VecLiteral(Vec<IrNode<Expr>>),
+    VecLiteral(Vec<HirNode<Expr>>),
     Nil,
 }
 

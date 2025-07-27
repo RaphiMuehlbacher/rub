@@ -1,4 +1,5 @@
 use rub::ast_lowerer::AstLowerer;
+use rub::hir_lowerer::HirLowerer;
 use rub::interpreter::Interpreter;
 use rub::{Lexer, MethodRegistry, Parser, Resolver, TypeInferrer};
 use std::fs;
@@ -61,7 +62,7 @@ fn interpret(code: &str) {
     let method_registry = MethodRegistry::new(&mut cloned_def_map);
 
     let mut type_inferrer = TypeInferrer::new(
-        &ast_lowerer_result.ir_program,
+        &ast_lowerer_result.hir_program,
         &resolve_result.def_map,
         &ast_lowerer_result.function_bodies,
         &method_registry,
@@ -76,10 +77,17 @@ fn interpret(code: &str) {
         }
         return;
     }
-    let mut interpreter = Interpreter::new(
-        &ast_lowerer_result.ir_program,
-        type_inference_result.type_env,
+    let mut hir_lowerer = HirLowerer::new(
+        &ast_lowerer_result.hir_program,
         resolve_result.def_map,
+        type_inference_result.type_env,
+    );
+    let mut hir_lowerer_result = hir_lowerer.lower();
+    time_log!(start, "Type Inference");
+
+    let mut interpreter = Interpreter::new(
+        &hir_lowerer_result.mir_program,
+        type_inference_result.type_env,
         &method_registry,
         &mut type_inference_result.infer_ctx,
         code.to_string(),

@@ -1,17 +1,17 @@
 use crate::ast::{AstNode, AstProgram};
-use crate::ir::{DefId, DefMap, IrNode, IrProgram, ResolutionMap, ResolvedType, ScopeId, ScopeTree};
-use crate::{ast, ir};
+use crate::hir::{DefId, DefMap, HirNode, HirProgram, ResolutionMap, ResolvedType, ScopeId, ScopeTree};
+use crate::{ast, hir};
 use miette::Report;
 use std::collections::HashMap;
 
 pub struct AstLowererResult<'a> {
     pub errors: &'a Vec<Report>,
-    pub ir_program: IrProgram,
+    pub hir_program: HirProgram,
     pub function_bodies: &'a FunctionBodies,
 }
 
 pub struct FunctionBodies {
-    map: HashMap<DefId, IrNode<ir::BlockExpr>>,
+    map: HashMap<DefId, HirNode<hir::BlockExpr>>,
 }
 
 impl FunctionBodies {
@@ -19,11 +19,11 @@ impl FunctionBodies {
         Self { map: HashMap::new() }
     }
 
-    pub fn insert(&mut self, def_id: DefId, body: IrNode<ir::BlockExpr>) {
+    pub fn insert(&mut self, def_id: DefId, body: HirNode<hir::BlockExpr>) {
         self.map.insert(def_id, body);
     }
 
-    pub fn get(&self, def_id: DefId) -> &IrNode<ir::BlockExpr> {
+    pub fn get(&self, def_id: DefId) -> &HirNode<hir::BlockExpr> {
         self.map.get(&def_id).unwrap()
     }
 }
@@ -59,7 +59,7 @@ impl<'a> AstLowerer<'a> {
 
         AstLowererResult {
             errors: &self.errors,
-            ir_program: IrProgram {
+            hir_program: HirProgram {
                 statements,
                 span: self.ast_program.span,
             },
@@ -67,10 +67,10 @@ impl<'a> AstLowerer<'a> {
         }
     }
 
-    fn lower_stmt(&mut self, stmt: &AstNode<ast::Stmt>) -> IrNode<ir::Stmt> {
+    fn lower_stmt(&mut self, stmt: &AstNode<ast::Stmt>) -> HirNode<hir::Stmt> {
         match &stmt.node {
-            ast::Stmt::ExprStmtNode(expr_stmt) => IrNode::new(
-                ir::Stmt::ExprStmtNode(ir::ExprStmt {
+            ast::Stmt::ExprStmtNode(expr_stmt) => HirNode::new(
+                hir::Stmt::ExprStmtNode(hir::ExprStmt {
                     expr: self.lower_expr(&expr_stmt.expr),
                 }),
                 stmt.span,
@@ -79,9 +79,9 @@ impl<'a> AstLowerer<'a> {
                 let initializer = var_decl.initializer.as_ref().map(|init| self.lower_expr(init));
                 let type_annotation = var_decl.type_annotation.as_ref().map(|ty| self.lower_type(ty));
 
-                IrNode::new(
-                    ir::Stmt::VarDecl(ir::VarDeclStmt {
-                        ident: ir::Ident::from_ast(&var_decl.ident, self.scope_tree, self.current_scope),
+                HirNode::new(
+                    hir::Stmt::VarDecl(hir::VarDeclStmt {
+                        ident: hir::Ident::from_ast(&var_decl.ident, self.scope_tree, self.current_scope),
                         initializer,
                         type_annotation,
                     }),
@@ -98,8 +98,8 @@ impl<'a> AstLowerer<'a> {
                 let params = fun_decl
                     .params
                     .iter()
-                    .map(|p| ir::TypedIdent {
-                        name: ir::Ident::from_ast(&p.name, self.scope_tree, self.current_scope),
+                    .map(|p| hir::TypedIdent {
+                        name: hir::Ident::from_ast(&p.name, self.scope_tree, self.current_scope),
                         type_annotation: self.lower_type(&p.type_annotation),
                     })
                     .collect();
@@ -107,7 +107,7 @@ impl<'a> AstLowerer<'a> {
                 let generics = fun_decl
                     .generics
                     .iter()
-                    .map(|g| ir::Ident::from_ast(&g, self.scope_tree, self.current_scope))
+                    .map(|g| hir::Ident::from_ast(&g, self.scope_tree, self.current_scope))
                     .collect();
 
                 let body = self.lower_block_expr(&fun_decl.body);
@@ -117,9 +117,9 @@ impl<'a> AstLowerer<'a> {
 
                 self.current_scope = old_scope;
 
-                IrNode::new(
-                    ir::Stmt::FunDecl(ir::FunDeclStmt {
-                        ident: ir::Ident::from_ast(&fun_decl.ident, self.scope_tree, self.current_scope),
+                HirNode::new(
+                    hir::Stmt::FunDecl(hir::FunDeclStmt {
+                        ident: hir::Ident::from_ast(&fun_decl.ident, self.scope_tree, self.current_scope),
                         params,
                         generics,
                         return_type,
@@ -147,24 +147,24 @@ impl<'a> AstLowerer<'a> {
                             .find(|def_id| f.name.node == self.def_map.get(**def_id).unwrap().name())
                             .unwrap();
 
-                        ir::TypedIdent {
-                            name: ir::Ident::new(&f.name.node, f.name.span, *field_def_id),
+                        hir::TypedIdent {
+                            name: hir::Ident::new(&f.name.node, f.name.span, *field_def_id),
                             type_annotation: annotation,
                         }
                     })
                     .collect();
 
                 self.current_scope = old_scope;
-                IrNode::new(
-                    ir::Stmt::StructDecl(ir::StructDeclStmt {
-                        ident: ir::Ident::from_ast(&struct_decl.ident, self.scope_tree, self.current_scope),
+                HirNode::new(
+                    hir::Stmt::StructDecl(hir::StructDeclStmt {
+                        ident: hir::Ident::from_ast(&struct_decl.ident, self.scope_tree, self.current_scope),
                         fields,
                     }),
                     stmt.span,
                 )
             }
-            ast::Stmt::While(while_stmt) => IrNode::new(
-                ir::Stmt::While(ir::WhileStmt {
+            ast::Stmt::While(while_stmt) => HirNode::new(
+                hir::Stmt::While(hir::WhileStmt {
                     condition: self.lower_expr(&while_stmt.condition),
                     body: self.lower_block_expr(&while_stmt.body),
                 }),
@@ -182,17 +182,17 @@ impl<'a> AstLowerer<'a> {
                     while_body_stmts.push(self.lower_stmt(stmt));
                 }
                 if let Some(incr) = &for_stmt.increment {
-                    while_body_stmts.push(IrNode::new(
-                        ir::Stmt::ExprStmtNode(ir::ExprStmt {
+                    while_body_stmts.push(HirNode::new(
+                        hir::Stmt::ExprStmtNode(hir::ExprStmt {
                             expr: self.lower_expr(incr),
                         }),
                         incr.span,
                     ))
                 }
-                let while_stmt = ir::Stmt::While(ir::WhileStmt {
+                let while_stmt = hir::Stmt::While(hir::WhileStmt {
                     condition: self.lower_expr(&for_stmt.condition),
-                    body: IrNode::new(
-                        ir::BlockExpr {
+                    body: HirNode::new(
+                        hir::BlockExpr {
                             statements: while_body_stmts,
                             expr: None,
                         },
@@ -200,11 +200,11 @@ impl<'a> AstLowerer<'a> {
                     ),
                 });
 
-                block_stmts.push(IrNode::new(while_stmt, stmt.span));
-                IrNode::new(
-                    ir::Stmt::ExprStmtNode(ir::ExprStmt {
-                        expr: IrNode::new(
-                            ir::Expr::Block(ir::BlockExpr {
+                block_stmts.push(HirNode::new(while_stmt, stmt.span));
+                HirNode::new(
+                    hir::Stmt::ExprStmtNode(hir::ExprStmt {
+                        expr: HirNode::new(
+                            hir::Expr::Block(hir::BlockExpr {
                                 statements: block_stmts,
                                 expr: None,
                             }),
@@ -215,8 +215,8 @@ impl<'a> AstLowerer<'a> {
                 )
             }
 
-            ast::Stmt::Return(return_stmt) => IrNode::new(
-                ir::Stmt::Return(ir::ReturnStmt {
+            ast::Stmt::Return(return_stmt) => HirNode::new(
+                hir::Stmt::Return(hir::ReturnStmt {
                     expr: return_stmt.expr.as_ref().map(|e| self.lower_expr(e)),
                 }),
                 stmt.span,
@@ -224,27 +224,27 @@ impl<'a> AstLowerer<'a> {
         }
     }
 
-    fn lower_expr(&mut self, expr: &AstNode<ast::Expr>) -> IrNode<ir::Expr> {
+    fn lower_expr(&mut self, expr: &AstNode<ast::Expr>) -> HirNode<hir::Expr> {
         match &expr.node {
             ast::Expr::Literal(literal_expr) => {
                 let lit = match literal_expr {
-                    ast::LiteralExpr::Nil => ir::LiteralExpr::Nil,
-                    ast::LiteralExpr::Float(f) => ir::LiteralExpr::Float(*f),
-                    ast::LiteralExpr::Int(i) => ir::LiteralExpr::Int(*i),
-                    ast::LiteralExpr::String(s) => ir::LiteralExpr::String(s.clone()),
-                    ast::LiteralExpr::Bool(b) => ir::LiteralExpr::Bool(*b),
-                    ast::LiteralExpr::VecLiteral(v) => ir::LiteralExpr::VecLiteral(v.iter().map(|e| self.lower_expr(e)).collect()),
+                    ast::LiteralExpr::Nil => hir::LiteralExpr::Nil,
+                    ast::LiteralExpr::Float(f) => hir::LiteralExpr::Float(*f),
+                    ast::LiteralExpr::Int(i) => hir::LiteralExpr::Int(*i),
+                    ast::LiteralExpr::String(s) => hir::LiteralExpr::String(s.clone()),
+                    ast::LiteralExpr::Bool(b) => hir::LiteralExpr::Bool(*b),
+                    ast::LiteralExpr::VecLiteral(v) => hir::LiteralExpr::VecLiteral(v.iter().map(|e| self.lower_expr(e)).collect()),
                 };
-                IrNode::new(ir::Expr::Literal(lit), expr.span)
+                HirNode::new(hir::Expr::Literal(lit), expr.span)
             }
             ast::Expr::Unary(unary_expr) => {
                 let op = match unary_expr.op.node {
-                    ast::UnaryOp::Minus => ir::UnaryOp::Minus,
-                    ast::UnaryOp::Bang => ir::UnaryOp::Bang,
+                    ast::UnaryOp::Minus => hir::UnaryOp::Minus,
+                    ast::UnaryOp::Bang => hir::UnaryOp::Bang,
                 };
-                IrNode::new(
-                    ir::Expr::Unary(ir::UnaryExpr {
-                        op: IrNode::new(op, unary_expr.op.span),
+                HirNode::new(
+                    hir::Expr::Unary(hir::UnaryExpr {
+                        op: HirNode::new(op, unary_expr.op.span),
                         expr: Box::from(self.lower_expr(&unary_expr.expr)),
                     }),
                     expr.span,
@@ -252,67 +252,67 @@ impl<'a> AstLowerer<'a> {
             }
             ast::Expr::Binary(binary_expr) => {
                 let op = match binary_expr.op.node {
-                    ast::BinaryOp::Minus => ir::BinaryOp::Minus,
-                    ast::BinaryOp::Plus => ir::BinaryOp::Plus,
-                    ast::BinaryOp::Star => ir::BinaryOp::Star,
-                    ast::BinaryOp::Slash => ir::BinaryOp::Slash,
-                    ast::BinaryOp::Greater => ir::BinaryOp::Greater,
-                    ast::BinaryOp::GreaterEqual => ir::BinaryOp::GreaterEqual,
-                    ast::BinaryOp::Less => ir::BinaryOp::Less,
-                    ast::BinaryOp::LessEqual => ir::BinaryOp::LessEqual,
-                    ast::BinaryOp::EqualEqual => ir::BinaryOp::EqualEqual,
-                    ast::BinaryOp::BangEqual => ir::BinaryOp::BangEqual,
+                    ast::BinaryOp::Minus => hir::BinaryOp::Minus,
+                    ast::BinaryOp::Plus => hir::BinaryOp::Plus,
+                    ast::BinaryOp::Star => hir::BinaryOp::Star,
+                    ast::BinaryOp::Slash => hir::BinaryOp::Slash,
+                    ast::BinaryOp::Greater => hir::BinaryOp::Greater,
+                    ast::BinaryOp::GreaterEqual => hir::BinaryOp::GreaterEqual,
+                    ast::BinaryOp::Less => hir::BinaryOp::Less,
+                    ast::BinaryOp::LessEqual => hir::BinaryOp::LessEqual,
+                    ast::BinaryOp::EqualEqual => hir::BinaryOp::EqualEqual,
+                    ast::BinaryOp::BangEqual => hir::BinaryOp::BangEqual,
                 };
 
-                IrNode::new(
-                    ir::Expr::Binary(ir::BinaryExpr {
-                        op: IrNode::new(op, binary_expr.op.span),
+                HirNode::new(
+                    hir::Expr::Binary(hir::BinaryExpr {
+                        op: HirNode::new(op, binary_expr.op.span),
                         left: Box::new(self.lower_expr(&binary_expr.left)),
                         right: Box::new(self.lower_expr(&binary_expr.right)),
                     }),
                     expr.span,
                 )
             }
-            ast::Expr::Grouping(grouping) => IrNode::new(ir::Expr::Grouping(Box::new(self.lower_expr(grouping))), expr.span),
-            ast::Expr::Variable(variable) => IrNode::new(
-                ir::Expr::Variable(ir::Ident::from_ast(variable, self.scope_tree, self.current_scope)),
+            ast::Expr::Grouping(grouping) => HirNode::new(hir::Expr::Grouping(Box::new(self.lower_expr(grouping))), expr.span),
+            ast::Expr::Variable(variable) => HirNode::new(
+                hir::Expr::Variable(hir::Ident::from_ast(variable, self.scope_tree, self.current_scope)),
                 expr.span,
             ),
-            ast::Expr::Assign(assign_expr) => IrNode::new(
-                ir::Expr::Assign(ir::AssignExpr {
-                    target: ir::Ident::from_ast(&assign_expr.target, self.scope_tree, self.current_scope),
+            ast::Expr::Assign(assign_expr) => HirNode::new(
+                hir::Expr::Assign(hir::AssignExpr {
+                    target: hir::Ident::from_ast(&assign_expr.target, self.scope_tree, self.current_scope),
                     value: Box::new(self.lower_expr(&assign_expr.value)),
                 }),
                 expr.span,
             ),
             ast::Expr::Logical(logical_expr) => {
                 let op = match logical_expr.op.node {
-                    ast::LogicalOp::And => ir::LogicalOp::And,
-                    ast::LogicalOp::Or => ir::LogicalOp::Or,
+                    ast::LogicalOp::And => hir::LogicalOp::And,
+                    ast::LogicalOp::Or => hir::LogicalOp::Or,
                 };
-                IrNode::new(
-                    ir::Expr::Logical(ir::LogicalExpr {
-                        op: IrNode::new(op, logical_expr.op.span),
+                HirNode::new(
+                    hir::Expr::Logical(hir::LogicalExpr {
+                        op: HirNode::new(op, logical_expr.op.span),
                         left: Box::new(self.lower_expr(&logical_expr.left)),
                         right: Box::new(self.lower_expr(&logical_expr.right)),
                     }),
                     expr.span,
                 )
             }
-            ast::Expr::Call(call_expr) => IrNode::new(
-                ir::Expr::Call(ir::CallExpr {
+            ast::Expr::Call(call_expr) => HirNode::new(
+                hir::Expr::Call(hir::CallExpr {
                     callee: Box::new(self.lower_expr(&call_expr.callee)),
                     arguments: call_expr.arguments.iter().map(|arg| self.lower_expr(arg)).collect(),
                 }),
                 expr.span,
             ),
-            ast::Expr::Lambda(lambda_expr) => IrNode::new(
-                ir::Expr::Lambda(ir::LambdaExpr {
+            ast::Expr::Lambda(lambda_expr) => HirNode::new(
+                hir::Expr::Lambda(hir::LambdaExpr {
                     parameters: lambda_expr
                         .parameters
                         .iter()
-                        .map(|p| ir::TypedIdent {
-                            name: ir::Ident::from_ast(&p.name, self.scope_tree, self.current_scope),
+                        .map(|p| hir::TypedIdent {
+                            name: hir::Ident::from_ast(&p.name, self.scope_tree, self.current_scope),
                             type_annotation: self.lower_type(&p.type_annotation),
                         })
                         .collect(),
@@ -321,22 +321,22 @@ impl<'a> AstLowerer<'a> {
                 }),
                 expr.span,
             ),
-            ast::Expr::Block(block) => IrNode::new(
-                ir::Expr::Block(self.lower_block_expr(&AstNode::new(block.clone(), expr.span)).node),
+            ast::Expr::Block(block) => HirNode::new(
+                hir::Expr::Block(self.lower_block_expr(&AstNode::new(block.clone(), expr.span)).node),
                 expr.span,
             ),
-            ast::Expr::If(if_expr) => IrNode::new(
-                ir::Expr::If(ir::IfExpr {
+            ast::Expr::If(if_expr) => HirNode::new(
+                hir::Expr::If(hir::IfExpr {
                     condition: Box::new(self.lower_expr(&if_expr.condition)),
                     then_branch: self.lower_block_expr(&if_expr.then_branch),
                     else_branch: if_expr.else_branch.as_ref().map(|else_branch| self.lower_block_expr(else_branch)),
                 }),
                 expr.span,
             ),
-            ast::Expr::MethodCall(method_call) => IrNode::new(
-                ir::Expr::MethodCall(ir::MethodCallExpr {
+            ast::Expr::MethodCall(method_call) => HirNode::new(
+                hir::Expr::MethodCall(hir::MethodCallExpr {
                     receiver: Box::new(self.lower_expr(&method_call.receiver)),
-                    method: ir::Ident::from_ast(&method_call.method, self.scope_tree, self.current_scope),
+                    method: hir::Ident::from_ast(&method_call.method, self.scope_tree, self.current_scope),
                     arguments: method_call.arguments.iter().map(|arg| self.lower_expr(arg)).collect(),
                 }),
                 expr.span,
@@ -346,7 +346,7 @@ impl<'a> AstLowerer<'a> {
                 let def = self.def_map.get(struct_def_id).unwrap();
                 let field_def_ids = def.fields();
 
-                let mut lowered_fields: Vec<(ir::Ident, IrNode<ir::Expr>)> = vec![];
+                let mut lowered_fields: Vec<(hir::Ident, HirNode<hir::Expr>)> = vec![];
 
                 for field in &struct_init.fields {
                     let field_def_id = field_def_ids
@@ -355,29 +355,29 @@ impl<'a> AstLowerer<'a> {
                         .unwrap();
 
                     let field_def = self.def_map.get(*field_def_id).unwrap();
-                    let ident = ir::Ident::new(&field_def.name(), field_def.span(), field_def.def_id());
+                    let ident = hir::Ident::new(&field_def.name(), field_def.span(), field_def.def_id());
                     let lowered_expr = self.lower_expr(&field.1);
                     lowered_fields.push((ident, lowered_expr));
                 }
-                IrNode::new(
-                    ir::Expr::StructInit(ir::StructInitExpr {
-                        name: ir::Ident::from_ast(&struct_init.name, self.scope_tree, self.current_scope),
+                HirNode::new(
+                    hir::Expr::StructInit(hir::StructInitExpr {
+                        name: hir::Ident::from_ast(&struct_init.name, self.scope_tree, self.current_scope),
                         fields: lowered_fields,
                     }),
                     expr.span,
                 )
             }
-            ast::Expr::FieldAccess(field_access) => IrNode::new(
-                ir::Expr::FieldAccess(ir::FieldAccessExpr {
+            ast::Expr::FieldAccess(field_access) => HirNode::new(
+                hir::Expr::FieldAccess(hir::FieldAccessExpr {
                     receiver: Box::new(self.lower_expr(&field_access.receiver)),
-                    field: IrNode::new(field_access.field.node.clone(), field_access.field.span),
+                    field: HirNode::new(field_access.field.node.clone(), field_access.field.span),
                 }),
                 expr.span,
             ),
-            ast::Expr::FieldAssign(field_assign) => IrNode::new(
-                ir::Expr::FieldAssign(ir::FieldAssignExpr {
+            ast::Expr::FieldAssign(field_assign) => HirNode::new(
+                hir::Expr::FieldAssign(hir::FieldAssignExpr {
                     receiver: Box::new(self.lower_expr(&field_assign.receiver)),
-                    field: IrNode::new(field_assign.field.node.clone(), field_assign.field.span),
+                    field: HirNode::new(field_assign.field.node.clone(), field_assign.field.span),
                     value: Box::new(self.lower_expr(&field_assign.value)),
                 }),
                 expr.span,
@@ -385,9 +385,9 @@ impl<'a> AstLowerer<'a> {
         }
     }
 
-    fn lower_block_expr(&mut self, block: &AstNode<ast::BlockExpr>) -> IrNode<ir::BlockExpr> {
-        IrNode::new(
-            ir::BlockExpr {
+    fn lower_block_expr(&mut self, block: &AstNode<ast::BlockExpr>) -> HirNode<hir::BlockExpr> {
+        HirNode::new(
+            hir::BlockExpr {
                 statements: block.node.statements.iter().map(|s| self.lower_stmt(s)).collect(),
                 expr: block.node.expr.as_ref().map(|e| Box::new(self.lower_expr(e))),
             },

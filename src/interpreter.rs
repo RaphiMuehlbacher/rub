@@ -1,10 +1,7 @@
 use crate::MethodRegistry;
-use crate::ir::{
-    BinaryOp, BlockExpr, DefMap, Expr, ExprStmt, FunDeclStmt, IrNode, IrProgram, LiteralExpr, LogicalOp, ReturnStmt, Stmt, TypedIdent,
-    UnaryOp, VarDeclStmt, WhileStmt,
-};
+use crate::mir::{BinaryOp, BlockExpr, Expr, LiteralExpr, LogicalOp, MirNode, MirProgram, Stmt, TypedIdent, UnaryOp};
 
-use crate::builtins::{clock_native, print_native};
+use crate::builtins::{clock_native, print_native, vec_len_method};
 use crate::error::RuntimeError;
 use crate::error::RuntimeError::DivisionByZero;
 use crate::interpreter::Function::{NativeFunction, UserFunction};
@@ -34,7 +31,7 @@ pub enum Function {
     UserFunction {
         name: Option<String>,
         params: Rc<Vec<TypedIdent>>,
-        body: Rc<IrNode<BlockExpr>>,
+        body: Rc<MirNode<BlockExpr>>,
         env: Env,
     },
 }
@@ -179,19 +176,17 @@ impl Environment {
 
 pub struct Interpreter<'a> {
     source: String,
-    program: &'a IrProgram,
+    program: &'a MirProgram,
     type_db: &'a TypeDatabase,
     var_env: Env,
     method_registry: &'a MethodRegistry<'a>,
-    defs: &'a DefMap,
     infer_ctx: &'a mut TypeVarContext,
 }
 
 impl<'a> Interpreter<'a> {
     pub fn new(
-        program: &'a IrProgram,
+        program: &'a MirProgram,
         type_db: &'a TypeDatabase,
-        defs: &'a DefMap,
         method_registry: &'a MethodRegistry,
         infer_ctx: &'a mut TypeVarContext,
         source: String,
@@ -204,6 +199,11 @@ impl<'a> Interpreter<'a> {
             .borrow_mut()
             .define("print".to_string(), Value::Function(Rc::new(NativeFunction(print_native))));
 
+        var_env.borrow_mut().define(
+            "Vec<Int>__len".to_string(),
+            Value::Function(Rc::new(NativeFunction(vec_len_method))),
+        );
+
         Self {
             source,
             program,
@@ -211,7 +211,6 @@ impl<'a> Interpreter<'a> {
             var_env,
             method_registry,
             infer_ctx,
-            defs,
         }
     }
 
@@ -246,7 +245,7 @@ impl<'a> Interpreter<'a> {
         InterpreterResult { error: None }
     }
 
-    fn declare_stmt(&mut self, stmt: &IrNode<Stmt>) {
+    fn declare_stmt(&mut self, stmt: &MirNode<Stmt>) {
         match &stmt.node {
             Stmt::FunDecl(fun_decl) => {
                 let value = Value::Function(Rc::new(UserFunction {
@@ -261,7 +260,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn interpret_stmt(&mut self, stmt: &IrNode<Stmt>) -> Result<(), InterpreterError> {
+    fn interpret_stmt(&mut self, stmt: &MirNode<Stmt>) -> Result<(), InterpreterError> {
         match &stmt.node {
             Stmt::ExprStmtNode(expr) => {
                 self.interpret_expr(&expr.expr)?;
@@ -311,7 +310,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn interpret_stmts(&mut self, stmts: &Vec<IrNode<Stmt>>) -> Result<(), InterpreterError> {
+    fn interpret_stmts(&mut self, stmts: &Vec<MirNode<Stmt>>) -> Result<(), InterpreterError> {
         for stmt in stmts {
             self.interpret_stmt(stmt)?;
         }
@@ -330,7 +329,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn interpret_expr(&mut self, expr: &IrNode<Expr>) -> Result<Value, InterpreterError> {
+    fn interpret_expr(&mut self, expr: &MirNode<Expr>) -> Result<Value, InterpreterError> {
         match &expr.node {
             Expr::FieldAssign(field_assign) => {
                 let receiver = self.interpret_expr(&field_assign.receiver)?;
@@ -380,26 +379,26 @@ impl<'a> Interpreter<'a> {
 
                 Ok(return_value)
             }
-            Expr::MethodCall(method_call) => {
-                let receiver = self.interpret_expr(&method_call.receiver)?;
-                let method_name = &method_call.method.name.node;
-                let receiver_ty = self.type_db.expr_types.get(&method_call.receiver.ir_id).expect("should work");
-
-                let mut args = vec![receiver];
-                for arg in &method_call.arguments {
-                    args.push(self.interpret_expr(arg)?)
-                }
-
-                if let Some((_, function)) = self.method_registry.lookup_method(receiver_ty, method_name, &mut self.infer_ctx) {
-                    match function {
-                        NativeFunction(native_fn) => native_fn(args),
-                        _ => panic!(),
-                    }
-                } else {
-                    panic!()
-                }
-            }
-
+            // Expr::MethodCall(method_call) => {
+            //     let receiver = self.interpret_expr(&method_call.receiver)?;
+            //     let method_name = &method_call.method.name.node;
+            //     let receiver_ty = self.type_db.expr_types.get(&method_call.receiver.hir_id).expect("should work");
+            //
+            //     let mut args = vec![receiver];
+            //     for arg in &method_call.arguments {
+            //         args.push(self.interpret_expr(arg)?)
+            //     }
+            //
+            //     if let Some((_, function)) = self.method_registry.lookup_method(receiver_ty, method_name, &mut self.infer_ctx) {
+            //         match function {
+            //             NativeFunction(native_fn) => native_fn(args),
+            //             _ => panic!(),
+            //         }
+            //     } else {
+            //         panic!()
+            //     }
+            // }
+            //
             Expr::Literal(lit) => match &lit {
                 LiteralExpr::Int(int) => Ok(Value::Int(*int)),
                 LiteralExpr::Float(num) => Ok(Value::Float(*num)),
@@ -417,7 +416,7 @@ impl<'a> Interpreter<'a> {
 
             Expr::Unary(unary) => {
                 let right = self.interpret_expr(&unary.expr)?;
-                let expr_type = self.type_db.expr_types.get(&expr.ir_id).unwrap();
+                let expr_type = self.type_db.expr_types.get(&expr.mir_id).unwrap();
 
                 match unary.op.node {
                     UnaryOp::Bang => Ok(Value::Bool(!right.to_bool())),
@@ -433,7 +432,7 @@ impl<'a> Interpreter<'a> {
                 let left = self.interpret_expr(&binary.left)?;
                 let right = self.interpret_expr(&binary.right)?;
 
-                let expr_type = self.type_db.expr_types.get(&expr.ir_id).unwrap();
+                let expr_type = self.type_db.expr_types.get(&expr.mir_id).unwrap();
 
                 match binary.op.node {
                     BinaryOp::Plus => match expr_type {
@@ -474,7 +473,7 @@ impl<'a> Interpreter<'a> {
                         _ => panic!(),
                     },
                     BinaryOp::Greater | BinaryOp::GreaterEqual | BinaryOp::Less | BinaryOp::LessEqual => {
-                        let operand_type = self.type_db.expr_types.get(&binary.left.ir_id).unwrap();
+                        let operand_type = self.type_db.expr_types.get(&binary.left.mir_id).unwrap();
                         match operand_type {
                             Type::Int => match binary.op.node {
                                 BinaryOp::Greater => Ok(Value::Bool(left.to_int() > right.to_int())),

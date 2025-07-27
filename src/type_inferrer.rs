@@ -2,7 +2,9 @@ use crate::MethodRegistry;
 use crate::ast_lowerer::FunctionBodies;
 use crate::error::TypeInferrerError;
 use crate::error::TypeInferrerError::{NonBooleanCondition, NotCallable, TypeMismatch, UnknownMethod, WrongArgumentCount};
-use crate::ir::{BinaryOp, BlockExpr, DefId, DefMap, Definition, Expr, IrId, IrNode, IrProgram, LiteralExpr, ResolvedType, Stmt, UnaryOp};
+use crate::hir::{
+    BinaryOp, BlockExpr, DefId, DefMap, Definition, Expr, HirId, HirNode, HirProgram, LiteralExpr, ResolvedType, Stmt, UnaryOp,
+};
 use miette::{Report, SourceSpan};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
@@ -10,7 +12,7 @@ use std::ops::Deref;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeDatabase {
-    pub expr_types: HashMap<IrId, Type>,
+    pub expr_types: HashMap<HirId, Type>,
     pub def_types: HashMap<DefId, Type>,
 }
 impl TypeDatabase {
@@ -312,7 +314,7 @@ impl Display for Type {
 }
 
 pub struct TypeInferrer<'a> {
-    program: &'a IrProgram,
+    program: &'a HirProgram,
     source: String,
     errors: Vec<Report>,
 
@@ -333,7 +335,7 @@ pub struct TypeInferenceResult<'a> {
 
 impl<'a> TypeInferrer<'a> {
     pub fn new(
-        ast: &'a IrProgram,
+        ast: &'a HirProgram,
         defs: &'a DefMap,
         function_bodies: &'a FunctionBodies,
         method_registry: &'a MethodRegistry,
@@ -377,7 +379,7 @@ impl<'a> TypeInferrer<'a> {
         }
     }
 
-    fn infer_stmt(&mut self, stmt: &IrNode<Stmt>) -> Result<(), TypeInferrerError> {
+    fn infer_stmt(&mut self, stmt: &HirNode<Stmt>) -> Result<(), TypeInferrerError> {
         match &stmt.node {
             Stmt::ExprStmtNode(expr_stmt) => {
                 self.infer_expr(&expr_stmt.expr)?;
@@ -544,7 +546,7 @@ impl<'a> TypeInferrer<'a> {
         }
     }
 
-    fn infer_stmts(&mut self, stmts: &Vec<IrNode<Stmt>>) -> Result<(), TypeInferrerError> {
+    fn infer_stmts(&mut self, stmts: &Vec<HirNode<Stmt>>) -> Result<(), TypeInferrerError> {
         for stmt in stmts {
             self.infer_stmt(stmt)?;
         }
@@ -565,7 +567,7 @@ impl<'a> TypeInferrer<'a> {
         return_ty
     }
 
-    fn infer_expr(&mut self, expr: &IrNode<Expr>) -> Result<Type, TypeInferrerError> {
+    fn infer_expr(&mut self, expr: &HirNode<Expr>) -> Result<Type, TypeInferrerError> {
         match &expr.node {
             Expr::FieldAssign(field_assign) => {
                 let receiver_ty = self.infer_expr(&field_assign.receiver)?;
@@ -583,7 +585,7 @@ impl<'a> TypeInferrer<'a> {
                             let field_ty = self.type_db.def_types.get(&field_def_id).unwrap().clone();
                             self.infer_ctx.unify(&value_ty, &field_ty, &field_assign.value.span)?;
 
-                            self.type_db.expr_types.insert(expr.ir_id, field_ty.clone());
+                            self.type_db.expr_types.insert(expr.hir_id, field_ty.clone());
                             Ok(field_ty)
                         } else {
                             Err(TypeInferrerError::UnknownField {
@@ -615,7 +617,7 @@ impl<'a> TypeInferrer<'a> {
                             .find(|def_id| self.def_map.get(**def_id).unwrap().name() == field_access.field.node)
                         {
                             let field_ty = self.type_db.def_types.get(&field_def_id).unwrap().clone();
-                            self.type_db.expr_types.insert(expr.ir_id, field_ty.clone());
+                            self.type_db.expr_types.insert(expr.hir_id, field_ty.clone());
                             Ok(field_ty)
                         } else {
                             Err(TypeInferrerError::UnknownField {
@@ -687,7 +689,7 @@ impl<'a> TypeInferrer<'a> {
                     }
                 }
 
-                self.type_db.expr_types.insert(expr.ir_id, struct_type.clone());
+                self.type_db.expr_types.insert(expr.hir_id, struct_type.clone());
                 Ok(struct_type.clone())
             }
             Expr::Literal(literal_expr) => {
@@ -718,7 +720,7 @@ impl<'a> TypeInferrer<'a> {
                     }
                 };
 
-                self.type_db.expr_types.insert(expr.ir_id, ty.clone());
+                self.type_db.expr_types.insert(expr.hir_id, ty.clone());
                 Ok(ty)
             }
 
@@ -748,7 +750,7 @@ impl<'a> TypeInferrer<'a> {
             }
             Expr::MethodCall(method_call) => {
                 let receiver_ty = self.infer_expr(&method_call.receiver)?;
-                self.type_db.expr_types.insert(method_call.receiver.ir_id, receiver_ty.clone());
+                self.type_db.expr_types.insert(method_call.receiver.hir_id, receiver_ty.clone());
 
                 if let Some((method_ty, _)) =
                     self.method_registry
@@ -770,7 +772,7 @@ impl<'a> TypeInferrer<'a> {
                                 self.infer_ctx.unify(&arg_ty, &param, &arg.span)?;
                             }
 
-                            self.type_db.expr_types.insert(expr.ir_id, *return_type.clone());
+                            self.type_db.expr_types.insert(expr.hir_id, *return_type.clone());
                             Ok(*return_type)
                         }
                         _ => unreachable!(),
@@ -797,7 +799,7 @@ impl<'a> TypeInferrer<'a> {
                     }
                 };
 
-                self.type_db.expr_types.insert(expr.ir_id, result_ty.clone());
+                self.type_db.expr_types.insert(expr.hir_id, result_ty.clone());
                 Ok(result_ty)
             }
             Expr::Binary(binary_expr) => {
@@ -862,7 +864,7 @@ impl<'a> TypeInferrer<'a> {
                     }
                 };
 
-                self.type_db.expr_types.insert(expr.ir_id, result_ty.clone());
+                self.type_db.expr_types.insert(expr.hir_id, result_ty.clone());
                 Ok(result_ty)
             }
             Expr::Grouping(grouping) => self.infer_expr(grouping.deref()),
@@ -876,7 +878,7 @@ impl<'a> TypeInferrer<'a> {
 
                 self.infer_ctx.unify(&target_ty, &right_ty, &assign_expr.value.span)?;
 
-                self.type_db.expr_types.insert(expr.ir_id, right_ty.clone());
+                self.type_db.expr_types.insert(expr.hir_id, right_ty.clone());
                 Ok(right_ty)
             }
             Expr::Logical(logical_expr) => {
@@ -886,7 +888,7 @@ impl<'a> TypeInferrer<'a> {
                 self.infer_ctx.unify(&left, &Type::Bool, &logical_expr.left.span)?;
                 self.infer_ctx.unify(&right, &Type::Bool, &logical_expr.right.span)?;
 
-                self.type_db.expr_types.insert(expr.ir_id, Type::Bool);
+                self.type_db.expr_types.insert(expr.hir_id, Type::Bool);
                 Ok(Type::Bool)
             }
             Expr::Call(call_expr) => {
@@ -945,7 +947,7 @@ impl<'a> TypeInferrer<'a> {
                                         }
 
                                         self.current_function_return_ty = old_return_ty;
-                                        self.type_db.expr_types.insert(expr.ir_id, concrete_return_ty.clone());
+                                        self.type_db.expr_types.insert(expr.hir_id, concrete_return_ty.clone());
                                         return Ok(concrete_return_ty);
                                     }
                                     Definition::NativeFunction { .. } => {}
@@ -954,7 +956,7 @@ impl<'a> TypeInferrer<'a> {
                             }
                         }
 
-                        self.type_db.expr_types.insert(expr.ir_id, *return_type.clone());
+                        self.type_db.expr_types.insert(expr.hir_id, *return_type.clone());
                         Ok(*return_type)
                     }
                     found => Err(NotCallable {

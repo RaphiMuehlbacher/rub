@@ -1,6 +1,6 @@
 use crate::builtins::{float_vec_sum_method, int_vec_sum_method, vec_first_method, vec_len_method};
+use crate::hir::DefMap;
 use crate::interpreter::{Function, InterpreterError, Value};
-use crate::ir::DefMap;
 use crate::type_inferrer::{Type, TypeVarContext};
 use miette::SourceSpan;
 
