@@ -183,7 +183,6 @@ pub struct Interpreter<'a> {
     type_db: &'a TypeDatabase,
     var_env: Env,
     method_registry: &'a MethodRegistry<'a>,
-    defs: &'a DefMap,
     infer_ctx: &'a mut TypeVarContext,
 }
 
@@ -191,7 +190,6 @@ impl<'a> Interpreter<'a> {
     pub fn new(
         program: &'a IrProgram,
         type_db: &'a TypeDatabase,
-        defs: &'a DefMap,
         method_registry: &'a MethodRegistry,
         infer_ctx: &'a mut TypeVarContext,
         source: String,
@@ -211,7 +209,6 @@ impl<'a> Interpreter<'a> {
             var_env,
             method_registry,
             infer_ctx,
-            defs,
         }
     }
 

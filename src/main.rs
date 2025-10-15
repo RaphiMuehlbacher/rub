@@ -79,7 +79,6 @@ fn interpret(code: &str) {
     let mut interpreter = Interpreter::new(
         &ast_lowerer_result.ir_program,
         type_inference_result.type_env,
-        resolve_result.def_map,
         &method_registry,
         &mut type_inference_result.infer_ctx,
         code.to_string(),
